@@ -14,247 +14,254 @@ async function seedDatabase() {
       // Schema tables already created
     }
 
+    // Dynamic column migrations for services table
+    const serviceCols = await db.all("PRAGMA table_info(services)");
+    const sColNames = serviceCols.map(c => c.name);
+    const newServiceCols = [
+      { name: 'parent_id', type: 'INTEGER REFERENCES services(id)' },
+      { name: 'structure_type', type: "TEXT NOT NULL DEFAULT 'SERVICE'" },
+      { name: 'acronym', type: 'TEXT' },
+      { name: 'reference_code', type: 'TEXT' },
+      { name: 'function_title', type: 'TEXT' },
+      { name: 'header_text', type: 'TEXT' },
+      { name: 'logo_path', type: 'TEXT' },
+      { name: 'stamp_path', type: 'TEXT' },
+      { name: 'address', type: 'TEXT' },
+      { name: 'email', type: 'TEXT' },
+      { name: 'phone', type: 'TEXT' },
+      { name: 'order_index', type: 'INTEGER DEFAULT 0' }
+    ];
+    for (const c of newServiceCols) {
+      if (!sColNames.includes(c.name)) {
+        await db.run(`ALTER TABLE services ADD COLUMN ${c.name} ${c.type};`);
+      }
+    }
+
+    // Ensure service_heads_history table exists
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS service_heads_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        service_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        function_title TEXT NOT NULL,
+        start_date DATE NOT NULL,
+        end_date DATE,
+        is_current INTEGER DEFAULT 1,
+        appointment_act_ref TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_shh_service ON service_heads_history(service_id);
+      CREATE INDEX IF NOT EXISTS idx_shh_user ON service_heads_history(user_id);
+    `);
+
     // Dynamic column migrations for documents table
     const docCols = await db.all("PRAGMA table_info(documents)");
     const colNames = docCols.map(c => c.name);
-    if (!colNames.includes('tracking_token')) {
-      await db.run("ALTER TABLE documents ADD COLUMN tracking_token TEXT;");
-    }
-    if (!colNames.includes('rejection_reason')) {
-      await db.run("ALTER TABLE documents ADD COLUMN rejection_reason TEXT;");
-    }
-    if (!colNames.includes('rejected_by')) {
-      await db.run("ALTER TABLE documents ADD COLUMN rejected_by INTEGER;");
-    }
-    if (!colNames.includes('processing_mode')) {
-      await db.run("ALTER TABLE documents ADD COLUMN processing_mode TEXT DEFAULT 'NORMAL';");
-    }
-    if (!colNames.includes('document_date')) {
-      await db.run("ALTER TABLE documents ADD COLUMN document_date DATE;");
-    }
-    if (!colNames.includes('has_external_signature')) {
-      await db.run("ALTER TABLE documents ADD COLUMN has_external_signature INTEGER DEFAULT 0;");
-    }
-    if (!colNames.includes('external_signatory_name')) {
-      await db.run("ALTER TABLE documents ADD COLUMN external_signatory_name TEXT;");
-    }
-    if (!colNames.includes('external_signature_date')) {
-      await db.run("ALTER TABLE documents ADD COLUMN external_signature_date DATE;");
-    }
-    if (!colNames.includes('deleted_at')) {
-      await db.run("ALTER TABLE documents ADD COLUMN deleted_at DATETIME;");
-    }
-    if (!colNames.includes('deleted_by')) {
-      await db.run("ALTER TABLE documents ADD COLUMN deleted_by INTEGER;");
-    }
-    if (!colNames.includes('deletion_reason')) {
-      await db.run("ALTER TABLE documents ADD COLUMN deletion_reason TEXT;");
-    }
-    if (!colNames.includes('previous_status')) {
-      await db.run("ALTER TABLE documents ADD COLUMN previous_status TEXT;");
-    }
-    if (!colNames.includes('reference_meta')) {
-      await db.run("ALTER TABLE documents ADD COLUMN reference_meta TEXT;");
-    }
-    if (!colNames.includes('file_path')) {
-      await db.run("ALTER TABLE documents ADD COLUMN file_path TEXT;");
-    }
-
-    // Dynamic column & constraint migration for users table
-    const userCols = await db.all("PRAGMA table_info(users)");
-    const userColNames = userCols.map(c => c.name);
-    if (!userColNames.includes('can_receive_appointments')) {
-      await db.run("ALTER TABLE users ADD COLUMN can_receive_appointments INTEGER DEFAULT 1;");
-    }
-    if (!userColNames.includes('personnel_category')) {
-      await db.run("ALTER TABLE users ADD COLUMN personnel_category TEXT DEFAULT 'PERSONNEL_ADMINISTRATIF';");
-    }
-    if (!userColNames.includes('academic_structure')) {
-      await db.run("ALTER TABLE users ADD COLUMN academic_structure TEXT;");
-    }
-
-    // Re-create users table if service_id has NOT NULL constraint
-    const serviceIdCol = userCols.find(c => c.name === 'service_id');
-    if (serviceIdCol && serviceIdCol.notnull === 1) {
-      await db.exec(`
-        PRAGMA foreign_keys=OFF;
-        CREATE TABLE users_temp AS SELECT * FROM users;
-        DROP TABLE users;
-        CREATE TABLE users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            matricule TEXT UNIQUE NOT NULL,
-            first_name TEXT NOT NULL,
-            last_name TEXT NOT NULL,
-            email TEXT UNIQUE NOT NULL,
-            phone TEXT,
-            function_title TEXT NOT NULL,
-            personnel_category TEXT DEFAULT 'PERSONNEL_ADMINISTRATIF',
-            academic_structure TEXT,
-            service_id INTEGER,
-            role_id INTEGER NOT NULL,
-            password_hash TEXT NOT NULL,
-            can_receive_appointments INTEGER DEFAULT 1,
-            status TEXT NOT NULL DEFAULT 'ACTIVE',
-            last_login DATETIME,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (service_id) REFERENCES services(id),
-            FOREIGN KEY (role_id) REFERENCES roles(id)
-        );
-        INSERT INTO users (id, matricule, first_name, last_name, email, phone, function_title, service_id, role_id, password_hash, can_receive_appointments, status, last_login, created_at, updated_at)
-        SELECT id, matricule, first_name, last_name, email, phone, function_title, service_id, role_id, password_hash, can_receive_appointments, status, last_login, created_at, updated_at FROM users_temp;
-        DROP TABLE users_temp;
-        PRAGMA foreign_keys=ON;
-      `);
-    }
-
-    // Dynamic column migration for mission_orders table
-    const moCols = await db.all("PRAGMA table_info(mission_orders)");
-    const moColNames = moCols.map(c => c.name);
-    const newMoCols = [
-      { name: 'missionary_id', type: 'INTEGER' },
-      { name: 'driver_id', type: 'INTEGER' },
-      { name: 'vehicle_id', type: 'INTEGER' },
-      { name: 'driver_option', type: "TEXT DEFAULT 'SELF'" },
-      { name: 'missionary_name_snapshot', type: 'TEXT' },
-      { name: 'missionary_firstnames_snapshot', type: 'TEXT' },
-      { name: 'missionary_nationality_snapshot', type: 'TEXT' },
-      { name: 'missionary_function_snapshot', type: 'TEXT' },
-      { name: 'missionary_service_snapshot', type: 'TEXT' },
-      { name: 'missionary_matricule_snapshot', type: 'TEXT' },
-      { name: 'driver_name_snapshot', type: 'TEXT' },
-      { name: 'vehicle_registration_snapshot', type: 'TEXT' },
-      { name: 'printed_at', type: 'DATETIME' },
-      { name: 'printed_by_user_id', type: 'INTEGER' },
-      { name: 'print_count', type: 'INTEGER DEFAULT 0' },
-      { name: 'delivered_at', type: 'DATETIME' },
-      { name: 'delivered_by_user_id', type: 'INTEGER' },
-      { name: 'recipient_name', type: 'TEXT' },
-      { name: 'reception_signature_path', type: 'TEXT' },
+    const newDocCols = [
+      { name: 'tracking_token', type: 'TEXT' },
+      { name: 'document_category', type: "TEXT DEFAULT 'SOIT_TRANSMIS'" },
+      { name: 'content_body', type: 'TEXT' },
+      { name: 'current_version', type: 'INTEGER DEFAULT 1' },
+      { name: 'last_edited_by', type: 'INTEGER REFERENCES users(id)' },
       { name: 'rejection_reason', type: 'TEXT' },
-      { name: 'correction_notes', type: 'TEXT' },
-      { name: 'personnel_category', type: 'TEXT' },
-      { name: 'faculty_dept', type: 'TEXT' },
-      { name: 'version', type: 'INTEGER DEFAULT 1' },
-      { name: 'template_id', type: 'INTEGER' },
-      { name: 'template_version_id', type: 'INTEGER' },
-      { name: 'template_version_number', type: 'INTEGER' },
-      { name: 'generated_file_path', type: 'TEXT' },
-      { name: 'generated_docx_path', type: 'TEXT' },
-      { name: 'signed_pdf_path', type: 'TEXT' },
-      { name: 'returned_to_sc_at', type: 'DATETIME' },
-      { name: 'returned_by_user_id', type: 'INTEGER' }
+      { name: 'rejected_by', type: 'INTEGER' },
+      { name: 'processing_mode', type: "TEXT DEFAULT 'NORMAL'" },
+      { name: 'document_date', type: 'DATE' },
+      { name: 'has_external_signature', type: 'INTEGER DEFAULT 0' },
+      { name: 'external_signatory_name', type: 'TEXT' },
+      { name: 'external_signature_date', type: 'DATE' },
+      { name: 'deleted_at', type: 'DATETIME' },
+      { name: 'deleted_by', type: 'INTEGER' },
+      { name: 'deletion_reason', type: 'TEXT' },
+      { name: 'previous_status', type: 'TEXT' },
+      { name: 'reference_meta', type: 'TEXT' },
+      { name: 'file_path', type: 'TEXT' },
+      { name: 'originating_service_id', type: 'INTEGER REFERENCES services(id)' },
+      { name: 'originating_head_name', type: 'TEXT' },
+      { name: 'originating_head_function', type: 'TEXT' },
+      { name: 'service_sequence_number', type: 'INTEGER' },
+      { name: 'target_recipient_type', type: 'TEXT' },
+      { name: 'target_recipient_name', type: 'TEXT' },
+      { name: 'target_recipient_id', type: 'INTEGER REFERENCES users(id)' },
+      { name: 'target_service_id', type: 'INTEGER REFERENCES services(id)' },
+      { name: 'sg_routed_at', type: 'DATETIME' },
+      { name: 'sg_routed_by', type: 'INTEGER REFERENCES users(id)' },
+      { name: 'sg_orientation_instruction', type: 'TEXT' },
+      { name: 'authorized_signatory_role', type: 'TEXT' },
+      { name: 'owner_service_id', type: 'INTEGER REFERENCES services(id)' },
+      { name: 'archive_scope', type: "TEXT DEFAULT 'PRIVE_SERVICE'" },
+      { name: 'archive_category', type: 'TEXT' },
+      { name: 'archived_by', type: 'INTEGER REFERENCES users(id)' },
+      { name: 'is_central_archived', type: 'INTEGER DEFAULT 0' },
+      { name: 'transmitted_to_sc_for_archive', type: 'INTEGER DEFAULT 0' },
+      { name: 'transmitted_to_sc_at', type: 'DATETIME' },
+      { name: 'transmitted_to_sc_by', type: 'INTEGER REFERENCES users(id)' },
+      { name: 'transmission_to_sc_motive', type: 'TEXT' },
+      { name: 'central_archived_at', type: 'DATETIME' },
+      { name: 'central_archived_by', type: 'INTEGER REFERENCES users(id)' },
+      { name: 'custom_category_id', type: 'INTEGER' },
+      { name: 'ocr_text', type: 'TEXT' },
+      { name: 'keywords', type: 'TEXT' },
+      { name: 'author_name', type: 'TEXT' },
+      { name: 'signatory_name', type: 'TEXT' }
     ];
-
-    for (const c of newMoCols) {
-      if (!moColNames.includes(c.name)) {
-        await db.run(`ALTER TABLE mission_orders ADD COLUMN ${c.name} ${c.type};`);
+    for (const c of newDocCols) {
+      if (!colNames.includes(c.name)) {
+        await db.run(`ALTER TABLE documents ADD COLUMN ${c.name} ${c.type};`);
       }
     }
 
-    // Dynamic column migration for external_missionaries table
-    const extCols = await db.all("PRAGMA table_info(external_missionaries)");
-    const extColNames = extCols.map(c => c.name);
-    const newExtCols = [
-      { name: 'issuing_authority', type: 'TEXT' },
-      { name: 'observations', type: 'TEXT' },
-      { name: 'current_service_id', type: 'INTEGER REFERENCES services(id)' },
-      { name: 'current_user_id', type: 'INTEGER REFERENCES users(id)' },
-      { name: 'signed_at', type: 'DATETIME' },
-      { name: 'signed_by_user_id', type: 'INTEGER REFERENCES users(id)' },
-      { name: 'signed_document_path', type: 'TEXT' },
-      { name: 'rejection_reason', type: 'TEXT' },
-      { name: 'rejected_by_user_id', type: 'INTEGER REFERENCES users(id)' },
-      { name: 'rejected_at', type: 'DATETIME' },
-      { name: 'delivered_at', type: 'DATETIME' },
-      { name: 'delivered_by_user_id', type: 'INTEGER REFERENCES users(id)' },
-      { name: 'recipient_name', type: 'TEXT' },
-      { name: 'delivery_notes', type: 'TEXT' },
-      { name: 'print_count', type: 'INTEGER DEFAULT 0' },
-      { name: 'is_locked', type: 'INTEGER DEFAULT 0' }
-    ];
-
-    for (const c of newExtCols) {
-      if (!extColNames.includes(c.name)) {
-        await db.run(`ALTER TABLE external_missionaries ADD COLUMN ${c.name} ${c.type};`);
-      }
-    }
-
-    // Ensure external_missionary_history table exists
+    // Ensure archive_shares, document_versions and workflow_rules tables exist
     await db.exec(`
-      CREATE TABLE IF NOT EXISTS external_missionary_history (
+      CREATE TABLE IF NOT EXISTS archive_shares (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        missionary_id INTEGER NOT NULL REFERENCES external_missionaries(id) ON DELETE CASCADE,
-        user_id INTEGER REFERENCES users(id),
-        service_id INTEGER REFERENCES services(id),
-        action TEXT NOT NULL,
-        details TEXT,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        document_id INTEGER NOT NULL,
+        target_service_id INTEGER NOT NULL,
+        shared_by INTEGER NOT NULL,
+        motive TEXT,
+        can_download INTEGER DEFAULT 1,
+        shared_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+        FOREIGN KEY (target_service_id) REFERENCES services(id) ON DELETE CASCADE,
+        FOREIGN KEY (shared_by) REFERENCES users(id)
       );
-      CREATE INDEX IF NOT EXISTS idx_ext_miss_hist_miss_id ON external_missionary_history(missionary_id);
+      CREATE INDEX IF NOT EXISTS idx_arch_shares_doc ON archive_shares(document_id);
+      CREATE INDEX IF NOT EXISTS idx_arch_shares_serv ON archive_shares(target_service_id);
 
-      CREATE TABLE IF NOT EXISTS mission_order_requests (
+      CREATE TABLE IF NOT EXISTS archive_custom_categories (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        reference TEXT UNIQUE NOT NULL,
-        tracking_token TEXT UNIQUE,
-        user_id INTEGER REFERENCES users(id),
-        applicant_last_name TEXT NOT NULL,
-        applicant_first_names TEXT NOT NULL,
-        applicant_function TEXT NOT NULL,
-        applicant_matricule TEXT,
-        applicant_service_name TEXT NOT NULL,
-        applicant_phone TEXT NOT NULL,
-        applicant_email TEXT NOT NULL,
-        applicant_institution TEXT DEFAULT 'Université de Kindia',
-        object_of_mission TEXT NOT NULL,
-        destination TEXT NOT NULL,
-        country TEXT DEFAULT 'Guinée',
-        exact_location TEXT,
-        start_date DATE NOT NULL,
-        end_date DATE NOT NULL,
-        duration_days INTEGER,
-        transport_means TEXT DEFAULT 'VÉHICULE OFFICIEL',
-        justification_motif TEXT,
-        host_organization TEXT,
-        local_contact TEXT,
-        status TEXT NOT NULL DEFAULT 'DEMANDE ENREGISTRÉE',
-        rejection_reason TEXT,
-        complement_request_notes TEXT,
-        official_document_id INTEGER REFERENCES documents(id),
+        service_id INTEGER,
+        code TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        icon TEXT DEFAULT 'Folder',
+        color TEXT DEFAULT 'text-kindia-blue bg-blue-50 border-blue-200',
+        display_order INTEGER DEFAULT 100,
+        is_default INTEGER DEFAULT 0,
+        is_active INTEGER DEFAULT 1,
+        created_by INTEGER NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by) REFERENCES users(id),
+        UNIQUE (service_id, name)
       );
-      CREATE INDEX IF NOT EXISTS idx_mo_req_ref ON mission_order_requests(reference);
-      CREATE INDEX IF NOT EXISTS idx_mo_req_status ON mission_order_requests(status);
-      CREATE INDEX IF NOT EXISTS idx_mo_req_phone ON mission_order_requests(applicant_phone);
-      CREATE INDEX IF NOT EXISTS idx_mo_req_email ON mission_order_requests(applicant_email);
+      CREATE INDEX IF NOT EXISTS idx_arch_cust_cat_serv ON archive_custom_categories(service_id);
 
-      CREATE TABLE IF NOT EXISTS mission_order_request_history (
+      CREATE TABLE IF NOT EXISTS service_document_settings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        request_id INTEGER NOT NULL REFERENCES mission_order_requests(id) ON DELETE CASCADE,
-        user_id INTEGER REFERENCES users(id),
-        role_name TEXT,
-        action TEXT NOT NULL,
-        old_status TEXT,
-        new_status TEXT,
-        observation TEXT,
-        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        service_id INTEGER UNIQUE NOT NULL,
+        version INTEGER DEFAULT 1,
+        ref_pattern TEXT DEFAULT '{UNIV}/{FACULTY}/{DEPT}/{TYPE}/{YEAR}/{SEQ}',
+        seq_padding INTEGER DEFAULT 4,
+        reset_annually INTEGER DEFAULT 1,
+        prefix TEXT DEFAULT '',
+        suffix TEXT DEFAULT '',
+        type_codes_json TEXT DEFAULT '{"LETTRE":"LET","DEMANDE":"DEM","SOIT_TRANSMIS":"ST","NOTE_SERVICE":"NS","RAPPORT":"RAP","PROCES_VERBAL":"PV","DECISION":"DEC","ARRETE":"ARR","DECRET":"DEC","CIRCULAIRE":"CIR","MISSION_ORDER":"OM","AUTRE":"DOC"}',
+        header_institution_name TEXT DEFAULT 'RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nUNIVERSITÉ DE KINDIA',
+        header_faculty_name TEXT,
+        header_dept_name TEXT,
+        header_service_name TEXT,
+        header_logo_enabled INTEGER DEFAULT 1,
+        header_logo_path TEXT,
+        header_address TEXT,
+        header_phone TEXT,
+        header_email TEXT,
+        header_website TEXT,
+        header_alignment TEXT DEFAULT 'CENTER',
+        header_custom_text TEXT,
+        footer_custom_text TEXT,
+        footer_confidentiality_note TEXT DEFAULT 'Document officiel — Ne pas reproduire sans autorisation',
+        footer_alignment TEXT DEFAULT 'SPLIT',
+        footer_enable_pagination INTEGER DEFAULT 1,
+        footer_pagination_format TEXT DEFAULT 'Page {PAGE} / {TOTAL_PAGES}',
+        footer_show_separator INTEGER DEFAULT 1,
+        footer_contact_info TEXT,
+        created_by INTEGER,
+        updated_by INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by) REFERENCES users(id),
+        FOREIGN KEY (updated_by) REFERENCES users(id)
       );
-      CREATE INDEX IF NOT EXISTS idx_mo_req_hist_req_id ON mission_order_request_history(request_id);
+      CREATE INDEX IF NOT EXISTS idx_serv_doc_settings_srv ON service_document_settings(service_id);
 
-      CREATE TABLE IF NOT EXISTS mission_order_request_attachments (
+      CREATE TABLE IF NOT EXISTS service_document_settings_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        request_id INTEGER NOT NULL REFERENCES mission_order_requests(id) ON DELETE CASCADE,
-        file_name TEXT NOT NULL,
-        file_path TEXT NOT NULL,
-        file_size INTEGER NOT NULL,
-        mime_type TEXT NOT NULL,
-        uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        service_id INTEGER NOT NULL,
+        version INTEGER NOT NULL,
+        settings_snapshot_json TEXT NOT NULL,
+        change_summary TEXT,
+        changed_by INTEGER NOT NULL,
+        changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+        FOREIGN KEY (changed_by) REFERENCES users(id)
       );
-      CREATE INDEX IF NOT EXISTS idx_mo_req_att_req_id ON mission_order_request_attachments(request_id);
+      CREATE INDEX IF NOT EXISTS idx_serv_doc_settings_hist_srv ON service_document_settings_history(service_id);
+
+      CREATE TABLE IF NOT EXISTS document_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        document_id INTEGER NOT NULL,
+        version_number INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        object_title TEXT,
+        content_body TEXT,
+        pieces_jointes TEXT,
+        snapshot_json TEXT,
+        change_notes TEXT,
+        created_by INTEGER NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by) REFERENCES users(id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_doc_vers_doc ON document_versions(document_id);
+
+      CREATE TABLE IF NOT EXISTS workflow_rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        document_type TEXT NOT NULL,
+        from_structure_type TEXT,
+        from_service_id INTEGER,
+        to_structure_type TEXT,
+        to_service_id INTEGER,
+        authorized_signatory_role TEXT,
+        requires_sg_visa INTEGER DEFAULT 0,
+        allow_direct_transmission INTEGER DEFAULT 1,
+        description TEXT,
+        is_active INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (from_service_id) REFERENCES services(id),
+        FOREIGN KEY (to_service_id) REFERENCES services(id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_wf_rules_type ON workflow_rules(document_type);
     `);
 
-    // Dynamic column migration for document_templates table
+    // Dynamic column migrations for document_type_configs table
+    const dtcCols = await db.all("PRAGMA table_info(document_type_configs)");
+    const dtcColNames = dtcCols.map(c => c.name);
+    const newDtcCols = [
+      { name: 'description', type: 'TEXT' },
+      { name: 'icon', type: 'TEXT' },
+      { name: 'display_order', type: 'INTEGER DEFAULT 100' },
+      { name: 'is_active', type: 'INTEGER DEFAULT 1' }
+    ];
+    for (const c of newDtcCols) {
+      if (!dtcColNames.includes(c.name)) {
+        await db.run(`ALTER TABLE document_type_configs ADD COLUMN ${c.name} ${c.type};`);
+      }
+    }
+
+    // Dynamic column migrations for archive_custom_categories table
+    const accCols = await db.all("PRAGMA table_info(archive_custom_categories)");
+    const accColNames = accCols.map(c => c.name);
+    if (!accColNames.includes('is_default')) {
+      await db.run("ALTER TABLE archive_custom_categories ADD COLUMN is_default INTEGER DEFAULT 0;");
+    }
+
+    // Dynamic column migrations for document_templates table
     const dtCols = await db.all("PRAGMA table_info(document_templates)");
     const dtColNames = dtCols.map(c => c.name);
     const newDtCols = [
@@ -275,126 +282,28 @@ async function seedDatabase() {
       { name: 'content_body_html', type: 'TEXT' },
       { name: 'header_html', type: 'TEXT' },
       { name: 'footer_html', type: 'TEXT' },
-      { name: 'created_by', type: 'INTEGER' }
+      { name: 'created_by', type: 'INTEGER' },
+      { name: 'scope_type', type: "TEXT DEFAULT 'GLOBAL'" },
+      { name: 'target_service_id', type: 'INTEGER REFERENCES services(id)' },
+      { name: 'document_category', type: "TEXT DEFAULT 'SOIT_TRANSMIS'" }
     ];
-
     for (const c of newDtCols) {
       if (!dtColNames.includes(c.name)) {
         await db.run(`ALTER TABLE document_templates ADD COLUMN ${c.name} ${c.type};`);
       }
     }
 
-    // Dynamic column migration for user_signatures table
-    const sigCols = await db.all("PRAGMA table_info(user_signatures)");
-    const sigColNames = sigCols.map(c => c.name);
-    const newSigCols = [
-      { name: 'version_number', type: 'INTEGER DEFAULT 1' },
-      { name: 'is_active', type: 'INTEGER DEFAULT 1' },
-      { name: 'created_by', type: 'INTEGER' }
-    ];
-
-    for (const c of newSigCols) {
-      if (!sigColNames.includes(c.name)) {
-        await db.run(`ALTER TABLE user_signatures ADD COLUMN ${c.name} ${c.type};`);
-      }
+    // Dynamic column migrations for users table
+    const userCols = await db.all("PRAGMA table_info(users)");
+    const userColNames = userCols.map(c => c.name);
+    if (!userColNames.includes('can_receive_appointments')) {
+      await db.run("ALTER TABLE users ADD COLUMN can_receive_appointments INTEGER DEFAULT 1;");
     }
-
-    // Dynamic column migration for template_versions table
-    const tvCols = await db.all("PRAGMA table_info(template_versions)");
-    const tvColNames = tvCols.map(c => c.name);
-    const newTvCols = [
-      { name: 'version_number', type: 'INTEGER DEFAULT 1' },
-      { name: 'file_type', type: 'TEXT' },
-      { name: 'editor_type', type: "TEXT DEFAULT 'UK_GED_EDITOR'" },
-      { name: 'content_body_html', type: 'TEXT' },
-      { name: 'change_description', type: 'TEXT' },
-      { name: 'uploaded_by', type: 'INTEGER' }
-    ];
-
-    for (const c of newTvCols) {
-      if (!tvColNames.includes(c.name)) {
-        await db.run(`ALTER TABLE template_versions ADD COLUMN ${c.name} ${c.type};`);
-      }
+    if (!userColNames.includes('personnel_category')) {
+      await db.run("ALTER TABLE users ADD COLUMN personnel_category TEXT DEFAULT 'PERSONNEL_ADMINISTRATIF';");
     }
-
-    // Dynamic column migration for institution_settings table (Dynamic Reference System)
-    const instCols = await db.all("PRAGMA table_info(institution_settings)");
-    const instColNames = instCols.map(c => c.name);
-    const newInstCols = [
-      { name: 'ministry_code', type: "TEXT DEFAULT 'MESRS'" },
-      { name: 'institution_code', type: "TEXT DEFAULT 'UK'" },
-      { name: 'structure_name', type: "TEXT DEFAULT 'Rectorat'" },
-      { name: 'structure_code', type: "TEXT DEFAULT 'RECT'" },
-      { name: 'authority_name', type: "TEXT DEFAULT 'Secrétaire Général'" },
-      { name: 'authority_code', type: "TEXT DEFAULT 'SG'" },
-      { name: 'reference_pattern', type: "TEXT DEFAULT '{YEAR}/{SEQUENCE}/{MINISTRY_CODE}/{INSTITUTION_CODE}/{STRUCTURE_CODE}/{AUTHORITY_CODE}'" },
-      { name: 'sequence_padding', type: "INTEGER DEFAULT 4" },
-      { name: 'reference_type_patterns', type: "TEXT" }
-    ];
-
-    for (const c of newInstCols) {
-      if (!instColNames.includes(c.name)) {
-        await db.run(`ALTER TABLE institution_settings ADD COLUMN ${c.name} ${c.type};`);
-      }
-    }
-
-    // Dynamic column migration for external_missionaries table (Reference Metadata history)
-    if (!extColNames.includes('reference_meta')) {
-      await db.run("ALTER TABLE external_missionaries ADD COLUMN reference_meta TEXT;");
-    }
-
-    // Dynamic column migration for mission_order_requests table
-    const moReqCols = await db.all("PRAGMA table_info(mission_order_requests)");
-    const moReqColNames = moReqCols.map(c => c.name);
-    const newMoReqCols = [
-      { name: 'destination_service_id', type: 'INTEGER DEFAULT 5' },
-      { name: 'destination_service_name', type: "TEXT DEFAULT 'Secrétariat Central'" }
-    ];
-
-    for (const c of newMoReqCols) {
-      if (!moReqColNames.includes(c.name)) {
-        await db.run(`ALTER TABLE mission_order_requests ADD COLUMN ${c.name} ${c.type};`);
-      }
-    }
-
-    // Dynamic column migration for notifications table
-    const notifCols = await db.all("PRAGMA table_info(notifications)");
-    const notifColNames = notifCols.map(c => c.name);
-    if (!notifColNames.includes('appointment_id')) {
-      await db.run('ALTER TABLE notifications ADD COLUMN appointment_id INTEGER;');
-    }
-
-    console.log('Schema executed and migrated successfully.');
-
-    // Seed Document Type Configurations
-    console.log('--- SEEDING DOCUMENT TYPE CONFIGURATIONS ---');
-    const defaultTypes = [
-      { code: 'SOIT_TRANSMIS', label: 'Soit-transmis', category: 'Correspondances', allow_direct_archive: 0 },
-      { code: 'MISSION_ORDER', label: 'Ordre de mission', category: 'Missions', allow_direct_archive: 0 },
-      { code: 'DECRET', label: 'Décret', category: 'Actes Officiels', allow_direct_archive: 1 },
-      { code: 'ARRETE', label: 'Arrêté', category: 'Actes Officiels', allow_direct_archive: 1 },
-      { code: 'NOTE_SERVICE', label: 'Note de service', category: 'Notes & Décisions', allow_direct_archive: 1 },
-      { code: 'DECISION', label: 'Décision', category: 'Notes & Décisions', allow_direct_archive: 1 },
-      { code: 'CIRCULAIRE', label: 'Circulaire', category: 'Notes & Décisions', allow_direct_archive: 1 },
-      { code: 'CONVOCATION', label: 'Convocation', category: 'Correspondances', allow_direct_archive: 0 },
-      { code: 'ATTESTATION', label: 'Attestation', category: 'Administratif', allow_direct_archive: 1 },
-      { code: 'PROCES_VERBAL', label: 'Procès-verbal', category: 'Comptes Rendus', allow_direct_archive: 1 },
-      { code: 'RAPPORT', label: 'Rapport', category: 'Comptes Rendus', allow_direct_archive: 1 },
-      { code: 'ADMIN_LETTER', label: 'Lettre administrative', category: 'Correspondances', allow_direct_archive: 0 },
-      { code: 'INSTRUCTION', label: 'Instruction officielle', category: 'Actes Officiels', allow_direct_archive: 1 },
-      { code: 'DOC_ADMIN', label: 'Document administratif définitif', category: 'Administratif', allow_direct_archive: 1 },
-      { code: 'COURRIER_ENTRANT', label: 'Courrier entrant général', category: 'Correspondances', allow_direct_archive: 0 },
-      { code: 'DEMANDE_ADMIN', label: 'Demande administrative', category: 'Correspondances', allow_direct_archive: 0 }
-    ];
-
-    for (const dt of defaultTypes) {
-      let existing = await db.get('SELECT code FROM document_type_configs WHERE code = ?', [dt.code]);
-      if (!existing) {
-        await db.run(
-          'INSERT INTO document_type_configs (code, label, category, allow_direct_archive) VALUES (?, ?, ?, ?)',
-          [dt.code, dt.label, dt.category, dt.allow_direct_archive]
-        );
-      }
+    if (!userColNames.includes('academic_structure')) {
+      await db.run("ALTER TABLE users ADD COLUMN academic_structure TEXT;");
     }
 
     // 1. Seed Roles
@@ -404,7 +313,7 @@ async function seedDatabase() {
       { code: ROLES.AGENT_SC, name: 'Agent Secrétariat Central', desc: 'Gestion des courriers entrants et enregistrements' },
       { code: ROLES.SG, name: 'Secrétaire Général', desc: 'Orientation globale, gestion administrative & signatures' },
       { code: ROLES.RECTEUR, name: 'Recteur', desc: 'Supervision rectorale, orientations & arbitrages' },
-      { code: ROLES.CHEF_SERVICE, name: 'Chef de Service', desc: 'Responsable de division ou de faculté' },
+      { code: ROLES.CHEF_SERVICE, name: 'Chef de Service / Responsable', desc: 'Responsable de division, faculté ou département' },
       { code: ROLES.RESPONSABLE_ADMIN, name: 'Responsable Administratif', desc: 'Traitement des courriers et missions du service' },
       { code: ROLES.STANDARD, name: 'Utilisateur Standard', desc: 'Agent de service exécutant' }
     ];
@@ -443,66 +352,16 @@ async function seedDatabase() {
       );
     }
 
-    // Seed Default Document Templates
-    console.log('--- SEEDING DOCUMENT TEMPLATES ---');
-    const defaultTemplates = [
-      { code: 'SOIT_TRANSMIS', name: 'Soit-Transmis Officiel', category: 'Correspondances', header: 'RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nMINISTÈRE DE L’ENSEIGNEMENT SUPÉRIEUR, DE LA RECHERCHE SCIENTIFIQUE ET DE L’INNOVATION\n\nUNIVERSITÉ DE KINDIA\n\nSECRÉTARIAT GÉNÉRAL', footer: 'UNIVERSITÉ DE KINDIA • BP 164 Kindia, Guinée • Tél: +224 622 00 00 00 • E-mail: contact@univ-kindia.edu.gn' },
-      { code: 'MISSION_ORDER', name: 'Ordre de Mission', category: 'Missions', header: 'RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nMINISTÈRE DE L’ENSEIGNEMENT SUPÉRIEUR, DE LA RECHERCHE SCIENTIFIQUE ET DE L’INNOVATION\n\nUNIVERSITÉ DE KINDIA\n\nSECRÉTARIAT GÉNÉRAL', footer: 'UNIVERSITÉ DE KINDIA • BP 164 Kindia, Guinée • Tél: +224 622 00 00 00 • E-mail: contact@univ-kindia.edu.gn' },
-      { code: 'OFFICIAL_MAIL', name: 'Courrier officiel', category: 'Correspondances', header: 'RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nUNIVERSITÉ DE KINDIA', footer: 'UNIVERSITÉ DE KINDIA • Service Courrier' },
-      { code: 'NOTE_SERVICE', name: 'Note de service', category: 'Notes & Décisions', header: 'RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA', footer: 'UNIVERSITÉ DE KINDIA • Direction des Services Administratifs' },
-      { code: 'DECISION', name: 'Décision', category: 'Notes & Décisions', header: 'RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA', footer: 'UNIVERSITÉ DE KINDIA • Rectorat' },
-      { code: 'ARRETE', name: 'Arrêté', category: 'Actes Officiels', header: 'RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA', footer: 'UNIVERSITÉ DE KINDIA • Cabinet du Recteur' },
-      { code: 'PROCES_VERBAL', name: 'Procès-verbal', category: 'Comptes Rendus', header: 'RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA', footer: 'UNIVERSITÉ DE KINDIA • Secrétariat Central' }
-    ];
-
-    for (const t of defaultTemplates) {
-      const existingT = await db.get('SELECT id FROM document_templates WHERE code = ?', [t.code]);
-      let templateId = null;
-      if (!existingT) {
-        const res = await db.run(
-          `INSERT INTO document_templates (code, name, category, header_text, footer_text, is_active, version) VALUES (?, ?, ?, ?, ?, 1, 1)`,
-          [t.code, t.name, t.category, t.header, t.footer]
-        );
-        templateId = res.lastID;
-      } else {
-        templateId = existingT.id;
-      }
-
-      // Seed default fields for SOIT_TRANSMIS
-      if (t.code === 'SOIT_TRANSMIS') {
-        const fieldCount = await db.get('SELECT COUNT(*) as count FROM template_fields WHERE template_id = ?', [templateId]);
-        if (fieldCount && fieldCount.count === 0) {
-          const stFields = [
-            { field_name: 'DESTINATAIRE', label: 'Destinataire Officiel', field_type: 'texte', required: 1, position: 1 },
-            { field_name: 'OBJET', label: 'Objet de la transmission', field_type: 'texte', required: 1, position: 2 },
-            { field_name: 'CONTENU', label: 'Contenu / Description des pièces', field_type: 'texte', required: 1, position: 3 },
-            { field_name: 'PIECES_JOINTES', label: 'Nombre / Liste des pièces jointes', field_type: 'pièce jointe', required: 0, position: 4 },
-            { field_name: 'DATE', label: 'Date d’émission', field_type: 'date', required: 1, position: 5 },
-            { field_name: 'SIGNATAIRE', label: 'Nom du signataire', field_type: 'utilisateur', required: 1, position: 6 }
-          ];
-
-          for (const f of stFields) {
-            await db.run(
-              `INSERT INTO template_fields (template_id, field_name, label, field_type, required, position) VALUES (?, ?, ?, ?, ?, ?)`,
-              [templateId, f.field_name, f.label, f.field_type, f.required, f.position]
-            );
-          }
-        }
-      }
-    }
-
     // Map permissions to roles
     console.log('--- MAPPING ROLE PERMISSIONS ---');
     await db.run('DELETE FROM role_permissions');
-
-    // Admin gets all permissions
     for (const permCode in permIds) {
       await db.run('INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)', [roleIds[ROLES.ADMIN], permIds[permCode]]);
     }
 
-    // Agent Secrétariat Central (Exclusive creation & archiving of mission orders)
     const scPerms = [
       'documents.create', 'documents.read', 'documents.update', 'documents.transmit', 'documents.orient', 'documents.return', 'documents.download', 'documents.archive', 'documents.archive_direct',
+      'archives.view_central', 'archives.archive_central', 'archives.view_service', 'archives.archive_service', 'archives.share', 'archives.manage_categories',
       'incoming_mail.create', 'incoming_mail.read', 'incoming_mail.update', 'outgoing_mail.create', 'outgoing_mail.read', 
       'mission.create', 'mission.read', 'mission_orders.create', 'mission_orders.view', 'mission_orders.edit', 'mission_orders.archive', 'mission_order.print', 'mission_order.deliver',
       'personnel.view', 'personnel.create', 'personnel.edit', 'personnel.deactivate', 'personnel.view_mission_history',
@@ -514,11 +373,12 @@ async function seedDatabase() {
       if (permIds[p]) await db.run('INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)', [roleIds[ROLES.AGENT_SC], permIds[p]]);
     }
 
-    // SG & Recteur (mission.create and mission_orders.create are EXCLUDED)
     const execPerms = [
-      'documents.create', 'documents.read', 'documents.update', 'documents.transmit', 'documents.orient', 'documents.return', 'documents.accept', 'documents.reject', 'documents.download', 'incoming_mail.read', 'outgoing_mail.create', 'outgoing_mail.read', 'outgoing_mail.validate', 'outgoing_mail.send', 'mission.read', 'mission.validate', 'mission.sign', 'mission.reject', 'mission_orders.view', 'mission_orders.sign', 'reports.read', 'audit.read',
+      'documents.create', 'documents.read', 'documents.update', 'documents.transmit', 'documents.orient', 'documents.return', 'documents.accept', 'documents.reject', 'documents.download', 'documents.manage_service_settings', 'incoming_mail.read', 'outgoing_mail.create', 'outgoing_mail.read', 'outgoing_mail.validate', 'outgoing_mail.send', 'mission.read', 'mission.validate', 'mission.sign', 'mission.reject', 'mission_orders.view', 'mission_orders.sign', 'reports.read', 'audit.read',
+      'archives.view_faculty', 'archives.view_service', 'archives.view_central', 'archives.archive_service', 'archives.transmit_to_central', 'archives.share', 'archives.manage_categories',
       'appointments.view', 'appointments.create', 'appointments.update', 'appointments.cancel', 'appointments.accept', 'appointments.reject', 'appointments.reschedule', 'appointments.manage_availability', 'appointments.manage_calendar', 'appointments.view_history', 'appointments.check_in', 'appointments.complete', 'appointments.receive',
-      'dispatching.view', 'dispatching.create', 'dispatching.send', 'dispatching.tracking', 'dispatching.acknowledge', 'dispatching.action', 'dispatching.export'
+      'dispatching.view', 'dispatching.create', 'dispatching.send', 'dispatching.tracking', 'dispatching.acknowledge', 'dispatching.action', 'dispatching.export',
+      'signatures.manage', 'signatures.view', 'signatures.create', 'signatures.edit', 'signatures.activate', 'signatures.deactivate'
     ];
     for (const p of execPerms) {
       if (permIds[p]) {
@@ -527,11 +387,11 @@ async function seedDatabase() {
       }
     }
 
-    // Chef de service / Responsable (mission.create and mission_orders.create are EXCLUDED)
     const chefPerms = [
-      'documents.read', 'documents.transmit', 'documents.orient', 'documents.return', 'documents.accept', 'documents.reject', 'documents.download', 'incoming_mail.read', 'outgoing_mail.create', 'outgoing_mail.read', 'mission.read', 'mission_orders.view', 'reports.read',
+      'documents.create', 'documents.read', 'documents.update', 'documents.transmit', 'documents.orient', 'documents.return', 'documents.accept', 'documents.reject', 'documents.download', 'documents.manage_service_settings', 'incoming_mail.read', 'outgoing_mail.create', 'outgoing_mail.read', 'mission.read', 'mission_orders.view', 'reports.read',
+      'archives.view_service', 'archives.view_faculty', 'archives.archive_service', 'archives.transmit_to_central', 'archives.share', 'archives.manage_categories',
       'appointments.view', 'appointments.create', 'appointments.update', 'appointments.cancel', 'appointments.accept', 'appointments.reject', 'appointments.reschedule', 'appointments.manage_availability', 'appointments.manage_calendar', 'appointments.view_history', 'appointments.complete', 'appointments.receive',
-      'dispatching.view', 'dispatching.acknowledge', 'dispatching.action'
+      'dispatching.view', 'dispatching.acknowledge', 'dispatching.action', 'signatures.view'
     ];
     for (const p of chefPerms) {
       if (permIds[p]) {
@@ -540,37 +400,147 @@ async function seedDatabase() {
       }
     }
 
-    // Standard User (mission.create and mission_orders.create are EXCLUDED)
-    const stdPerms = ['documents.read', 'documents.download', 'mission.read', 'mission_orders.view', 'appointments.view', 'appointments.create', 'appointments.cancel', 'dispatching.view'];
+    const stdPerms = [
+      'documents.create', 'documents.read', 'documents.transmit', 'documents.download', 'outgoing_mail.create', 'outgoing_mail.read', 'mission.read', 'mission_orders.view', 'appointments.view', 'appointments.create', 'appointments.cancel', 'dispatching.view',
+      'archives.view_service', 'archives.archive_service'
+    ];
     for (const p of stdPerms) {
       if (permIds[p]) {
         await db.run('INSERT INTO role_permissions (role_id, permission_id) VALUES (?, ?)', [roleIds[ROLES.STANDARD], permIds[p]]);
       }
     }
 
-    // 3. Seed 30 Preconfigured Services
-    console.log('--- SEEDING 30 PRECONFIGURED SERVICES ---');
+    // 3. Seed Hierarchical Organizational Structure
+    console.log('--- SEEDING HIERARCHICAL ADMINISTRATIVE STRUCTURE ---');
+    
+    // 3a. Root University
+    let ukRoot = await db.get('SELECT id FROM services WHERE code = "UK"');
+    let ukId;
+    if (!ukRoot) {
+      const res = await db.run(
+        `INSERT INTO services (code, name, structure_type, acronym, reference_code, header_text, address, email, phone, status, order_index)
+         VALUES ("UK", "Université de Kindia", "UNIVERSITE", "UK", "UK", 
+                 "RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nMINISTÈRE DE L’ENSEIGNEMENT SUPÉRIEUR, DE LA RECHERCHE SCIENTIFIQUE ET DE L’INNOVATION\n\nUNIVERSITÉ DE KINDIA",
+                 "Quartier Foulayah, BP 164, Kindia, Guinée", "contact@univ-kindia.edu.gn", "+224 622 00 00 00", "ACTIVE", 1)`
+      );
+      ukId = res.lastID;
+    } else {
+      ukId = ukRoot.id;
+      await db.run(
+        `UPDATE services SET structure_type = "UNIVERSITE", reference_code = "UK", order_index = 1 WHERE id = ?`,
+        [ukId]
+      );
+    }
+
+    // 3b. Faculties under UK
+    const faculties = [
+      { code: 'FS', name: 'Faculté des Sciences', acronym: 'FS', ref_code: 'FS', order_index: 10, header: "RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA\nFACULTÉ DES SCIENCES" },
+      { code: 'FSEG', name: 'Faculté des Sciences Économiques et de Gestion', acronym: 'FSEG', ref_code: 'FSEG', order_index: 20, header: "RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA\nFACULTÉ DES SCIENCES ÉCONOMIQUES ET DE GESTION" },
+      { code: 'FSS', name: 'Faculté des Sciences Sociales', acronym: 'FSS', ref_code: 'FSS', order_index: 30, header: "RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA\nFACULTÉ DES SCIENCES SOCIALES" },
+      { code: 'FLL', name: 'Faculté des Langues et Lettres', acronym: 'FLL', ref_code: 'FLL', order_index: 40, header: "RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA\nFACULTÉ DES LANGUES ET LETTRES" }
+    ];
+
+    const facultyIds = {};
+    for (const f of faculties) {
+      let existing = await db.get('SELECT id FROM services WHERE code = ?', [f.code]);
+      if (!existing) {
+        const res = await db.run(
+          `INSERT INTO services (parent_id, structure_type, code, name, acronym, reference_code, header_text, status, order_index)
+           VALUES (?, 'FACULTE', ?, ?, ?, ?, ?, 'ACTIVE', ?)`,
+          [ukId, f.code, f.name, f.acronym, f.ref_code, f.header, f.order_index]
+        );
+        facultyIds[f.code] = res.lastID;
+      } else {
+        facultyIds[f.code] = existing.id;
+        await db.run(
+          `UPDATE services SET parent_id = ?, structure_type = 'FACULTE', acronym = ?, reference_code = ?, header_text = ?, order_index = ? WHERE id = ?`,
+          [ukId, f.acronym, f.ref_code, f.header, f.order_index, existing.id]
+        );
+      }
+    }
+
+    // 3c. Departments under Faculté des Sciences (FS)
+    const fsDepartments = [
+      { code: 'FS_INFO', name: 'Département d’Informatique', acronym: 'INFO', ref_code: 'FS/INFO', order_index: 11, header: "RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nUNIVERSITÉ DE KINDIA\nFACULTÉ DES SCIENCES\nDÉPARTEMENT D'INFORMATIQUE", email: "informatique@univ-kindia.edu.gn", phone: "+224 620 10 10 10" },
+      { code: 'FS_MATH', name: 'Département de Mathématiques', acronym: 'MATH', ref_code: 'FS/MATH', order_index: 12, header: "RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA\nFACULTÉ DES SCIENCES\nDÉPARTEMENT DE MATHÉMATIQUES" },
+      { code: 'FS_CHIM', name: 'Département de Chimie', acronym: 'CHIM', ref_code: 'FS/CHIM', order_index: 13, header: "RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA\nFACULTÉ DES SCIENCES\nDÉPARTEMENT DE CHIMIE" },
+      { code: 'FS_PHYS', name: 'Département de Physique', acronym: 'PHYS', ref_code: 'FS/PHYS', order_index: 14, header: "RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA\nFACULTÉ DES SCIENCES\nDÉPARTEMENT DE PHYSIQUE" },
+      { code: 'FS_BIO', name: 'Département de Biologie', acronym: 'BIO', ref_code: 'FS/BIO', order_index: 15, header: "RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA\nFACULTÉ DES SCIENCES\nDÉPARTEMENT DE BIOLOGIE" }
+    ];
+
+    const departmentIds = {};
+    for (const d of fsDepartments) {
+      let existing = await db.get('SELECT id FROM services WHERE code = ? OR reference_code = ?', [d.code, d.ref_code]);
+      if (!existing) {
+        const res = await db.run(
+          `INSERT INTO services (parent_id, structure_type, code, name, acronym, reference_code, header_text, email, phone, status, order_index)
+           VALUES (?, 'DEPARTEMENT', ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?)`,
+          [facultyIds['FS'], d.code, d.name, d.acronym, d.ref_code, d.header, d.email || null, d.phone || null, d.order_index]
+        );
+        departmentIds[d.code] = res.lastID;
+      } else {
+        departmentIds[d.code] = existing.id;
+        await db.run(
+          `UPDATE services SET parent_id = ?, structure_type = 'DEPARTEMENT', code = ?, name = ?, acronym = ?, reference_code = ?, header_text = ?, email = ?, phone = ?, order_index = ? WHERE id = ?`,
+          [facultyIds['FS'], d.code, d.name, d.acronym, d.ref_code, d.header, d.email || null, d.phone || null, d.order_index, existing.id]
+        );
+      }
+    }
+
+    // 3d. Central Admin & Services attached to UK / SG
+    const centralServices = [
+      { code: 'RECT', name: 'Rectorat / Cabinet du Recteur', type: 'DIRECTION', acronym: 'RECT', ref_code: 'RECT', parent: ukId, order_index: 2 },
+      { code: 'SG', name: 'Secrétariat Général', type: 'DIRECTION', acronym: 'SG', ref_code: 'SG', parent: ukId, order_index: 3 },
+      { code: 'SC', name: 'Secrétariat Central', type: 'SERVICE', acronym: 'SC', ref_code: 'SG/SC', parent: null, parent_code: 'SG', order_index: 4 },
+      { code: 'DAF', name: 'Division des Affaires Financières', type: 'DIRECTION', acronym: 'DAF', ref_code: 'DAF', parent: ukId, order_index: 5 },
+      { code: 'CF', name: 'Contrôle Financier', type: 'SERVICE', acronym: 'CF', ref_code: 'CF', parent: ukId, order_index: 6 },
+      { code: 'AC', name: 'Agence Comptable', type: 'SERVICE', acronym: 'AC', ref_code: 'AC', parent: ukId, order_index: 7 },
+      { code: 'DRH', name: 'Division des Ressources Humaines', type: 'DIRECTION', acronym: 'DRH', ref_code: 'DRH', parent: null, parent_code: 'SG', order_index: 8 },
+      { code: 'VR_ETU', name: 'Vice-Rectorat / Études', type: 'DIRECTION', acronym: 'VR-ETU', ref_code: 'VR/ETU', parent: ukId, order_index: 9 },
+      { code: 'VR_REC', name: 'Vice-Rectorat / Recherche', type: 'DIRECTION', acronym: 'VR-REC', ref_code: 'VR/REC', parent: ukId, order_index: 10 },
+      { code: 'SCOL', name: 'Scolarité Centrale', type: 'SERVICE', acronym: 'SCOL', ref_code: 'SCOL', parent: ukId, order_index: 11 },
+      { code: 'CNEU', name: 'Centre Numérique et d’Éditions Universitaires', type: 'SERVICE', acronym: 'CNEU', ref_code: 'CNEU', parent: ukId, order_index: 12 },
+      { code: 'CIAQ', name: 'Cellule Interne Assurance Qualité (CIAQ)', type: 'SERVICE', acronym: 'CIAQ', ref_code: 'CIAQ', parent: ukId, order_index: 13 }
+    ];
+
     const serviceIds = {};
-    for (const s of INITIAL_SERVICES) {
+    serviceIds['UK'] = ukId;
+    Object.assign(serviceIds, facultyIds);
+    Object.assign(serviceIds, departmentIds);
+
+    for (const s of centralServices) {
+      let parentId = s.parent;
+      if (!parentId && s.parent_code && serviceIds[s.parent_code]) {
+        parentId = serviceIds[s.parent_code];
+      }
       let existing = await db.get('SELECT id FROM services WHERE code = ?', [s.code]);
       if (!existing) {
-        const res = await db.run('INSERT INTO services (code, name, status) VALUES (?, ?, ?)', [s.code, s.name, 'ACTIVE']);
+        const res = await db.run(
+          `INSERT INTO services (parent_id, structure_type, code, name, acronym, reference_code, status, order_index)
+           VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?)`,
+          [parentId || ukId, s.type, s.code, s.name, s.acronym, s.ref_code, s.order_index]
+        );
         serviceIds[s.code] = res.lastID;
       } else {
         serviceIds[s.code] = existing.id;
+        await db.run(
+          `UPDATE services SET parent_id = ?, structure_type = ?, acronym = ?, reference_code = ?, order_index = ? WHERE id = ?`,
+          [parentId || ukId, s.type, s.acronym, s.ref_code, s.order_index, existing.id]
+        );
       }
     }
 
     // 4. Seed Test Users
-    console.log('--- SEEDING TEST ACCOUNTS ---');
+    console.log('--- SEEDING TEST ACCOUNTS & HEADS ---');
     const testPassword = await bcrypt.hash('Admin123!', 10);
     const sgPassword = await bcrypt.hash('Sg123!', 10);
     const recteurPassword = await bcrypt.hash('Recteur123!', 10);
     const scPassword = await bcrypt.hash('Agent123!', 10);
     const dafPassword = await bcrypt.hash('Daf123!', 10);
     const cfPassword = await bcrypt.hash('Cf123!', 10);
-
-    const ecPassword = await bcrypt.hash('Ec123!', 10);
+    const doyenPassword = await bcrypt.hash('Doyen123!', 10);
+    const chefPassword = await bcrypt.hash('Chef123!', 10);
+    const agentPassword = await bcrypt.hash('Agent123!', 10);
 
     const testUsers = [
       {
@@ -652,30 +622,69 @@ async function seedDatabase() {
         pass: cfPassword
       },
       {
-        matricule: 'UK-EC-001',
-        first_name: 'Dr. Alpha',
-        last_name: 'Diallo',
-        email: 'ec1@univ-kindia.edu.gn',
-        phone: '+224 626 77 88 99',
-        function_title: 'Maître de Conférences / Enseignant-Chercheur',
+        matricule: 'UK-FS-001',
+        first_name: 'Prof. Aboubacar',
+        last_name: 'Touré',
+        email: 'doyen_fs@univ-kindia.edu.gn',
+        phone: '+224 626 11 22 44',
+        function_title: 'Doyen de la Faculté des Sciences',
         personnel_category: 'ENSEIGNANT_CHERCHEUR',
-        academic_structure: 'Faculté des Sciences - Département d\'Informatique',
-        service_code: null, // Non rattaché à un service administratif
-        role_code: ROLES.STANDARD,
-        pass: ecPassword
+        academic_structure: 'Faculté des Sciences',
+        service_code: 'FS',
+        role_code: ROLES.CHEF_SERVICE,
+        pass: doyenPassword
       },
       {
-        matricule: 'UK-EC-002',
-        first_name: 'Prof. Fatoumata Binta',
-        last_name: 'Sow',
-        email: 'ec2@univ-kindia.edu.gn',
-        phone: '+224 627 88 99 00',
-        function_title: 'Professeure Titulaire / Chercheure',
+        matricule: 'UK-INFO-001',
+        first_name: 'Dr. Bangaly',
+        last_name: 'Kaba',
+        email: 'chef_info@univ-kindia.edu.gn',
+        phone: '+224 627 00 11 22',
+        function_title: 'Chef du Département d’Informatique',
         personnel_category: 'ENSEIGNANT_CHERCHEUR',
-        academic_structure: 'Faculté des Sciences Sociales - Laboratoire LARSSHE',
-        service_code: null, // Non rattaché à un service administratif
+        academic_structure: 'Faculté des Sciences - Département d’Informatique',
+        service_code: 'FS_INFO',
+        role_code: ROLES.CHEF_SERVICE,
+        pass: chefPassword
+      },
+      {
+        matricule: 'UK-INFO-002',
+        first_name: 'M. Sékou Oumar',
+        last_name: 'Traoré',
+        email: 'agent_info@univ-kindia.edu.gn',
+        phone: '+224 628 33 44 55',
+        function_title: 'Enseignant & Rédacteur Administratif',
+        personnel_category: 'ENSEIGNANT_CHERCHEUR',
+        academic_structure: 'Faculté des Sciences - Département d’Informatique',
+        service_code: 'FS_INFO',
         role_code: ROLES.STANDARD,
-        pass: ecPassword
+        pass: agentPassword
+      },
+      {
+        matricule: 'UK-MATH-001',
+        first_name: 'Dr. Ibrahima',
+        last_name: 'Camara',
+        email: 'chef_math@univ-kindia.edu.gn',
+        phone: '+224 629 00 22 44',
+        function_title: 'Chef du Département de Mathématiques',
+        personnel_category: 'ENSEIGNANT_CHERCHEUR',
+        academic_structure: 'Faculté des Sciences - Département de Mathématiques',
+        service_code: 'FS_MATH',
+        role_code: ROLES.CHEF_SERVICE,
+        pass: chefPassword
+      },
+      {
+        matricule: 'UK-MATH-002',
+        first_name: 'M. Lansana',
+        last_name: 'Condé',
+        email: 'agent_math@univ-kindia.edu.gn',
+        phone: '+224 629 11 33 55',
+        function_title: 'Enseignant Chercheur en Mathématiques',
+        personnel_category: 'ENSEIGNANT_CHERCHEUR',
+        academic_structure: 'Faculté des Sciences - Département de Mathématiques',
+        service_code: 'FS_MATH',
+        role_code: ROLES.STANDARD,
+        pass: agentPassword
       }
     ];
 
@@ -692,43 +701,365 @@ async function seedDatabase() {
           [u.matricule, u.first_name, u.last_name, u.email, u.phone, u.function_title, u.personnel_category || 'PERSONNEL_ADMINISTRATIF', u.academic_structure || '', sId, rId, u.pass]
         );
         userIds[u.email] = res.lastID;
-        if (sId) {
-          await db.run('UPDATE services SET head_user_id = ? WHERE id = ?', [res.lastID, sId]);
-        }
       } else {
         userIds[u.email] = existing.id;
-        // Update personnel_category and academic_structure if needed
         await db.run(
-          'UPDATE users SET personnel_category = ?, academic_structure = ? WHERE id = ?',
-          [u.personnel_category || 'PERSONNEL_ADMINISTRATIF', u.academic_structure || '', existing.id]
+          'UPDATE users SET function_title = ?, personnel_category = ?, academic_structure = ?, service_id = ?, role_id = ? WHERE id = ?',
+          [u.function_title, u.personnel_category || 'PERSONNEL_ADMINISTRATIF', u.academic_structure || '', sId, rId, existing.id]
         );
       }
     }
 
-    // 5. Initialize Number Sequences for 2026
-    const currentYear = 2026;
-    await db.run('INSERT OR IGNORE INTO number_sequences (seq_key, year, current_val) VALUES ("CE", ?, 0)', [currentYear]);
-    await db.run('INSERT OR IGNORE INTO number_sequences (seq_key, year, current_val) VALUES ("CS", ?, 0)', [currentYear]);
-    await db.run('INSERT OR IGNORE INTO number_sequences (seq_key, year, current_val) VALUES ("OM", ?, 0)', [currentYear]);
-    await db.run('INSERT OR IGNORE INTO number_sequences (seq_key, year, current_val) VALUES ("RDV", ?, 0)', [currentYear]);
-    await db.run('INSERT OR IGNORE INTO number_sequences (seq_key, year, current_val) VALUES ("MEX", ?, 0)', [currentYear]);
+    // 4b. Assign Service Heads & Seed Service Heads History
+    console.log('--- LINKING SERVICE HEADS & HISTORY ---');
+    const headAssignments = [
+      { service_code: 'RECT', email: 'recteur@univ-kindia.edu.gn', function: 'Recteur' },
+      { service_code: 'SG', email: 'sg@univ-kindia.edu.gn', function: 'Secrétaire Général' },
+      { service_code: 'DAF', email: 'daf@univ-kindia.edu.gn', function: 'Directeur des Affaires Financières' },
+      { service_code: 'CF', email: 'cf@univ-kindia.edu.gn', function: 'Contrôleur Financier' },
+      { service_code: 'FS', email: 'doyen_fs@univ-kindia.edu.gn', function: 'Doyen de la Faculté des Sciences' },
+      { service_code: 'FS_INFO', email: 'chef_info@univ-kindia.edu.gn', function: 'Chef du Département d’Informatique' }
+    ];
 
-    // 6. Initialize Appointment Settings
-    await db.run('INSERT OR IGNORE INTO appointment_settings (key, value) VALUES ("allow_simultaneous_appointments", "false")');
-    await db.run('INSERT OR IGNORE INTO appointment_settings (key, value) VALUES ("default_reminder_hours", "24")');
-    await db.run('INSERT OR IGNORE INTO appointment_settings (key, value) VALUES ("allowed_durations", "15,30,45,60,90")');
+    for (const ha of headAssignments) {
+      const sId = serviceIds[ha.service_code];
+      const uId = userIds[ha.email];
+      if (sId && uId) {
+        await db.run(
+          `UPDATE services SET head_user_id = ?, function_title = ? WHERE id = ?`,
+          [uId, ha.function, sId]
+        );
 
-    // 7. Demonstration Appointments (Only if explicit demo flag is passed, otherwise starts clean)
-    // Production & Clean database start with 0 appointments.
+        // Record in service_heads_history if not present
+        const existingHist = await db.get(
+          `SELECT id FROM service_heads_history WHERE service_id = ? AND user_id = ? AND is_current = 1`,
+          [sId, uId]
+        );
+        if (!existingHist) {
+          await db.run(
+            `UPDATE service_heads_history SET is_current = 0, end_date = CURRENT_DATE WHERE service_id = ? AND is_current = 1`,
+            [sId]
+          );
+          await db.run(
+            `INSERT INTO service_heads_history (service_id, user_id, function_title, start_date, is_current, appointment_act_ref)
+             VALUES (?, ?, ?, '2025-01-01', 1, 'DEC-NOMIN-UK-2025')`,
+            [sId, uId, ha.function]
+          );
+        }
+      }
+    }
+
+    // 5. Seed Document Type Configs (Types Administratifs Universitaires avec Ordre Configurable)
+    console.log('--- SEEDING DOCUMENT TYPE CONFIGS ---');
+    const docTypeConfigs = [
+      { code: 'SOIT_TRANSMIS', label: 'Soit-transmis', category: 'OFFICIAL', description: 'Bordereaux d’envoi et de transmission de dossiers', icon: 'Send', display_order: 1 },
+      { code: 'DEMANDE', label: 'Demandes', category: 'OFFICIAL', description: 'Demandes administratives, congés, autorisations et matériels', icon: 'FileText', display_order: 2 },
+      { code: 'LETTRE', label: 'Lettres & Courriers', category: 'OFFICIAL', description: 'Lettres officielles et courriers administratifs', icon: 'Mail', display_order: 3 },
+      { code: 'NOTE_SERVICE', label: 'Notes de service', category: 'OFFICIAL', description: 'Directives et communications internes aux agents et services', icon: 'AlertCircle', display_order: 4 },
+      { code: 'DECISION', label: 'Décisions', category: 'OFFICIAL', description: 'Décisions rectorales, décanales et actes d’application', icon: 'FileSignature', display_order: 5 },
+      { code: 'ARRETE', label: 'Arrêtés', category: 'REGULATORY', description: 'Arrêtés ministériels, rectoraux et actes réglementaires', icon: 'BookmarkCheck', display_order: 6 },
+      { code: 'DECRET', label: 'Décrets', category: 'REGULATORY', description: 'Décrets présidentiels et textes légaux institutionnels', icon: 'Landmark', display_order: 7 },
+      { code: 'CIRCULAIRE', label: 'Circulaires', category: 'OFFICIAL', description: 'Circulaires d’information et instructions générales', icon: 'Bell', display_order: 8 },
+      { code: 'RAPPORT', label: 'Rapports', category: 'OFFICIAL', description: 'Rapports d’activité, rapports académiques et bilans', icon: 'FileBarChart', display_order: 9 },
+      { code: 'PROCES_VERBAL', label: 'Procès-verbaux', category: 'OFFICIAL', description: 'PV de délibérations, réunions et passations de service', icon: 'CheckSquare', display_order: 10 },
+      { code: 'MISSION_ORDER', label: 'Ordres de mission', category: 'OFFICIAL', description: 'Ordres et autorisations de mission officielle signés', icon: 'Award', display_order: 11 },
+      { code: 'CONVOCATION', label: 'Convocations', category: 'OFFICIAL', description: 'Convocations aux conseils, réunions et commissions', icon: 'Calendar', display_order: 12 },
+      { code: 'INVITATION', label: 'Invitations', category: 'OFFICIAL', description: 'Invitations officielles aux cérémonies et événements', icon: 'Award', display_order: 13 },
+      { code: 'ATTESTATION', label: 'Attestations', category: 'OFFICIAL', description: 'Attestations administratives, prises de service et présence', icon: 'ShieldCheck', display_order: 14 },
+      { code: 'AUTRE', label: 'Autres documents', category: 'OFFICIAL', description: 'Actes administratifs divers et spécifiques', icon: 'Folder', display_order: 15 },
+      { code: 'NON_CLASSE', label: 'Non classés', category: 'FALLBACK', description: 'Documents anciens ou sans catégorie définie', icon: 'HelpCircle', display_order: 99 }
+    ];
+
+    for (const dt of docTypeConfigs) {
+      let existingDt = await db.get('SELECT code FROM document_type_configs WHERE code = ?', [dt.code]);
+      if (!existingDt) {
+        await db.run(
+          `INSERT INTO document_type_configs (code, label, category, description, icon, display_order, allow_direct_archive, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, 1, 1)`,
+          [dt.code, dt.label, dt.category, dt.description, dt.icon, dt.display_order]
+        );
+      } else {
+        await db.run(
+          `UPDATE document_type_configs SET label = ?, category = ?, description = ?, icon = ?, display_order = ?, is_active = 1 WHERE code = ?`,
+          [dt.label, dt.category, dt.description, dt.icon, dt.display_order, dt.code]
+        );
+      }
+    }
+
+    // 5b. Ensure default archive categories (Soit-transmis, Demandes) exist for each service (Requirement 2)
+    console.log('--- SEEDING DEFAULT ARCHIVE CATEGORIES PER SERVICE ---');
+    try {
+      await db.run("ALTER TABLE archive_custom_categories ADD COLUMN associated_types_json TEXT DEFAULT '[]'");
+    } catch (e) {}
+    try {
+      await db.run("ALTER TABLE archive_custom_categories ADD COLUMN is_default_for_types_json TEXT DEFAULT '[]'");
+    } catch (e) {}
+    try {
+      await db.run(`
+        CREATE TABLE IF NOT EXISTS archive_category_document_types (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          category_id INTEGER NOT NULL,
+          document_type_code TEXT NOT NULL,
+          is_default INTEGER DEFAULT 0,
+          service_id INTEGER,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (category_id) REFERENCES archive_custom_categories(id) ON DELETE CASCADE,
+          UNIQUE(category_id, document_type_code)
+        )
+      `);
+    } catch (e) {}
+
+    const allDbServices = await db.all('SELECT id FROM services');
+    const adminUser = await db.get('SELECT id FROM users WHERE email = "admin@univ-kindia.edu.gn"');
+    const adminId = adminUser ? adminUser.id : 1;
+    for (const s of allDbServices) {
+      await db.run(
+        `INSERT OR IGNORE INTO archive_custom_categories 
+         (service_id, code, name, description, icon, color, display_order, associated_types_json, is_default_for_types_json, is_default, is_active, created_by)
+         VALUES (?, 'SOIT_TRANSMIS', 'Soit-transmis', 'Actes et bordereaux de transmission officielle', 'Send', 'text-amber-700 bg-amber-50 border-amber-200', 10, '["SOIT_TRANSMIS"]', '["SOIT_TRANSMIS"]', 1, 1, ?)`,
+        [s.id, adminId]
+      );
+      await db.run(
+        `INSERT OR IGNORE INTO archive_custom_categories 
+         (service_id, code, name, description, icon, color, display_order, associated_types_json, is_default_for_types_json, is_default, is_active, created_by)
+         VALUES (?, 'DEMANDE', 'Demandes', 'Demandes administratives, requêtes et congés', 'FileText', 'text-blue-700 bg-blue-50 border-blue-200', 20, '["DEMANDE"]', '["DEMANDE"]', 1, 1, ?)`,
+        [s.id, adminId]
+      );
+      // Ensure existing default categories have associated_types_json populated
+      await db.run(
+        `UPDATE archive_custom_categories 
+         SET associated_types_json = '["SOIT_TRANSMIS"]', is_default_for_types_json = '["SOIT_TRANSMIS"]' 
+         WHERE service_id = ? AND code = 'SOIT_TRANSMIS' AND (associated_types_json IS NULL OR associated_types_json = '[]')`,
+        [s.id]
+      );
+      await db.run(
+        `UPDATE archive_custom_categories 
+         SET associated_types_json = '["DEMANDE"]', is_default_for_types_json = '["DEMANDE"]' 
+         WHERE service_id = ? AND code = 'DEMANDE' AND (associated_types_json IS NULL OR associated_types_json = '[]')`,
+        [s.id]
+      );
+    }
+
+    // 6. Seed Configurable Workflow Rules
+    console.log('--- SEEDING WORKFLOW RULES ---');
+    const defaultWorkflowRules = [
+      {
+        name: 'Transmission Soit-Transmis Décanat/Rectorat',
+        document_type: 'SOIT_TRANSMIS',
+        from_structure_type: 'DEPARTEMENT',
+        to_structure_type: 'FACULTE',
+        authorized_signatory_role: 'RECTEUR',
+        requires_sg_visa: 1,
+        description: 'Transmission hiérarchique : Département -> Faculté -> Secrétariat Central -> SG -> Recteur'
+      },
+      {
+        name: 'Demande Administrative vers Hiérarchie',
+        document_type: 'DEMANDE',
+        from_structure_type: 'DEPARTEMENT',
+        to_structure_type: 'FACULTE',
+        authorized_signatory_role: 'DOYEN',
+        requires_sg_visa: 0,
+        description: 'Demande administrative d’un agent : Agent -> Chef de Département -> Doyen'
+      },
+      {
+        name: 'Lettre Administrative vers Administration Centrale',
+        document_type: 'LETTRE',
+        from_structure_type: 'SERVICE',
+        to_structure_type: 'UNIVERSITE',
+        authorized_signatory_role: 'SECRÉTAIRE_GÉNÉRAL',
+        requires_sg_visa: 1,
+        description: 'Courrier vers l’administration centrale soumis à l’orientation impérative du SG'
+      },
+      {
+        name: 'Note de Service Rectorale ou Décanale',
+        document_type: 'NOTE_SERVICE',
+        from_structure_type: 'UNIVERSITE',
+        to_structure_type: 'SERVICE',
+        authorized_signatory_role: 'RECTEUR',
+        requires_sg_visa: 0,
+        description: 'Diffusion descendante des directives rectorales'
+      }
+    ];
+
+    for (const wr of defaultWorkflowRules) {
+      let existingWr = await db.get('SELECT id FROM workflow_rules WHERE name = ?', [wr.name]);
+      if (!existingWr) {
+        await db.run(
+          `INSERT INTO workflow_rules (name, document_type, from_structure_type, to_structure_type, authorized_signatory_role, requires_sg_visa, allow_direct_transmission, description, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, 1, ?, 1)`,
+          [wr.name, wr.document_type, wr.from_structure_type, wr.to_structure_type, wr.authorized_signatory_role, wr.requires_sg_visa, wr.description]
+        );
+      }
+    }
+
+    // 7. Seed Document Templates with Scopes (Global, Faculté, Département FS/INFO)
+    console.log('--- SEEDING SCOPED DOCUMENT TEMPLATES ---');
+    const templates = [
+      {
+        code: 'SOIT_TRANSMIS_INFO',
+        name: 'Soit-Transmis — Département Informatique',
+        category: 'Correspondances',
+        scope_type: 'DEPARTMENT',
+        target_service_id: serviceIds['FS_INFO'],
+        document_category: 'SOIT_TRANSMIS',
+        header: "RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nUNIVERSITÉ DE KINDIA\nFACULTÉ DES SCIENCES\nDÉPARTEMENT D'INFORMATIQUE",
+        footer: "UNIVERSITÉ DE KINDIA • Faculté des Sciences • Département d'Informatique • BP 164 Kindia"
+      },
+      {
+        code: 'SOIT_TRANSMIS_FS',
+        name: 'Soit-Transmis — Faculté des Sciences',
+        category: 'Correspondances',
+        scope_type: 'FACULTY',
+        target_service_id: serviceIds['FS'],
+        document_category: 'SOIT_TRANSMIS',
+        header: "RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nUNIVERSITÉ DE KINDIA\nFACULTÉ DES SCIENCES\nCABINET DU DOYEN",
+        footer: "UNIVERSITÉ DE KINDIA • Faculté des Sciences • BP 164 Kindia"
+      },
+      {
+        code: 'SOIT_TRANSMIS',
+        name: 'Soit-Transmis Officiel (Université)',
+        category: 'Correspondances',
+        scope_type: 'GLOBAL',
+        target_service_id: null,
+        document_category: 'SOIT_TRANSMIS',
+        header: "RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nMINISTÈRE DE L’ENSEIGNEMENT SUPÉRIEUR, DE LA RECHERCHE SCIENTIFIQUE ET DE L’INNOVATION\n\nUNIVERSITÉ DE KINDIA\n\nSECRÉTARIAT GÉNÉRAL",
+        footer: "UNIVERSITÉ DE KINDIA • BP 164 Kindia, Guinée • Tél: +224 622 00 00 00 • E-mail: contact@univ-kindia.edu.gn"
+      },
+      {
+        code: 'DEMANDE_INFO',
+        name: 'Demande Administrative — Dép. Informatique',
+        category: 'Demandes',
+        scope_type: 'DEPARTMENT',
+        target_service_id: serviceIds['FS_INFO'],
+        document_category: 'DEMANDE',
+        header: "RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nUNIVERSITÉ DE KINDIA\nFACULTÉ DES SCIENCES\nDÉPARTEMENT D'INFORMATIQUE",
+        footer: "UNIVERSITÉ DE KINDIA • Faculté des Sciences • Dép. Informatique"
+      },
+      {
+        code: 'DEMANDE_GENERALE',
+        name: 'Demande Administrative Standard',
+        category: 'Demandes',
+        scope_type: 'GLOBAL',
+        target_service_id: null,
+        document_category: 'DEMANDE',
+        header: "RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nUNIVERSITÉ DE KINDIA",
+        footer: "UNIVERSITÉ DE KINDIA • Administration Centrale"
+      },
+      {
+        code: 'LETTRE_OFFICIELLE_FS',
+        name: 'Lettre Officielle — Faculté des Sciences',
+        category: 'Correspondances',
+        scope_type: 'FACULTY',
+        target_service_id: serviceIds['FS'],
+        document_category: 'LETTRE',
+        header: "RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nUNIVERSITÉ DE KINDIA\nFACULTÉ DES SCIENCES\nCABINET DU DOYEN",
+        footer: "UNIVERSITÉ DE KINDIA • Faculté des Sciences • BP 164 Kindia"
+      },
+      {
+        code: 'LETTRE_OFFICIELLE',
+        name: 'Lettre Officielle Standard',
+        category: 'Correspondances',
+        scope_type: 'GLOBAL',
+        target_service_id: null,
+        document_category: 'LETTRE',
+        header: "RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nMINISTÈRE DE L’ENSEIGNEMENT SUPÉRIEUR, DE LA RECHERCHE SCIENTIFIQUE ET DE L’INNOVATION\n\nUNIVERSITÉ DE KINDIA",
+        footer: "UNIVERSITÉ DE KINDIA • BP 164 Kindia, Guinée"
+      },
+      {
+        code: 'NOTE_SERVICE',
+        name: 'Note de Service Officielle',
+        category: 'Notes & Décisions',
+        scope_type: 'GLOBAL',
+        target_service_id: null,
+        document_category: 'NOTE_SERVICE',
+        header: "RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA",
+        footer: "UNIVERSITÉ DE KINDIA • Direction des Services Administratifs"
+      },
+      {
+        code: 'DECISION_RECTORALE',
+        name: 'Décision Rectorale',
+        category: 'Notes & Décisions',
+        scope_type: 'GLOBAL',
+        target_service_id: null,
+        document_category: 'DECISION',
+        header: "RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nUNIVERSITÉ DE KINDIA\n\nCABINET DU RECTEUR",
+        footer: "UNIVERSITÉ DE KINDIA • Rectorat • BP 164 Kindia"
+      },
+      {
+        code: 'RAPPORT_ACTIVITE',
+        name: 'Rapport d’Activité Périodique',
+        category: 'Rapports & PV',
+        scope_type: 'GLOBAL',
+        target_service_id: null,
+        document_category: 'RAPPORT',
+        header: "RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nUNIVERSITÉ DE KINDIA",
+        footer: "UNIVERSITÉ DE KINDIA • Archives Générales"
+      },
+      {
+        code: 'MISSION_ORDER',
+        name: 'Ordre de Mission Officiel',
+        category: 'Missions',
+        scope_type: 'GLOBAL',
+        target_service_id: null,
+        document_category: 'ORDRE_MISSION',
+        header: "RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nUNIVERSITÉ DE KINDIA\n\nSECRÉTARIAT GÉNÉRAL",
+        footer: "UNIVERSITÉ DE KINDIA • BP 164 Kindia, Guinée"
+      }
+    ];
+
+    for (const t of templates) {
+      let existing = await db.get('SELECT id FROM document_templates WHERE code = ?', [t.code]);
+      let templateId;
+      if (!existing) {
+        const res = await db.run(
+          `INSERT INTO document_templates (code, name, category, scope_type, target_service_id, document_category, header_text, footer_text, is_active, version)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1)`,
+          [t.code, t.name, t.category, t.scope_type, t.target_service_id || null, t.document_category, t.header, t.footer]
+        );
+        templateId = res.lastID;
+      } else {
+        templateId = existing.id;
+        await db.run(
+          `UPDATE document_templates SET scope_type = ?, target_service_id = ?, document_category = ?, header_text = ?, footer_text = ? WHERE id = ?`,
+          [t.scope_type, t.target_service_id || null, t.document_category, t.header, t.footer, templateId]
+        );
+      }
+    }
+
+    // 9. Backfill and Migration of Existing Archives (Rule 28)
+    console.log('--- MIGRATING EXISTING ARCHIVES & PERIMETERS ---');
+    const scService = await db.get('SELECT id FROM services WHERE code = "SC"');
+    const scId = scService ? scService.id : 5;
+
+    // Set owner_service_id where missing
+    await db.run(`
+      UPDATE documents 
+      SET owner_service_id = COALESCE(originating_service_id, current_service_id, created_by, 1)
+      WHERE owner_service_id IS NULL
+    `);
+
+    // Set archive_scope where missing
+    await db.run(`
+      UPDATE documents 
+      SET archive_scope = CASE 
+        WHEN document_type IN ('DECISION', 'NOTE_SERVICE', 'CIRCULAIRE') THEN 'INSTITUTIONNEL'
+        WHEN owner_service_id = ? THEN 'CENTRAL'
+        WHEN status IN ('ARCHIVED', 'ARCHIVÉ') AND is_central_archived = 1 THEN 'CENTRAL'
+        ELSE 'PRIVE_SERVICE'
+      END
+      WHERE archive_scope IS NULL OR archive_scope = ''
+    `, [scId]);
 
     console.log('=== DATABASE SEEDED SUCCESSFULLY! ===');
+    console.log('Hierarchy ready: Université de Kindia (UK) -> Faculté des Sciences (FS) -> Département d\'Informatique (FS/INFO)');
     console.log('Test credentials:');
     console.log('1. Admin:               admin@univ-kindia.edu.gn / Admin123!');
-    console.log('2. Secrétariat Central: sc@univ-kindia.edu.gn / Agent123!');
-    console.log('3. Secrétaire Général:  sg@univ-kindia.edu.gn / Sg123!');
-    console.log('4. Recteur:             recteur@univ-kindia.edu.gn / Recteur123!');
-    console.log('5. DAF:                 daf@univ-kindia.edu.gn / Daf123!');
-    console.log('6. Contrôle Financier:  cf@univ-kindia.edu.gn / Cf123!');
+    console.log('2. Chef Dept INFO:      chef_info@univ-kindia.edu.gn / Chef123! (FS/INFO)');
+    console.log('3. Agent Dept INFO:     agent_info@univ-kindia.edu.gn / Agent123! (FS/INFO)');
+    console.log('4. Doyen FS:            doyen_fs@univ-kindia.edu.gn / Doyen123! (FS)');
+    console.log('5. Secrétariat Central: sc@univ-kindia.edu.gn / Agent123!');
+    console.log('6. Secrétaire Général:  sg@univ-kindia.edu.gn / Sg123!');
+    console.log('7. Recteur:             recteur@univ-kindia.edu.gn / Recteur123!');
 
   } catch (err) {
     console.error('Error during database seed:', err);

@@ -3,16 +3,48 @@
 
 PRAGMA foreign_keys = ON;
 
--- 1. Services Table
+-- 1. Services Table (Structure Organisationnelle Hiérarchique)
 CREATE TABLE IF NOT EXISTS services (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    parent_id INTEGER,
+    structure_type TEXT NOT NULL DEFAULT 'SERVICE', -- UNIVERSITE, FACULTE, DEPARTEMENT, DIRECTION, SERVICE, SOUS_SERVICE, AUTRE
     code TEXT UNIQUE NOT NULL,
     name TEXT NOT NULL,
+    acronym TEXT,
+    reference_code TEXT UNIQUE, -- Code unique pour numérotation des actes (ex: FS/INFO, RECT)
     head_user_id INTEGER,
+    function_title TEXT,
+    header_text TEXT,
+    logo_path TEXT,
+    stamp_path TEXT,
+    address TEXT,
+    email TEXT,
+    phone TEXT,
+    order_index INTEGER DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'ACTIVE', -- ACTIVE, INACTIVE
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (parent_id) REFERENCES services(id) ON DELETE SET NULL,
+    FOREIGN KEY (head_user_id) REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- 1b. Service Heads History (Historique des Responsables de Service)
+CREATE TABLE IF NOT EXISTS service_heads_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    service_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    function_title TEXT NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE,
+    is_current INTEGER DEFAULT 1,
+    appointment_act_ref TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_shh_service ON service_heads_history(service_id);
+CREATE INDEX IF NOT EXISTS idx_shh_user ON service_heads_history(user_id);
+
 
 -- 2. Roles Table
 CREATE TABLE IF NOT EXISTS roles (
@@ -69,17 +101,33 @@ CREATE TABLE IF NOT EXISTS documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     reference TEXT UNIQUE NOT NULL,
     tracking_token TEXT UNIQUE,
-    document_type TEXT NOT NULL, -- INCOMING_MAIL, OUTGOING_MAIL, MISSION_ORDER
+    document_type TEXT NOT NULL, -- INCOMING_MAIL, OUTGOING_MAIL, MISSION_ORDER, SOIT_TRANSMIS, DEMANDE, LETTRE, NOTE_SERVICE, RAPPORT, PROCES_VERBAL, CONVOCATION, INVITATION, ATTESTATION, DECISION, CORRESPONDANCE, etc.
+    document_category TEXT DEFAULT 'SOIT_TRANSMIS',
     title TEXT NOT NULL,
     description TEXT,
+    content_body TEXT, -- Corps textuel rédigé
+    current_version INTEGER DEFAULT 1,
+    last_edited_by INTEGER,
     sender_name TEXT,
     sender_organization TEXT,
     priority TEXT NOT NULL DEFAULT 'NORMAL', -- LOW, NORMAL, HIGH, URGENT
     confidentiality TEXT NOT NULL DEFAULT 'INTERNAL', -- PUBLIC, INTERNAL, RESTRICTED, CONFIDENTIAL
-    status TEXT NOT NULL DEFAULT 'CREATED', -- CREATED, PENDING, IN_PROGRESS, ACCEPTED, REJECTED, ARCHIVED
+    status TEXT NOT NULL DEFAULT 'CREATED', -- CREATED, BROUILLON, SOUMIS, TRANSMIS, REÇU, EN_COURS_TRAITEMENT, A_CORRIGER, RETOUR, VALIDÉ, REJETÉ, EN_ATTENTE_SIGNATURE, SIGNÉ, ARCHIVÉ, TRASHED
     current_service_id INTEGER NOT NULL,
     current_user_id INTEGER,
     created_by INTEGER NOT NULL,
+    originating_service_id INTEGER,
+    originating_head_name TEXT,
+    originating_head_function TEXT,
+    service_sequence_number INTEGER,
+    target_recipient_type TEXT, -- SERVICE, FONCTION, RESPONSABLE, AUTORITE
+    target_recipient_name TEXT,
+    target_recipient_id INTEGER,
+    target_service_id INTEGER,
+    sg_routed_at DATETIME,
+    sg_routed_by INTEGER,
+    sg_orientation_instruction TEXT,
+    authorized_signatory_role TEXT, -- RECTEUR, SECRÉTAIRE_GÉNÉRAL, DOYEN, CHEF_DEPARTEMENT, CHEF_SERVICE
     deadline_date DATE,
     is_locked INTEGER DEFAULT 0,
     qr_code_hash TEXT,
@@ -94,22 +142,192 @@ CREATE TABLE IF NOT EXISTS documents (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     archived_at DATETIME,
+    archived_by INTEGER,
+    owner_service_id INTEGER, -- Structure administrative propriétaire de l'archive
+    archive_scope TEXT DEFAULT 'PRIVE_SERVICE', -- PRIVE_SERVICE, FACULTE, CENTRAL, INSTITUTIONNEL, PARTAGE
+    archive_category TEXT,
+    is_central_archived INTEGER DEFAULT 0,
+    transmitted_to_sc_for_archive INTEGER DEFAULT 0,
+    transmitted_to_sc_at DATETIME,
+    transmitted_to_sc_by INTEGER,
+    transmission_to_sc_motive TEXT,
+    central_archived_at DATETIME,
+    central_archived_by INTEGER,
     reference_meta TEXT,
     FOREIGN KEY (current_service_id) REFERENCES services(id),
     FOREIGN KEY (current_user_id) REFERENCES users(id),
     FOREIGN KEY (created_by) REFERENCES users(id),
-    FOREIGN KEY (rejected_by) REFERENCES users(id)
+    FOREIGN KEY (originating_service_id) REFERENCES services(id),
+    FOREIGN KEY (owner_service_id) REFERENCES services(id),
+    FOREIGN KEY (archived_by) REFERENCES users(id),
+    FOREIGN KEY (transmitted_to_sc_by) REFERENCES users(id),
+    FOREIGN KEY (central_archived_by) REFERENCES users(id),
+    FOREIGN KEY (target_service_id) REFERENCES services(id),
+    FOREIGN KEY (target_recipient_id) REFERENCES users(id),
+    FOREIGN KEY (sg_routed_by) REFERENCES users(id),
+    FOREIGN KEY (rejected_by) REFERENCES users(id),
+    FOREIGN KEY (last_edited_by) REFERENCES users(id)
 );
 
--- 6b. Document Type Configurations Table
+-- 6b. Archive Shares Table (Partage sélectif et sécurisé d'archives)
+CREATE TABLE IF NOT EXISTS archive_shares (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL,
+    target_service_id INTEGER NOT NULL,
+    shared_by INTEGER NOT NULL,
+    motive TEXT,
+    can_download INTEGER DEFAULT 1,
+    shared_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+    FOREIGN KEY (target_service_id) REFERENCES services(id) ON DELETE CASCADE,
+    FOREIGN KEY (shared_by) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_arch_shares_doc ON archive_shares(document_id);
+CREATE INDEX IF NOT EXISTS idx_arch_shares_serv ON archive_shares(target_service_id);
+
+-- 6c. Document Type Configurations Table (12 Types Administratifs Officiels)
 CREATE TABLE IF NOT EXISTS document_type_configs (
     code TEXT PRIMARY KEY,
     label TEXT NOT NULL,
     category TEXT DEFAULT 'OFFICIAL',
+    description TEXT,
+    icon TEXT,
+    display_order INTEGER DEFAULT 100,
     allow_direct_archive INTEGER DEFAULT 1,
+    is_active INTEGER DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 6d. Archive Custom Categories (Catégories personnalisées par service)
+CREATE TABLE IF NOT EXISTS archive_custom_categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    service_id INTEGER, -- NULL = standard global, INTEGER = catégorie privée du service
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    icon TEXT DEFAULT 'Folder',
+    color TEXT DEFAULT 'text-kindia-blue bg-blue-50 border-blue-200',
+    display_order INTEGER DEFAULT 100,
+    associated_types_json TEXT DEFAULT '[]', -- Liste des codes de types associés (ex: ["DECRET", "ARRETE"])
+    is_default_for_types_json TEXT DEFAULT '[]', -- Liste des types dont c'est la catégorie par défaut
+    is_default INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
+    created_by INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id),
+    UNIQUE (service_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_arch_cust_cat_serv ON archive_custom_categories(service_id);
+
+-- 6d-bis. Archive Category Document Types (Table de liaison explicite Catégorie <-> Types d'actes)
+CREATE TABLE IF NOT EXISTS archive_category_document_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category_id INTEGER NOT NULL,
+    document_type_code TEXT NOT NULL,
+    is_default INTEGER DEFAULT 0,
+    service_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (category_id) REFERENCES archive_custom_categories(id) ON DELETE CASCADE,
+    UNIQUE(category_id, document_type_code)
+);
+CREATE INDEX IF NOT EXISTS idx_cat_doc_type_cat ON archive_category_document_types(category_id);
+CREATE INDEX IF NOT EXISTS idx_cat_doc_type_code ON archive_category_document_types(document_type_code);
+
+-- 6e. Service Document Settings Table (Paramètres personnalisés de documents par service)
+CREATE TABLE IF NOT EXISTS service_document_settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    service_id INTEGER UNIQUE NOT NULL,
+    version INTEGER DEFAULT 1,
+    ref_pattern TEXT DEFAULT '{UNIV}/{FACULTY}/{DEPT}/{TYPE}/{YEAR}/{SEQ}',
+    seq_padding INTEGER DEFAULT 4,
+    reset_annually INTEGER DEFAULT 1,
+    prefix TEXT DEFAULT '',
+    suffix TEXT DEFAULT '',
+    type_codes_json TEXT DEFAULT '{"LETTRE":"LET","DEMANDE":"DEM","SOIT_TRANSMIS":"ST","NOTE_SERVICE":"NS","RAPPORT":"RAP","PROCES_VERBAL":"PV","DECISION":"DEC","ARRETE":"ARR","DECRET":"DEC","CIRCULAIRE":"CIR","MISSION_ORDER":"OM","AUTRE":"DOC"}',
+    header_institution_name TEXT DEFAULT 'RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nUNIVERSITÉ DE KINDIA',
+    header_faculty_name TEXT,
+    header_dept_name TEXT,
+    header_service_name TEXT,
+    header_logo_enabled INTEGER DEFAULT 1,
+    header_logo_path TEXT,
+    header_address TEXT,
+    header_phone TEXT,
+    header_email TEXT,
+    header_website TEXT,
+    header_alignment TEXT DEFAULT 'CENTER',
+    header_custom_text TEXT,
+    footer_custom_text TEXT,
+    footer_confidentiality_note TEXT DEFAULT 'Document officiel — Ne pas reproduire sans autorisation',
+    footer_alignment TEXT DEFAULT 'SPLIT',
+    footer_enable_pagination INTEGER DEFAULT 1,
+    footer_pagination_format TEXT DEFAULT 'Page {PAGE} / {TOTAL_PAGES}',
+    footer_show_separator INTEGER DEFAULT 1,
+    footer_contact_info TEXT,
+    created_by INTEGER,
+    updated_by INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id),
+    FOREIGN KEY (updated_by) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_serv_doc_settings_srv ON service_document_settings(service_id);
+
+-- 6f. Service Document Settings History (Audit & Historique des Versions)
+CREATE TABLE IF NOT EXISTS service_document_settings_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    service_id INTEGER NOT NULL,
+    version INTEGER NOT NULL,
+    settings_snapshot_json TEXT NOT NULL,
+    change_summary TEXT,
+    changed_by INTEGER NOT NULL,
+    changed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+    FOREIGN KEY (changed_by) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_serv_doc_settings_hist_srv ON service_document_settings_history(service_id);
+
+-- 6c. Document Versions History Table (Révisions & Corrections)
+CREATE TABLE IF NOT EXISTS document_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL,
+    version_number INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    object_title TEXT,
+    content_body TEXT,
+    pieces_jointes TEXT,
+    snapshot_json TEXT,
+    change_notes TEXT,
+    created_by INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_doc_vers_doc ON document_versions(document_id);
+
+-- 6d. Configurable Workflow Routing Rules Table
+CREATE TABLE IF NOT EXISTS workflow_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    document_type TEXT NOT NULL, -- ALL, SOIT_TRANSMIS, DEMANDE, LETTRE, etc.
+    from_structure_type TEXT, -- DEPARTEMENT, FACULTE, DIRECTION, SERVICE, UNIVERSITE
+    from_service_id INTEGER,
+    to_structure_type TEXT,
+    to_service_id INTEGER,
+    authorized_signatory_role TEXT, -- RECTEUR, SECRÉTAIRE_GÉNÉRAL, DOYEN, CHEF_SERVICE
+    requires_sg_visa INTEGER DEFAULT 0,
+    allow_direct_transmission INTEGER DEFAULT 1,
+    description TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (from_service_id) REFERENCES services(id),
+    FOREIGN KEY (to_service_id) REFERENCES services(id)
+);
+CREATE INDEX IF NOT EXISTS idx_wf_rules_type ON workflow_rules(document_type);
 
 -- 7. Incoming Mails Extension
 CREATE TABLE IF NOT EXISTS incoming_mails (
@@ -405,13 +623,16 @@ CREATE TABLE IF NOT EXISTS institution_settings (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 22. Document Templates Table (Modèles de Documents)
+-- 22. Document Templates Table (Modèles de Documents Scoped)
 CREATE TABLE IF NOT EXISTS document_templates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     code TEXT UNIQUE NOT NULL,
     document_type_code TEXT,
     name TEXT NOT NULL,
     category TEXT DEFAULT 'OFFICIAL',
+    scope_type TEXT DEFAULT 'GLOBAL', -- GLOBAL, FACULTY, DEPARTMENT, SERVICE
+    target_service_id INTEGER,
+    document_category TEXT DEFAULT 'SOIT_TRANSMIS', -- SOIT_TRANSMIS, DEMANDE, LETTRE, NOTE_SERVICE, RAPPORT, PROCES_VERBAL, CONVOCATION, INVITATION, ATTESTATION, DECISION, AUTRE
     description TEXT,
     editor_type TEXT DEFAULT 'UK_GED_EDITOR', -- UK_GED_EDITOR, MS_WORD
     format TEXT DEFAULT 'DOCX',
@@ -429,7 +650,9 @@ CREATE TABLE IF NOT EXISTS document_templates (
     custom_styles TEXT,
     created_by INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (target_service_id) REFERENCES services(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by) REFERENCES users(id)
 );
 
 -- 22b. Dynamic Template Fields Table (Champs Dynamiques)

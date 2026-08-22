@@ -9,9 +9,13 @@ import AttachmentPreviewModal from '../components/AttachmentPreviewModal';
 import NewDispatchModal from '../components/NewDispatchModal';
 import ReceiptPreviewModal from '../components/ReceiptPreviewModal';
 import MissionSignatureModal from '../components/MissionSignatureModal';
+import SGOrientationModal from '../components/SGOrientationModal';
+import ReturnForCorrectionModal from '../components/ReturnForCorrectionModal';
+import TransmitToCentralArchiveModal from '../components/TransmitToCentralArchiveModal';
 import { 
   ArrowLeft, Send, CornerUpLeft, ArrowRight, CheckCircle2, XCircle,
-  Archive, FileText, Download, ShieldCheck, Lock, Award, Eye, QrCode
+  Archive, FileText, Download, ShieldCheck, Lock, Award, Eye, QrCode,
+  ShieldAlert, Building2, UserCheck
 } from 'lucide-react';
 
 export default function DocumentDetail({ documentId, onBack }) {
@@ -27,6 +31,20 @@ export default function DocumentDetail({ documentId, onBack }) {
   const [showDispatchModal, setShowDispatchModal] = useState(false);
   const [showReceiptPreview, setShowReceiptPreview] = useState(false);
   const [showMissionSignatureModal, setShowMissionSignatureModal] = useState(false);
+  const [showSGOrientModal, setShowSGOrientModal] = useState(false);
+  const [showReturnForCorrectionModal, setShowReturnForCorrectionModal] = useState(false);
+  const [showTransmitCentralModal, setShowTransmitCentralModal] = useState(false);
+
+  const handleArchiveInService = async () => {
+    if (!window.confirm('Voulez-vous classer ce document dans les archives privées de votre service ?')) return;
+    try {
+      await api.archiveInService(documentId, { archive_scope: 'PRIVE_SERVICE' });
+      alert('Document classé avec succès dans les archives de votre service.');
+      loadDocument();
+    } catch (err) {
+      alert('Erreur : ' + err.message);
+    }
+  };
 
   useEffect(() => {
     if (documentId) {
@@ -146,6 +164,17 @@ export default function DocumentDetail({ documentId, onBack }) {
               )}
 
               <div className="flex flex-wrap gap-2">
+                {/* Secrétaire Général Decision & Orientation (Rule 9: Imperative SG Circuit) */}
+                {isCurrentHolder && !doc.is_locked && (user?.role_code === 'SECRÉTAIRE_GÉNÉRAL' || user?.role_code === 'ADMINISTRATEUR') && (
+                  <button
+                    onClick={() => setShowSGOrientModal(true)}
+                    className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white text-xs font-black rounded-xl shadow-md transition flex items-center space-x-2 border border-amber-400"
+                  >
+                    <ShieldAlert className="w-4 h-4 text-amber-200" />
+                    <span>⚡ DÉCISION & ORIENTATION SG</span>
+                  </button>
+                )}
+
                 {isCurrentHolder && !doc.is_locked && doc.status !== 'ACCEPTED' && doc.status !== 'REJECTED' && (hasPermission('documents.accept') || user?.role_code === 'SECRÉTAIRE_GÉNÉRAL' || user?.role_code === 'RECTEUR') && (
                   <button
                     onClick={() => setWorkflowMode('ACCEPT')}
@@ -180,6 +209,18 @@ export default function DocumentDetail({ documentId, onBack }) {
                   >
                     <Award className="w-4 h-4 text-indigo-200" />
                     <span>✍️ SIGNER ET RETOURNER AU SC</span>
+                  </button>
+                )}
+
+                {/* Return for correction button */}
+                {isCurrentHolder && doc.status !== 'ARCHIVED' && doc.status !== 'RETOUR' && (
+                  <button
+                    onClick={() => setShowReturnForCorrectionModal(true)}
+                    className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5"
+                    title="Renvoyer le document à l'émetteur avec un motif obligatoire de correction"
+                  >
+                    <CornerUpLeft className="w-3.5 h-3.5" />
+                    <span>↩ RETOURNER POUR CORRECTION</span>
                   </button>
                 )}
 
@@ -222,6 +263,30 @@ export default function DocumentDetail({ documentId, onBack }) {
                     title="Diffuser ce document à plusieurs services (Note de service, Décision, Circulaire, etc.)"
                   >
                     <span>📢 DIFFUSER</span>
+                  </button>
+                )}
+
+                {/* Archive in Local Service Archive Button (For Originating Service / Holder) */}
+                {doc.status !== 'ARCHIVED' && (doc.status === 'VALIDÉ' || doc.status === 'SIGNÉ' || doc.status === 'ACCEPTED' || doc.status === 'COMPLETED') && (
+                  <button
+                    onClick={handleArchiveInService}
+                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5"
+                    title="Classer dans les archives privées de mon service"
+                  >
+                    <Archive className="w-3.5 h-3.5 text-kindia-gold" />
+                    <span>📁 ARCHIVER DANS MON SERVICE</span>
+                  </button>
+                )}
+
+                {/* Transmit to Central Archive Button (When doc is in private archive and not yet sent to SC) */}
+                {doc.archive_scope === 'PRIVE_SERVICE' && doc.transmitted_to_sc_for_archive !== 1 && (
+                  <button
+                    onClick={() => setShowTransmitCentralModal(true)}
+                    className="px-3.5 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5"
+                    title="Transmettre ce document au Secrétariat Central pour versement aux archives centrales"
+                  >
+                    <Send className="w-3.5 h-3.5 text-amber-200" />
+                    <span>🏛️ TRANSMETTRE AU SC (ARCHIVAGE CENTRAL)</span>
                   </button>
                 )}
 
@@ -329,6 +394,38 @@ export default function DocumentDetail({ documentId, onBack }) {
                 </div>
               </div>
             )}
+
+            {/* Originating Structure & Head Snapshot Context (Rules 2, 3, 6, 9) */}
+            <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl text-xs space-y-2">
+              <div className="flex items-center space-x-2 font-bold text-slate-800">
+                <Building2 className="w-4 h-4 text-kindia-blue" />
+                <span>Origine Administrative & Circuit d'Émission</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 text-slate-700">
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Structure Émettrice :</span>
+                  <span className="font-bold text-kindia-blue">{doc.originating_service_name || doc.sender_organization || 'Université de Kindia'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Responsable en Poste (Date d'émission) :</span>
+                  <span className="font-semibold text-slate-800">{doc.originating_head_name || 'Non renseigné'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px]">Fonction Officielle :</span>
+                  <span className="font-medium text-slate-600">{doc.originating_head_function || 'Responsable de Service'}</span>
+                </div>
+              </div>
+
+              {/* SG Instructions Banner if routed */}
+              {doc.sg_orientation_instruction && (
+                <div className="mt-2 p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 space-y-0.5">
+                  <span className="font-bold block text-[10px] uppercase text-amber-800">
+                    ⚡ Instruction d'orientation du Secrétaire Général (SG) :
+                  </span>
+                  <p className="font-semibold text-xs">{doc.sg_orientation_instruction}</p>
+                </div>
+              )}
+            </div>
 
             {/* Document Metadata Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-100 text-xs">
@@ -484,6 +581,17 @@ export default function DocumentDetail({ documentId, onBack }) {
         </div>
       </div>
 
+      {/* SG Orientation Modal (Rule 9) */}
+      {showSGOrientModal && (
+        <SGOrientationModal
+          doc={doc}
+          onClose={() => setShowSGOrientModal(false)}
+          onSuccess={() => {
+            loadDocument();
+          }}
+        />
+      )}
+
       {/* Workflow Modal */}
       {workflowMode && (
         <WorkflowModal
@@ -501,6 +609,30 @@ export default function DocumentDetail({ documentId, onBack }) {
         <QRVerificationModal
           reference={doc.reference}
           onClose={() => setShowQRModal(false)}
+        />
+      )}
+
+      {/* Return for Correction Modal */}
+      {showReturnForCorrectionModal && (
+        <ReturnForCorrectionModal
+          isOpen={showReturnForCorrectionModal}
+          document={doc}
+          onClose={() => setShowReturnForCorrectionModal(false)}
+          onSuccess={() => {
+            loadDocument();
+          }}
+        />
+      )}
+
+      {/* Transmit to Central Archive Modal */}
+      {showTransmitCentralModal && (
+        <TransmitToCentralArchiveModal
+          isOpen={showTransmitCentralModal}
+          document={doc}
+          onClose={() => setShowTransmitCentralModal(false)}
+          onSuccess={() => {
+            loadDocument();
+          }}
         />
       )}
 

@@ -18,6 +18,7 @@ export default function Sidebar({ currentPage, setCurrentPage }) {
 
   const navItems = [
     { id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, show: true },
+    { id: 'service-workspace', label: '📂 Espace de mon Service', icon: Building2, show: true },
     { id: 'dispatching', label: '📢 Dispatching & Diffusions', icon: Send, show: true },
     { id: 'appointments', label: '📅 Rendez-vous', icon: Calendar, show: true },
     { id: 'tracking', label: '🔎 Suivre mon document', icon: QrCode, show: true },
@@ -30,10 +31,11 @@ export default function Sidebar({ currentPage, setCurrentPage }) {
       show: isCentralAdminOrSC || user?.role_code === 'SECRÉTAIRE_GÉNÉRAL' || user?.role_code === 'RECTEUR' || hasPermission('mission.sign') || user?.personnel_category === 'ENSEIGNANT_CHERCHEUR'
     },
     { id: 'external-missionaries', label: '✈️ Missionnaires externes', icon: FileCheck, show: isCentralAdminOrSC || user?.role_code === 'SECRÉTAIRE_GÉNÉRAL' || user?.role_code === 'RECTEUR' },
-    { id: 'archives', label: 'Archives électroniques', icon: Archive, show: isCentralAdminOrSC },
+    { id: 'archives', label: isCentralAdminOrSC ? 'Archives Centrales' : '📁 Archives Électroniques', icon: Archive, show: true },
     { id: 'search', label: 'Recherche globale', icon: Search, show: true },
     { id: 'audit', label: 'Journal d’audit', icon: ShieldAlert, show: hasPermission('audit.read') || user?.role_code === 'ADMINISTRATEUR' },
     { id: 'services', label: 'Gestion des services', icon: Building2, show: hasPermission('services.read') || user?.role_code === 'ADMINISTRATEUR' },
+    { id: 'admin-service-archives', label: '🗄️ Archives des Services', icon: Archive, show: user?.role_code === 'ADMINISTRATEUR' },
     { id: 'users', label: 'Gestion des utilisateurs', icon: Users, show: hasPermission('users.read') || user?.role_code === 'ADMINISTRATEUR' },
     { id: 'roles', label: 'Rôles & Permissions', icon: Lock, show: hasPermission('roles.create') || user?.role_code === 'ADMINISTRATEUR' },
     { id: 'staff', label: '👥 Personnel', icon: Users, show: user?.service_code === 'SC' || hasPermission('personnel.view') || user?.role_code === 'ADMINISTRATEUR' },

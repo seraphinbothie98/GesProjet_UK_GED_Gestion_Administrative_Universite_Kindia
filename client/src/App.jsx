@@ -20,6 +20,7 @@ import TemplateAdmin from './pages/TemplateAdmin';
 import SignatureAdmin from './pages/SignatureAdmin';
 import StaffManagement from './pages/StaffManagement';
 import AdminMaintenance from './pages/AdminMaintenance';
+import AdminServiceArchives from './pages/AdminServiceArchives';
 import ExternalMissionaries from './pages/ExternalMissionaries';
 import MissionRequests from './pages/MissionRequests';
 import PublicMissionRequestModal from './components/PublicMissionRequestModal';
@@ -27,6 +28,7 @@ import { ShieldAlert } from 'lucide-react';
 
 import DocumentTracking from './pages/DocumentTracking';
 import Dispatching from './pages/Dispatching';
+import ServiceWorkspace from './pages/ServiceWorkspace';
 import PublicVerification from './pages/PublicVerification';
 import PublicAppointmentModal from './components/PublicAppointmentModal';
 import MobileNavBar from './components/MobileNavBar';
@@ -143,7 +145,7 @@ function MainApp() {
       return <DocumentDetail documentId={selectedDocumentId} onBack={handleBack} />;
     }
 
-    const strictlySCPages = ['incoming', 'outgoing', 'archives'];
+    const strictlySCPages = ['incoming', 'outgoing'];
 
     if (strictlySCPages.includes(currentPage) && !isCentralAdminOrSC) {
       return (
@@ -207,6 +209,8 @@ function MainApp() {
         return <MissionOrders onSelectDocument={handleSelectDocument} />;
       case 'external-missionaries':
         return <ExternalMissionaries />;
+      case 'service-workspace':
+        return <ServiceWorkspace onSelectDocument={handleSelectDocument} />;
       case 'archives':
         return <Archives onSelectDocument={handleSelectDocument} />;
       case 'search':
@@ -229,6 +233,8 @@ function MainApp() {
         return <StaffManagement />;
       case 'maintenance':
         return <AdminMaintenance onSelectDocument={handleSelectDocument} />;
+      case 'admin-service-archives':
+        return <AdminServiceArchives />;
       case 'mobile-signatures':
       case 'mobile-responsable':
         return <MobileResponsableSpace onSelectDocument={handleSelectDocument} onNavigate={(p) => setCurrentPage(p)} />;

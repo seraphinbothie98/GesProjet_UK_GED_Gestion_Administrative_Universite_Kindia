@@ -67,15 +67,23 @@ export default function Dashboard({ onSelectDocument, onNavigate }) {
         </div>
 
         <div className="mt-4 md:mt-0 flex flex-wrap gap-2.5">
+          <button 
+            onClick={() => onNavigate('service-workspace')}
+            className="bg-kindia-gold text-kindia-blue hover:bg-amber-400 px-4 py-2 rounded-xl text-xs font-black shadow-md transition flex items-center space-x-2"
+          >
+            <Plus className="w-4 h-4 stroke-[3]" />
+            <span>+ Espace & Documents de mon Service</span>
+          </button>
+
           {/* Actions for Secrétariat Central and Administrator */}
           {(user?.role_code === 'ADMINISTRATEUR' || user?.role_code === 'AGENT_SECRÉTARIAT_CENTRAL' || user?.service_code === 'SC') && (
             <>
               <button 
                 onClick={() => onNavigate('incoming')}
-                className="bg-kindia-gold text-kindia-blue hover:bg-amber-400 px-4 py-2 rounded-xl text-xs font-bold shadow transition flex items-center space-x-2"
+                className="bg-white/10 hover:bg-white/20 text-white border border-white/20 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2"
               >
-                <Plus className="w-4 h-4" />
-                <span>Nouveau Courrier Entrant</span>
+                <Plus className="w-4 h-4 text-kindia-gold" />
+                <span>Courrier Entrant</span>
               </button>
 
               <button 
@@ -83,17 +91,17 @@ export default function Dashboard({ onSelectDocument, onNavigate }) {
                 className="bg-white/10 hover:bg-white/20 text-white border border-white/20 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2"
               >
                 <FileCheck className="w-4 h-4 text-kindia-gold" />
-                <span>Gestion des Ordres de Mission</span>
+                <span>Ordres de Mission</span>
               </button>
             </>
           )}
 
           <button 
             onClick={() => onNavigate('appointments')}
-            className="bg-kindia-gold text-kindia-blue hover:bg-yellow-400 px-4 py-2 rounded-xl text-xs font-bold shadow transition flex items-center space-x-2"
+            className="bg-white/10 hover:bg-white/20 text-white border border-white/20 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2"
           >
-            <Calendar className="w-4 h-4" />
-            <span>Rendez-vous & Agenda</span>
+            <Calendar className="w-4 h-4 text-kindia-gold" />
+            <span>Rendez-vous</span>
           </button>
         </div>
       </div>

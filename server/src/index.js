@@ -4,6 +4,14 @@ const path = require('path');
 const { PORT, UPLOAD_DIR } = require('./config/constants');
 const seedDatabase = require('./database/seed');
 
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('UNHANDLED REJECTION at:', promise, 'reason:', reason);
+});
+
 // Import routes
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
@@ -28,6 +36,8 @@ const externalMissionaryRoutes = require('./routes/externalMissionaryRoutes');
 const missionRequestRoutes = require('./routes/missionRequestRoutes');
 const dispatchRoutes = require('./routes/dispatchRoutes');
 const receiptRoutes = require('./routes/receiptRoutes');
+const archiveCategoryRoutes = require('./routes/archiveCategoryRoutes');
+const serviceSettingsRoutes = require('./routes/serviceSettingsRoutes');
 
 const app = express();
 
@@ -99,6 +109,8 @@ app.use('/api/external-missionaries', externalMissionaryRoutes);
 app.use('/api/mission-requests', missionRequestRoutes);
 app.use('/api/dispatches', dispatchRoutes);
 app.use('/api/receipts', receiptRoutes);
+app.use('/api/archive-categories', archiveCategoryRoutes);
+app.use('/api/service-settings', serviceSettingsRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

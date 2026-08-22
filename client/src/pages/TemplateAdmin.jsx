@@ -305,15 +305,22 @@ export default function TemplateAdmin() {
 
                   <p className="text-xs text-slate-500 line-clamp-2">{t.description || 'Modèle de document administratif officiel de l’Université de Kindia.'}</p>
 
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
+                  <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-mono">
                     <span className="bg-slate-100 px-2 py-0.5 rounded font-bold text-slate-700">v{t.version || 1}</span>
+                    <span className={`px-2 py-0.5 rounded font-bold text-[10px] uppercase border ${
+                      t.scope_type === 'DEPARTMENT' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' :
+                      t.scope_type === 'FACULTY' ? 'bg-blue-50 text-blue-800 border-blue-300' :
+                      'bg-purple-50 text-purple-800 border-purple-300'
+                    }`}>
+                      {t.scope_type || 'GLOBAL'} {t.target_service_ref ? `(${t.target_service_ref})` : ''}
+                    </span>
                     {t.editor_type === 'MS_WORD' || t.format === 'DOCX' ? (
                       <span className="bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded border border-blue-200 flex items-center space-x-1">
-                        <span>📄 Word (.DOCX)</span>
+                        <span>📄 Word</span>
                       </span>
                     ) : (
                       <span className="bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded border border-emerald-200">
-                        <span>✏️ Éditeur UK-GED</span>
+                        <span>✏️ Éditeur</span>
                       </span>
                     )}
                   </div>

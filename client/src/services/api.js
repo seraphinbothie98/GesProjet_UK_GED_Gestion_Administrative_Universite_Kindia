@@ -108,6 +108,28 @@ export const api = {
     return data;
   },
 
+  async archiveServiceDocument(formData) {
+    const res = await fetch(`${API_BASE}/documents/service-archive`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async diffuseDocument(id, payload) {
+    const res = await fetch(`${API_BASE}/documents/${id}/diffuse`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
   async archiveDocument(id) {
     const res = await fetch(`${API_BASE}/documents/${id}/archive`, {
       method: 'PUT',
@@ -160,11 +182,33 @@ export const api = {
     return data;
   },
 
+  async sgOrientDocument(payload) {
+    const res = await fetch(`${API_BASE}/workflow/sg-orient`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
   async transmitDocument(payload) {
     const res = await fetch(`${API_BASE}/workflow/transmit`, {
       method: 'POST',
       headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async createAdministrativeDocument(formData) {
+    const res = await fetch(`${API_BASE}/documents/administrative`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
@@ -312,6 +356,304 @@ export const api = {
     return data;
   },
 
+  async getServiceHierarchy() {
+    const res = await fetch(`${API_BASE}/services/hierarchy`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async getServiceDetails(id) {
+    const res = await fetch(`${API_BASE}/services/${id}/details`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async assignServiceHead(serviceId, payload) {
+    const res = await fetch(`${API_BASE}/services/${serviceId}/assign-head`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async uploadServiceStamp(serviceId, formData) {
+    const res = await fetch(`${API_BASE}/services/${serviceId}/stamp`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async getAvailableTemplates() {
+    const res = await fetch(`${API_BASE}/templates/available-for-user`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async getDocumentTypes() {
+    const res = await fetch(`${API_BASE}/documents/types`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async getServiceSpace(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_BASE}/documents/service-space?${query}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async getDocumentVersions(docId) {
+    const res = await fetch(`${API_BASE}/documents/${docId}/versions`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async updateDraftDocument(docId, payload) {
+    const res = await fetch(`${API_BASE}/documents/${docId}/draft`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async resubmitDocument(docId, formData) {
+    const res = await fetch(`${API_BASE}/documents/${docId}/resubmit`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async returnDocumentForCorrection(payload) {
+    const res = await fetch(`${API_BASE}/workflow/return-for-correction`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async getWorkflowRules() {
+    const res = await fetch(`${API_BASE}/workflow/rules`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async getArchives(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_BASE}/documents/archives?${query}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async classifyDocument(docId, payload) {
+    const res = await fetch(`${API_BASE}/documents/${docId}/classify`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  // Archive Categories Management API
+  async getArchiveCategories(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_BASE}/archive-categories?${query}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async createArchiveCategory(payload) {
+    const res = await fetch(`${API_BASE}/archive-categories`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async updateArchiveCategory(id, payload) {
+    const res = await fetch(`${API_BASE}/archive-categories/${id}`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async deleteArchiveCategory(id) {
+    const res = await fetch(`${API_BASE}/archive-categories/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async moveCategoryDocuments(id, payload) {
+    const res = await fetch(`${API_BASE}/archive-categories/${id}/move-documents`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async getServicesArchiveSummary() {
+    const res = await fetch(`${API_BASE}/archive-categories/admin/services-summary`, { headers: getAuthHeader() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  // Service Document Settings & Customization
+  async getServiceDocumentSettings(serviceId = null) {
+    const url = serviceId 
+      ? `${API_BASE}/service-settings/document-settings?service_id=${serviceId}`
+      : `${API_BASE}/service-settings/document-settings`;
+    const res = await fetch(url, { headers: getAuthHeader() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async updateServiceDocumentSettings(payload) {
+    const res = await fetch(`${API_BASE}/service-settings/document-settings`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async previewServiceReference(payload) {
+    const res = await fetch(`${API_BASE}/service-settings/preview-reference`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async getServiceSettingsHistory(serviceId = null) {
+    const url = serviceId 
+      ? `${API_BASE}/service-settings/history?service_id=${serviceId}`
+      : `${API_BASE}/service-settings/history`;
+    const res = await fetch(url, { headers: getAuthHeader() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async archiveInService(docId, payload = {}) {
+    const res = await fetch(`${API_BASE}/documents/${docId}/archive-service`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async transmitToCentralArchive(docId, payload = {}) {
+    const res = await fetch(`${API_BASE}/documents/${docId}/transmit-to-central-archive`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async archiveInCentral(docId) {
+    const res = await fetch(`${API_BASE}/documents/${docId}/archive-central`, {
+      method: 'POST',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async shareArchive(docId, payload = {}) {
+    const res = await fetch(`${API_BASE}/documents/${docId}/share-archive`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async createWorkflowRule(payload) {
+    const res = await fetch(`${API_BASE}/workflow/rules`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
   async getUsers() {
     const res = await fetch(`${API_BASE}/users`, {
       headers: getAuthHeader()
@@ -333,6 +675,17 @@ export const api = {
   async createService(payload) {
     const res = await fetch(`${API_BASE}/services`, {
       method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async updateService(id, payload) {
+    const res = await fetch(`${API_BASE}/services/${id}`, {
+      method: 'PUT',
       headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
@@ -1825,6 +2178,38 @@ export const api = {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Erreur lors de l’enregistrement du modèle.');
+    return data;
+  },
+
+  // Official Document / Act Types & Smart Category Suggestions
+  async getOfficialDocumentTypes() {
+    const res = await fetch(`${API_BASE}/archive-categories/document-types`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur chargement types de documents');
+    return data;
+  },
+
+  async createOfficialDocumentType(payload) {
+    const res = await fetch(`${API_BASE}/archive-categories/document-types`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur création type de document');
+    return data;
+  },
+
+  async suggestArchiveCategory(type, serviceId) {
+    const query = new URLSearchParams({ type });
+    if (serviceId) query.append('service_id', serviceId);
+    const res = await fetch(`${API_BASE}/archive-categories/suggest-category?${query.toString()}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur suggestion catégorie');
     return data;
   }
 };

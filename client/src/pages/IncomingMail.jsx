@@ -6,9 +6,11 @@ import { Plus, Inbox, UploadCloud, File, Eye, X, Send, Camera, FileUp } from 'lu
 import DigitizationScannerModal from '../components/DigitizationScannerModal';
 import AttachmentPreviewModal from '../components/AttachmentPreviewModal';
 import ReceiptSuccessModal from '../components/ReceiptSuccessModal';
+import NewArchiveCategoryModal from '../components/NewArchiveCategoryModal';
+import { FolderPlus, Sparkles, Check, Tag } from 'lucide-react';
 
 export default function IncomingMail({ onSelectDocument }) {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const [documents, setDocuments] = useState([]);
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -20,6 +22,11 @@ export default function IncomingMail({ onSelectDocument }) {
   const [processingMode, setProcessingMode] = useState('NORMAL'); // 'NORMAL' | 'DIRECT_ARCHIVE'
   const [officialType, setOfficialType] = useState('COURRIER_ENTRANT');
   const [documentTypes, setDocumentTypes] = useState([]);
+  const [archiveCategories, setArchiveCategories] = useState([]);
+  const [archiveCategoryId, setArchiveCategoryId] = useState('');
+  const [archiveCategoryName, setArchiveCategoryName] = useState('');
+  const [isNewCategoryModalOpen, setIsNewCategoryModalOpen] = useState(false);
+
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [senderName, setSenderName] = useState('');
@@ -53,10 +60,50 @@ export default function IncomingMail({ onSelectDocument }) {
       setServices(servs.filter(s => s.status === 'ACTIVE'));
       const dTypes = await api.getDocumentTypes();
       setDocumentTypes(dTypes);
+      const catsRes = await api.getArchiveCategories();
+      setArchiveCategories(catsRes.customs || catsRes.all || []);
     } catch (err) {
       console.error('Error loading incoming mail:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Bidirectional linking: Type -> Category (Rules 5, 6, 7, 8)
+  const handleOfficialTypeChange = (newType) => {
+    setOfficialType(newType);
+    if (!newType) return;
+
+    // Look for matching category in archiveCategories
+    const directMatch = archiveCategories.find(c => 
+      (c.is_default_for_types && c.is_default_for_types.includes(newType)) ||
+      (c.associated_types && c.associated_types.includes(newType)) ||
+      c.code === newType
+    );
+
+    if (directMatch) {
+      setArchiveCategoryId(directMatch.id);
+      setArchiveCategoryName(directMatch.name);
+    }
+  };
+
+  // Bidirectional linking: Category -> Type (Rules 5, 6, 7, 8)
+  const handleCategoryChange = (catId) => {
+    setArchiveCategoryId(catId);
+    const cat = archiveCategories.find(c => String(c.id) === String(catId));
+    if (cat) {
+      setArchiveCategoryName(cat.name);
+      if (cat.associated_types && cat.associated_types.length > 0) {
+        if (!cat.associated_types.includes(officialType)) {
+          // Auto select first associated type or default
+          const defType = cat.is_default_for_types?.[0] || cat.associated_types[0];
+          if (defType) {
+            setOfficialType(defType);
+          }
+        }
+      }
+    } else {
+      setArchiveCategoryName('');
     }
   };
 
@@ -81,10 +128,11 @@ export default function IncomingMail({ onSelectDocument }) {
       const isCurrentAllowed = documentTypes.find(dt => dt.code === officialType && dt.allow_direct_archive === 1);
       if (!isCurrentAllowed) {
         const firstDirect = documentTypes.find(dt => dt.allow_direct_archive === 1);
-        setOfficialType(firstDirect ? firstDirect.code : 'NOTE_SERVICE');
+        const t = firstDirect ? firstDirect.code : 'NOTE_SERVICE';
+        handleOfficialTypeChange(t);
       }
     } else {
-      setOfficialType('COURRIER_ENTRANT');
+      handleOfficialTypeChange('COURRIER_ENTRANT');
     }
   };
 
@@ -127,6 +175,9 @@ export default function IncomingMail({ onSelectDocument }) {
       formData.append('priority', priority);
       formData.append('instruction', instruction);
       if (deadlineDate) formData.append('deadline_date', deadlineDate);
+      
+      if (archiveCategoryId) formData.append('custom_category_id', archiveCategoryId);
+      if (archiveCategoryName) formData.append('archive_category', archiveCategoryName);
 
       if (hasExternalSignature) {
         formData.append('has_external_signature', '1');
@@ -168,6 +219,8 @@ export default function IncomingMail({ onSelectDocument }) {
   const resetForm = () => {
     setProcessingMode('NORMAL');
     setOfficialType('COURRIER_ENTRANT');
+    setArchiveCategoryId('');
+    setArchiveCategoryName('');
     setTitle('');
     setDescription('');
     setSenderName('');
@@ -362,14 +415,14 @@ export default function IncomingMail({ onSelectDocument }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     {processingMode === 'DIRECT_ARCHIVE' ? "Type d'Acte Officiel (Archivage direct) *" : "Type de Document *"}
                   </label>
                   <select
                     value={officialType}
-                    onChange={(e) => setOfficialType(e.target.value)}
+                    onChange={(e) => handleOfficialTypeChange(e.target.value)}
                     className={`w-full text-xs p-2.5 rounded-xl border bg-white ${
                       processingMode === 'DIRECT_ARCHIVE' ? 'border-amber-400 bg-amber-50/30 font-bold text-amber-900 focus:ring-amber-500' : 'border-slate-300'
                     }`}
@@ -391,16 +444,50 @@ export default function IncomingMail({ onSelectDocument }) {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Titre / Objet du courrier *</label>
-                  <input
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder={processingMode === 'DIRECT_ARCHIVE' ? "Ex: Note de service relative aux examens" : "Ex: Décret de nomination administrative"}
-                    required
-                    className="w-full text-xs p-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-kindia-blue"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-700">
+                      Catégorie d'archivage
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setIsNewCategoryModalOpen(true)}
+                      className="text-[10px] font-bold text-kindia-blue hover:text-blue-800 flex items-center space-x-0.5"
+                    >
+                      <FolderPlus className="w-3 h-3" />
+                      <span>+ Nouvelle</span>
+                    </button>
+                  </div>
+                  <select
+                    value={archiveCategoryId}
+                    onChange={(e) => handleCategoryChange(e.target.value)}
+                    className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white font-medium focus:ring-2 focus:ring-kindia-blue"
+                  >
+                    <option value="">-- Sélection automatique / Choisir --</option>
+                    {archiveCategories.map(cat => (
+                      <option key={cat.id} value={cat.id}>
+                        📁 {cat.name} {cat.is_default ? '(Défaut)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  {archiveCategoryName && (
+                    <span className="text-[10px] text-emerald-700 font-semibold flex items-center space-x-1 mt-1">
+                      <Sparkles className="w-3 h-3 text-emerald-600" />
+                      <span>Classé dans : <strong>{archiveCategoryName}</strong></span>
+                    </span>
+                  )}
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Titre / Objet du courrier *</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={processingMode === 'DIRECT_ARCHIVE' ? "Ex: Note de service relative aux examens" : "Ex: Décret de nomination administrative"}
+                  required
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-300 focus:ring-2 focus:ring-kindia-blue"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -676,6 +763,26 @@ export default function IncomingMail({ onSelectDocument }) {
           officialTypeLabel={createdReceiptData.officialTypeLabel}
           documentTitle={createdReceiptData.documentTitle}
           onClose={() => setCreatedReceiptData(null)}
+        />
+      )}
+
+      {/* New Archive Category Creation Modal */}
+      {isNewCategoryModalOpen && (
+        <NewArchiveCategoryModal
+          isOpen={isNewCategoryModalOpen}
+          serviceId={user?.service_id}
+          onClose={() => setIsNewCategoryModalOpen(false)}
+          onSuccess={(newCat) => {
+            setIsNewCategoryModalOpen(false);
+            if (newCat) {
+              setArchiveCategories(prev => {
+                const next = [...prev.filter(c => c.id !== newCat.id), newCat];
+                return next.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'fr', { sensitivity: 'base' }));
+              });
+              setArchiveCategoryId(newCat.id);
+              setArchiveCategoryName(newCat.name);
+            }
+          }}
         />
       )}
     </div>

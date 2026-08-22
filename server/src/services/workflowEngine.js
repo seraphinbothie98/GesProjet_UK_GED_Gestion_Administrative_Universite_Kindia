@@ -207,6 +207,50 @@ class WorkflowEngine {
   }
 
   /**
+   * Return document specifically for correction back to the author/originating service (Rule 10, 18, 26)
+   */
+  static async returnForCorrection({ documentId, fromUserId, fromServiceId, returnReason, req }) {
+    const doc = await db.get('SELECT * FROM documents WHERE id = ?', [documentId]);
+    if (!doc) throw new Error('Document introuvable.');
+
+    if (!returnReason || !returnReason.trim()) {
+      throw new Error('Le motif du retour pour correction est obligatoire.');
+    }
+
+    const fromUser = await db.get('SELECT first_name, last_name, function_title FROM users WHERE id = ?', [fromUserId]);
+    const targetServiceId = doc.originating_service_id || fromServiceId;
+
+    await db.run(
+      `UPDATE documents 
+       SET current_service_id = ?, current_user_id = ?, status = 'RETOUR', rejection_reason = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [targetServiceId, doc.created_by, returnReason, documentId]
+    );
+
+    await db.run(
+      `INSERT INTO document_transfers 
+       (document_id, from_service_id, from_user_id, to_service_id, to_user_id, action, motif, instruction, status)
+       VALUES (?, ?, ?, ?, ?, 'RETURN', 'Retour pour correction', ?, 'RETURNED')`,
+      [documentId, fromServiceId, fromUserId, targetServiceId, doc.created_by, returnReason]
+    );
+
+    await db.run(
+      `INSERT INTO document_history (document_id, user_id, service_id, action, details)
+       VALUES (?, ?, ?, 'RETURN', ?)`,
+      [documentId, fromUserId, fromServiceId, `Retourné pour correction par [${fromUser ? (fromUser.function_title || fromUser.first_name) : 'Responsable'}] - Motif: ${returnReason}`]
+    );
+
+    await db.run(
+      `INSERT INTO notifications (user_id, document_id, title, message, type)
+       VALUES (?, ?, 'Document retourné pour correction', ?, 'ACTION_REQUIRED')`,
+      [doc.created_by, documentId, `Votre document Réf ${doc.reference} a été retourné pour correction. Motif : ${returnReason}`]
+    );
+
+    await logAuditAction(fromUserId, 'RETURN_FOR_CORRECTION', 'DOCUMENT', documentId, req, { returnReason });
+    return { success: true, message: 'Document retourné pour correction à l’émetteur avec succès.' };
+  }
+
+  /**
    * Accept document at the current step (SG, Recteur, or authorized service head)
    */
   static async acceptDocument({ documentId, userId, userServiceId, remarks, req }) {
@@ -403,6 +447,183 @@ class WorkflowEngine {
   }
 
   /**
+   * Secrétaire Général (SG) Orientation & Decision Engine (Rule 9)
+   * SG decides the workflow:
+   * - 'SIGN_DIRECTLY': SG signs directly
+   * - 'ORIENT_RECTEUR': SG routes to Recteur for Rectoral Visa/Signature
+   * - 'ORIENT_SERVICE': SG routes to another specific service/authority
+   * - 'RETURN_CORRECTION': SG returns to originating service with mandatory remarks
+   * - 'REQUEST_COMPLEMENT': SG requests additional documents/complements
+   */
+  static async orientBySG({ documentId, sgUserId, actionType, toServiceId, toUserId, instruction, authorizedSignatoryRole, req }) {
+    const doc = await db.get('SELECT * FROM documents WHERE id = ?', [documentId]);
+    if (!doc) throw new Error('Document introuvable.');
+
+    if (doc.is_locked) {
+      throw new Error('Impossible d’orienter un document déjà verrouillé ou signé.');
+    }
+
+    const sgUser = await db.get('SELECT u.*, r.code as role_code FROM users u JOIN roles r ON u.role_id = r.id WHERE u.id = ?', [sgUserId]);
+    if (!sgUser) throw new Error('Utilisateur Secrétaire Général introuvable.');
+
+    const sgService = await db.get('SELECT id, name FROM services WHERE code = "SG"') || { id: sgUser.service_id, name: 'Secrétariat Général' };
+    const nowIso = new Date().toISOString();
+
+    if (actionType === 'SIGN_DIRECTLY') {
+      // SG signs directly
+      return await this.signAndReturnDocument({
+        documentId,
+        userId: sgUserId,
+        userServiceId: sgService.id,
+        remarks: instruction || 'Signé par le Secrétaire Général dans le cadre de ses compétences',
+        req
+      });
+    }
+
+    if (actionType === 'ORIENT_RECTEUR') {
+      const rectService = await db.get('SELECT id, name FROM services WHERE code = "RECT"');
+      if (!rectService) throw new Error('Service du Rectorat introuvable.');
+
+      await db.run(
+        `UPDATE documents 
+         SET current_service_id = ?, current_user_id = NULL, status = 'TRANSMIS',
+             sg_routed_at = ?, sg_routed_by = ?, sg_orientation_instruction = ?,
+             authorized_signatory_role = 'RECTEUR', updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [rectService.id, nowIso, sgUserId, instruction || 'Pour visa et signature rectorale', documentId]
+      );
+
+      await db.run(
+        `INSERT INTO document_transfers (document_id, from_service_id, from_user_id, to_service_id, action, motif, instruction, status)
+         VALUES (?, ?, ?, ?, 'ORIENT', 'Orientation Rectorale par le SG', ?, 'PENDING')`,
+        [documentId, sgService.id, sgUserId, rectService.id, instruction || 'Pour visa et signature du Recteur']
+      );
+
+      await db.run(
+        `INSERT INTO document_history (document_id, user_id, service_id, action, details)
+         VALUES (?, ?, ?, 'SG_ORIENT', ?)`,
+        [documentId, sgUserId, sgService.id, `Orienté vers le [Rectorat] par le Secrétaire Général pour signature rectorale. Instruction : ${instruction || 'Pour signature'}`]
+      );
+
+      // Notify Recteur
+      const rectUsers = await db.all('SELECT u.id FROM users u JOIN roles r ON u.role_id = r.id WHERE r.code = "RECTEUR" AND u.status = "ACTIVE"');
+      for (const ru of rectUsers) {
+        await db.run(
+          `INSERT INTO notifications (user_id, document_id, title, message, type)
+           VALUES (?, ?, 'Document transmis par le SG', ?, 'SIGNATURE_REQUIRED')`,
+          [ru.id, documentId, `Le document Réf ${doc.reference} vous a été soumis par le Secrétaire Général pour signature. Instruction : ${instruction || 'Pour signature'}`]
+        );
+      }
+
+      await logAuditAction(sgUserId, 'SG_ORIENT_RECTEUR', 'DOCUMENT', documentId, req, {
+        instruction,
+        authorized_signatory_role: 'RECTEUR'
+      });
+
+      return { success: true, message: 'Document orienté vers le Recteur avec succès.' };
+    }
+
+    if (actionType === 'ORIENT_SERVICE') {
+      if (!toServiceId) throw new Error('Service destinataire obligatoire pour cette orientation.');
+      const targetService = await db.get('SELECT id, name FROM services WHERE id = ?', [toServiceId]);
+      if (!targetService) throw new Error('Service destinataire introuvable.');
+
+      await db.run(
+        `UPDATE documents 
+         SET current_service_id = ?, current_user_id = ?, status = 'TRANSMIS',
+             sg_routed_at = ?, sg_routed_by = ?, sg_orientation_instruction = ?,
+             authorized_signatory_role = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [toServiceId, toUserId || null, nowIso, sgUserId, instruction || '', authorizedSignatoryRole || 'CHEF_SERVICE', documentId]
+      );
+
+      await db.run(
+        `INSERT INTO document_transfers (document_id, from_service_id, from_user_id, to_service_id, to_user_id, action, motif, instruction, status)
+         VALUES (?, ?, ?, ?, ?, 'ORIENT', 'Orientation administrative par le SG', ?, 'PENDING')`,
+        [documentId, sgService.id, sgUserId, toServiceId, toUserId || null, instruction || 'Pour examen et traitement']
+      );
+
+      await db.run(
+        `INSERT INTO document_history (document_id, user_id, service_id, action, details)
+         VALUES (?, ?, ?, 'SG_ORIENT', ?)`,
+        [documentId, sgUserId, sgService.id, `Orienté vers [${targetService.name}] par le Secrétaire Général. Instruction : ${instruction || 'Pour traitement'}`]
+      );
+
+      await logAuditAction(sgUserId, 'SG_ORIENT_SERVICE', 'DOCUMENT', documentId, req, {
+        toServiceId,
+        instruction
+      });
+
+      return { success: true, message: `Document orienté vers [${targetService.name}] avec succès.` };
+    }
+
+    if (actionType === 'RETURN_FOR_CORRECTION') {
+      if (!instruction || !instruction.trim()) {
+        throw new Error('Le motif ou les remarques de retour pour correction sont obligatoires.');
+      }
+
+      const returnServiceId = doc.originating_service_id || doc.created_by;
+      const targetService = await db.get('SELECT id, name FROM services WHERE id = ?', [doc.originating_service_id]) || { id: doc.current_service_id, name: 'Service d’origine' };
+
+      await db.run(
+        `UPDATE documents 
+         SET current_service_id = ?, status = 'RETOUR', rejection_reason = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [targetService.id, instruction, documentId]
+      );
+
+      await db.run(
+        `INSERT INTO document_transfers (document_id, from_service_id, from_user_id, to_service_id, action, motif, instruction, status)
+         VALUES (?, ?, ?, ?, 'RETURN', 'Retour pour correction', ?, 'RETURNED')`,
+        [documentId, sgService.id, sgUserId, targetService.id, instruction]
+      );
+
+      await db.run(
+        `INSERT INTO document_history (document_id, user_id, service_id, action, details)
+         VALUES (?, ?, ?, 'SG_RETURN', ?)`,
+        [documentId, sgUserId, sgService.id, `Retourné pour correction au service [${targetService.name}] par le Secrétaire Général. Motif : ${instruction}`]
+      );
+
+      await db.run(
+        `INSERT INTO notifications (user_id, document_id, title, message, type)
+         VALUES (?, ?, 'Document retourné pour correction', ?, 'ACTION_REQUIRED')`,
+        [doc.created_by, documentId, `Le Secrétaire Général a retourné votre document Réf ${doc.reference} pour correction. Remarques : ${instruction}`]
+      );
+
+      await logAuditAction(sgUserId, 'SG_RETURN', 'DOCUMENT', documentId, req, { instruction });
+
+      return { success: true, message: 'Document retourné pour correction.' };
+    }
+
+    if (actionType === 'REQUEST_COMPLEMENT') {
+      await db.run(
+        `UPDATE documents 
+         SET status = 'EN_COURS_TRAITEMENT', rejection_reason = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [instruction, documentId]
+      );
+
+      await db.run(
+        `INSERT INTO document_history (document_id, user_id, service_id, action, details)
+         VALUES (?, ?, ?, 'SG_COMPLEMENT', ?)`,
+        [documentId, sgUserId, sgService.id, `Demande d’informations complémentaires formulée par le SG : ${instruction}`]
+      );
+
+      await db.run(
+        `INSERT INTO notifications (user_id, document_id, title, message, type)
+         VALUES (?, ?, 'Demande d’informations complémentaires', ?, 'ACTION_REQUIRED')`,
+        [doc.created_by, documentId, `Le Secrétaire Général demande un complément sur le document Réf ${doc.reference} : ${instruction}`]
+      );
+
+      await logAuditAction(sgUserId, 'SG_REQUEST_COMPLEMENT', 'DOCUMENT', documentId, req, { instruction });
+
+      return { success: true, message: 'Demande de complément transmise.' };
+    }
+
+    throw new Error('Type d’action du Secrétaire Général non reconnu.');
+  }
+
+  /**
    * Get full historical visual circuit of a document
    */
   static async getVisualCircuit(documentId) {
@@ -437,3 +658,4 @@ class WorkflowEngine {
 }
 
 module.exports = WorkflowEngine;
+

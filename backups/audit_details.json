@@ -1,0 +1,3723 @@
+{
+  "tablesAudit": [
+    {
+      "tableName": "appointment_availabilities",
+      "sqliteCols": 8,
+      "pgCols": 8,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 1,
+      "hasFkPg": 1,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "appointment_history",
+      "sqliteCols": 8,
+      "pgCols": 8,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 2,
+      "hasFkPg": 2,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "appointment_settings",
+      "sqliteCols": 2,
+      "pgCols": 2,
+      "hasPkSqlite": true,
+      "hasPkPg": false,
+      "hasFkSqlite": 0,
+      "hasFkPg": 0,
+      "isAutoIncSqlite": false,
+      "hasIdentityPg": false,
+      "status": "DIFFÉRENCE"
+    },
+    {
+      "tableName": "appointments",
+      "sqliteCols": 38,
+      "pgCols": 38,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 7,
+      "hasFkPg": 7,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "attachments",
+      "sqliteCols": 9,
+      "pgCols": 9,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 2,
+      "hasFkPg": 2,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "audit_logs",
+      "sqliteCols": 8,
+      "pgCols": 8,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 1,
+      "hasFkPg": 1,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "calendar_blocks",
+      "sqliteCols": 9,
+      "pgCols": 9,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 2,
+      "hasFkPg": 2,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "dispatch_logs",
+      "sqliteCols": 9,
+      "pgCols": 9,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 4,
+      "hasFkPg": 4,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "dispatch_recipients",
+      "sqliteCols": 21,
+      "pgCols": 21,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 7,
+      "hasFkPg": 7,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "document_dispatches",
+      "sqliteCols": 17,
+      "pgCols": 17,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 3,
+      "hasFkPg": 3,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "document_history",
+      "sqliteCols": 7,
+      "pgCols": 7,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 3,
+      "hasFkPg": 3,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "document_receipts",
+      "sqliteCols": 11,
+      "pgCols": 11,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 2,
+      "hasFkPg": 2,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "document_signatures",
+      "sqliteCols": 7,
+      "pgCols": 7,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 2,
+      "hasFkPg": 2,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "document_template_instances",
+      "sqliteCols": 6,
+      "pgCols": 6,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 1,
+      "hasFkPg": 1,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "document_templates",
+      "sqliteCols": 31,
+      "pgCols": 31,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 0,
+      "hasFkPg": 0,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "document_transfers",
+      "sqliteCols": 14,
+      "pgCols": 14,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 5,
+      "hasFkPg": 5,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "document_type_configs",
+      "sqliteCols": 6,
+      "pgCols": 6,
+      "hasPkSqlite": true,
+      "hasPkPg": false,
+      "hasFkSqlite": 0,
+      "hasFkPg": 0,
+      "isAutoIncSqlite": false,
+      "hasIdentityPg": false,
+      "status": "DIFFÉRENCE"
+    },
+    {
+      "tableName": "documents",
+      "sqliteCols": 34,
+      "pgCols": 34,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 3,
+      "hasFkPg": 3,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "external_missionaries",
+      "sqliteCols": 45,
+      "pgCols": 45,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 8,
+      "hasFkPg": 8,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "external_missionary_history",
+      "sqliteCols": 7,
+      "pgCols": 7,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 3,
+      "hasFkPg": 3,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "incoming_mails",
+      "sqliteCols": 6,
+      "pgCols": 6,
+      "hasPkSqlite": true,
+      "hasPkPg": false,
+      "hasFkSqlite": 1,
+      "hasFkPg": 1,
+      "isAutoIncSqlite": false,
+      "hasIdentityPg": false,
+      "status": "DIFFÉRENCE"
+    },
+    {
+      "tableName": "institution_settings",
+      "sqliteCols": 30,
+      "pgCols": 30,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 0,
+      "hasFkPg": 0,
+      "isAutoIncSqlite": false,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "mission_order_request_attachments",
+      "sqliteCols": 7,
+      "pgCols": 7,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 1,
+      "hasFkPg": 1,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "mission_order_request_history",
+      "sqliteCols": 9,
+      "pgCols": 9,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 2,
+      "hasFkPg": 2,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "mission_order_requests",
+      "sqliteCols": 31,
+      "pgCols": 31,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 2,
+      "hasFkPg": 2,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "mission_orders",
+      "sqliteCols": 47,
+      "pgCols": 47,
+      "hasPkSqlite": true,
+      "hasPkPg": false,
+      "hasFkSqlite": 2,
+      "hasFkPg": 2,
+      "isAutoIncSqlite": false,
+      "hasIdentityPg": false,
+      "status": "DIFFÉRENCE"
+    },
+    {
+      "tableName": "notifications",
+      "sqliteCols": 9,
+      "pgCols": 9,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 2,
+      "hasFkPg": 2,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "number_sequences",
+      "sqliteCols": 3,
+      "pgCols": 3,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 0,
+      "hasFkPg": 0,
+      "isAutoIncSqlite": false,
+      "hasIdentityPg": false,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "outgoing_mails",
+      "sqliteCols": 5,
+      "pgCols": 5,
+      "hasPkSqlite": true,
+      "hasPkPg": false,
+      "hasFkSqlite": 2,
+      "hasFkPg": 2,
+      "isAutoIncSqlite": false,
+      "hasIdentityPg": false,
+      "status": "DIFFÉRENCE"
+    },
+    {
+      "tableName": "permissions",
+      "sqliteCols": 4,
+      "pgCols": 4,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 0,
+      "hasFkPg": 0,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "role_permissions",
+      "sqliteCols": 2,
+      "pgCols": 2,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 2,
+      "hasFkPg": 2,
+      "isAutoIncSqlite": false,
+      "hasIdentityPg": false,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "roles",
+      "sqliteCols": 6,
+      "pgCols": 6,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 0,
+      "hasFkPg": 0,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "services",
+      "sqliteCols": 7,
+      "pgCols": 7,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 0,
+      "hasFkPg": 0,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "signature_versions",
+      "sqliteCols": 8,
+      "pgCols": 8,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 1,
+      "hasFkPg": 1,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "signatures",
+      "sqliteCols": 7,
+      "pgCols": 7,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 2,
+      "hasFkPg": 2,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "staff",
+      "sqliteCols": 13,
+      "pgCols": 13,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 1,
+      "hasFkPg": 1,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "template_fields",
+      "sqliteCols": 10,
+      "pgCols": 10,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 1,
+      "hasFkPg": 1,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "template_versions",
+      "sqliteCols": 15,
+      "pgCols": 15,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 1,
+      "hasFkPg": 1,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "user_signatures",
+      "sqliteCols": 16,
+      "pgCols": 16,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 2,
+      "hasFkPg": 2,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "users",
+      "sqliteCols": 17,
+      "pgCols": 17,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 2,
+      "hasFkPg": 2,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "users_temp",
+      "sqliteCols": 17,
+      "pgCols": 17,
+      "hasPkSqlite": false,
+      "hasPkPg": false,
+      "hasFkSqlite": 0,
+      "hasFkPg": 0,
+      "isAutoIncSqlite": false,
+      "hasIdentityPg": false,
+      "status": "CONFORME"
+    },
+    {
+      "tableName": "vehicles",
+      "sqliteCols": 8,
+      "pgCols": 8,
+      "hasPkSqlite": true,
+      "hasPkPg": true,
+      "hasFkSqlite": 1,
+      "hasFkPg": 1,
+      "isAutoIncSqlite": true,
+      "hasIdentityPg": true,
+      "status": "CONFORME"
+    }
+  ],
+  "recordsAudit": [
+    {
+      "tableName": "appointment_availabilities",
+      "srcRows": 0,
+      "pgRows": 0,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "appointment_history",
+      "srcRows": 3,
+      "pgRows": 3,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "appointment_settings",
+      "srcRows": 3,
+      "pgRows": 3,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "appointments",
+      "srcRows": 1,
+      "pgRows": 1,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "attachments",
+      "srcRows": 6,
+      "pgRows": 6,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "audit_logs",
+      "srcRows": 3097,
+      "pgRows": 3097,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "calendar_blocks",
+      "srcRows": 0,
+      "pgRows": 0,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "dispatch_logs",
+      "srcRows": 3,
+      "pgRows": 3,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "dispatch_recipients",
+      "srcRows": 60,
+      "pgRows": 60,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "document_dispatches",
+      "srcRows": 2,
+      "pgRows": 2,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "document_history",
+      "srcRows": 46,
+      "pgRows": 46,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "document_receipts",
+      "srcRows": 6,
+      "pgRows": 6,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "document_signatures",
+      "srcRows": 3,
+      "pgRows": 3,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "document_template_instances",
+      "srcRows": 0,
+      "pgRows": 0,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "document_templates",
+      "srcRows": 7,
+      "pgRows": 7,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "document_transfers",
+      "srcRows": 11,
+      "pgRows": 11,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "document_type_configs",
+      "srcRows": 16,
+      "pgRows": 16,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "documents",
+      "srcRows": 6,
+      "pgRows": 6,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "external_missionaries",
+      "srcRows": 0,
+      "pgRows": 0,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "external_missionary_history",
+      "srcRows": 0,
+      "pgRows": 0,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "incoming_mails",
+      "srcRows": 2,
+      "pgRows": 2,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "institution_settings",
+      "srcRows": 1,
+      "pgRows": 1,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "mission_order_request_attachments",
+      "srcRows": 0,
+      "pgRows": 0,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "mission_order_request_history",
+      "srcRows": 0,
+      "pgRows": 0,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "mission_order_requests",
+      "srcRows": 0,
+      "pgRows": 0,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "mission_orders",
+      "srcRows": 4,
+      "pgRows": 4,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "notifications",
+      "srcRows": 21,
+      "pgRows": 21,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "number_sequences",
+      "srcRows": 8,
+      "pgRows": 8,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "outgoing_mails",
+      "srcRows": 0,
+      "pgRows": 0,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "permissions",
+      "srcRows": 91,
+      "pgRows": 91,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "role_permissions",
+      "srcRows": 280,
+      "pgRows": 280,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "roles",
+      "srcRows": 7,
+      "pgRows": 7,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "services",
+      "srcRows": 30,
+      "pgRows": 30,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "signature_versions",
+      "srcRows": 3,
+      "pgRows": 3,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "signatures",
+      "srcRows": 5,
+      "pgRows": 5,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "staff",
+      "srcRows": 9,
+      "pgRows": 9,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "template_fields",
+      "srcRows": 6,
+      "pgRows": 6,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "template_versions",
+      "srcRows": 0,
+      "pgRows": 0,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "user_signatures",
+      "srcRows": 3,
+      "pgRows": 3,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "users",
+      "srcRows": 10,
+      "pgRows": 10,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "users_temp",
+      "srcRows": 8,
+      "pgRows": 8,
+      "diff": 0,
+      "exactMatch": true
+    },
+    {
+      "tableName": "vehicles",
+      "srcRows": 8,
+      "pgRows": 8,
+      "diff": 0,
+      "exactMatch": true
+    }
+  ],
+  "datesAudit": {
+    "appointment_availabilities.created_at": {
+      "table": "appointment_availabilities",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "appointment_availabilities.updated_at": {
+      "table": "appointment_availabilities",
+      "column": "updated_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "appointment_history.created_at": {
+      "table": "appointment_history",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-19 11:26:51",
+        "2026-08-19 11:27:28",
+        "2026-08-19 11:27:28"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 3,
+      "nulls": 0,
+      "nonNulls": 3
+    },
+    "appointments.requested_date": {
+      "table": "appointments",
+      "column": "requested_date",
+      "sqliteType": "DATE",
+      "pgType": "DATE",
+      "samples": [
+        "2026-08-19"
+      ],
+      "formats": [
+        "YYYY-MM-DD"
+      ],
+      "total": 1,
+      "nulls": 0,
+      "nonNulls": 1
+    },
+    "appointments.reschedule_date": {
+      "table": "appointments",
+      "column": "reschedule_date",
+      "sqliteType": "DATE",
+      "pgType": "DATE",
+      "samples": [],
+      "formats": [],
+      "total": 1,
+      "nulls": 1,
+      "nonNulls": 0
+    },
+    "appointments.checked_in_at": {
+      "table": "appointments",
+      "column": "checked_in_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 1,
+      "nulls": 1,
+      "nonNulls": 0
+    },
+    "appointments.completed_at": {
+      "table": "appointments",
+      "column": "completed_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 1,
+      "nulls": 1,
+      "nonNulls": 0
+    },
+    "appointments.created_at": {
+      "table": "appointments",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-19 11:26:51"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 1,
+      "nulls": 0,
+      "nonNulls": 1
+    },
+    "appointments.updated_at": {
+      "table": "appointments",
+      "column": "updated_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-19 11:27:28"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 1,
+      "nulls": 0,
+      "nonNulls": 1
+    },
+    "attachments.created_at": {
+      "table": "attachments",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-18 22:09:46",
+        "2026-08-19 10:14:44",
+        "2026-08-19 10:44:46"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 6,
+      "nulls": 0,
+      "nonNulls": 6
+    },
+    "audit_logs.timestamp": {
+      "table": "audit_logs",
+      "column": "timestamp",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-10 13:29:07",
+        "2026-08-10 13:29:07",
+        "2026-08-10 13:29:07"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 3097,
+      "nulls": 0,
+      "nonNulls": 3097
+    },
+    "calendar_blocks.start_datetime": {
+      "table": "calendar_blocks",
+      "column": "start_datetime",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "calendar_blocks.end_datetime": {
+      "table": "calendar_blocks",
+      "column": "end_datetime",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "calendar_blocks.created_at": {
+      "table": "calendar_blocks",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "dispatch_logs.created_at": {
+      "table": "dispatch_logs",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-19 09:58:11",
+        "2026-08-19 09:58:29",
+        "2026-08-19 11:15:34"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 3,
+      "nulls": 0,
+      "nonNulls": 3
+    },
+    "dispatch_recipients.first_viewed_at": {
+      "table": "dispatch_recipients",
+      "column": "first_viewed_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 60,
+      "nulls": 59,
+      "nonNulls": 1
+    },
+    "dispatch_recipients.acknowledged_at": {
+      "table": "dispatch_recipients",
+      "column": "acknowledged_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 60,
+      "nulls": 60,
+      "nonNulls": 0
+    },
+    "dispatch_recipients.action_started_at": {
+      "table": "dispatch_recipients",
+      "column": "action_started_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 60,
+      "nulls": 60,
+      "nonNulls": 0
+    },
+    "dispatch_recipients.action_completed_at": {
+      "table": "dispatch_recipients",
+      "column": "action_completed_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 60,
+      "nulls": 60,
+      "nonNulls": 0
+    },
+    "dispatch_recipients.last_reminder_at": {
+      "table": "dispatch_recipients",
+      "column": "last_reminder_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 60,
+      "nulls": 60,
+      "nonNulls": 0
+    },
+    "dispatch_recipients.created_at": {
+      "table": "dispatch_recipients",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-19 09:58:10",
+        "2026-08-19 09:58:10",
+        "2026-08-19 09:58:10"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 60,
+      "nulls": 0,
+      "nonNulls": 60
+    },
+    "dispatch_recipients.updated_at": {
+      "table": "dispatch_recipients",
+      "column": "updated_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-19 09:58:10",
+        "2026-08-19 09:58:10",
+        "2026-08-19 09:58:10"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 60,
+      "nulls": 0,
+      "nonNulls": 60
+    },
+    "document_dispatches.deadline": {
+      "table": "document_dispatches",
+      "column": "deadline",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 2,
+      "nulls": 2,
+      "nonNulls": 0
+    },
+    "document_dispatches.created_at": {
+      "table": "document_dispatches",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-19 09:58:10",
+        "2026-08-19 11:15:34"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 2,
+      "nulls": 0,
+      "nonNulls": 2
+    },
+    "document_dispatches.updated_at": {
+      "table": "document_dispatches",
+      "column": "updated_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-19 09:58:10",
+        "2026-08-19 11:15:34"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 2,
+      "nulls": 0,
+      "nonNulls": 2
+    },
+    "document_history.timestamp": {
+      "table": "document_history",
+      "column": "timestamp",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-18 22:09:46",
+        "2026-08-18 22:09:46",
+        "2026-08-18 22:09:47"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 46,
+      "nulls": 0,
+      "nonNulls": 46
+    },
+    "document_receipts.created_at": {
+      "table": "document_receipts",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-18 22:09:47",
+        "2026-08-19 10:14:44",
+        "2026-08-19 10:44:46"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 6,
+      "nulls": 0,
+      "nonNulls": 6
+    },
+    "document_receipts.updated_at": {
+      "table": "document_receipts",
+      "column": "updated_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-18 22:09:47",
+        "2026-08-19 10:14:44",
+        "2026-08-19 10:44:46"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 6,
+      "nulls": 0,
+      "nonNulls": 6
+    },
+    "document_signatures.signed_at": {
+      "table": "document_signatures",
+      "column": "signed_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-19T10:44:46.568Z",
+        "2026-08-19T10:53:08.282Z",
+        "2026-08-19T11:19:09.695Z"
+      ],
+      "formats": [
+        "ISO-8601"
+      ],
+      "total": 3,
+      "nulls": 0,
+      "nonNulls": 3
+    },
+    "document_template_instances.created_at": {
+      "table": "document_template_instances",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "document_templates.created_at": {
+      "table": "document_templates",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-17 20:51:33",
+        "2026-08-17 20:51:33",
+        "2026-08-17 20:51:33"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 7,
+      "nulls": 0,
+      "nonNulls": 7
+    },
+    "document_templates.updated_at": {
+      "table": "document_templates",
+      "column": "updated_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-17 20:51:33",
+        "2026-08-17 20:51:33",
+        "2026-08-17 20:51:33"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 7,
+      "nulls": 0,
+      "nonNulls": 7
+    },
+    "document_transfers.deadline": {
+      "table": "document_transfers",
+      "column": "deadline",
+      "sqliteType": "DATE",
+      "pgType": "DATE",
+      "samples": [],
+      "formats": [],
+      "total": 11,
+      "nulls": 11,
+      "nonNulls": 0
+    },
+    "document_transfers.sent_at": {
+      "table": "document_transfers",
+      "column": "sent_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-19 10:14:44",
+        "2026-08-19 10:15:43",
+        "2026-08-19 10:44:46"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 11,
+      "nulls": 0,
+      "nonNulls": 11
+    },
+    "document_transfers.received_at": {
+      "table": "document_transfers",
+      "column": "received_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 11,
+      "nulls": 11,
+      "nonNulls": 0
+    },
+    "document_transfers.processed_at": {
+      "table": "document_transfers",
+      "column": "processed_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 11,
+      "nulls": 11,
+      "nonNulls": 0
+    },
+    "document_type_configs.created_at": {
+      "table": "document_type_configs",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-11 08:17:56",
+        "2026-08-11 08:17:56",
+        "2026-08-11 08:17:56"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 16,
+      "nulls": 0,
+      "nonNulls": 16
+    },
+    "document_type_configs.updated_at": {
+      "table": "document_type_configs",
+      "column": "updated_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-11 08:17:56",
+        "2026-08-11 08:17:56",
+        "2026-08-11 08:17:56"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 16,
+      "nulls": 0,
+      "nonNulls": 16
+    },
+    "documents.deadline_date": {
+      "table": "documents",
+      "column": "deadline_date",
+      "sqliteType": "DATE",
+      "pgType": "DATE",
+      "samples": [
+        "2026-08-19",
+        "2026-08-25",
+        "2026-08-20"
+      ],
+      "formats": [
+        "YYYY-MM-DD"
+      ],
+      "total": 6,
+      "nulls": 2,
+      "nonNulls": 4
+    },
+    "documents.created_at": {
+      "table": "documents",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-18 22:09:46",
+        "2026-08-19 10:14:44",
+        "2026-08-19 10:44:46"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 6,
+      "nulls": 0,
+      "nonNulls": 6
+    },
+    "documents.updated_at": {
+      "table": "documents",
+      "column": "updated_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-18 22:09:46",
+        "2026-08-19 10:15:43",
+        "2026-08-19 10:44:46"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 6,
+      "nulls": 0,
+      "nonNulls": 6
+    },
+    "documents.archived_at": {
+      "table": "documents",
+      "column": "archived_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-18T22:09:46.904Z",
+        "2026-08-19 10:16:43",
+        "2026-08-19 11:35:57"
+      ],
+      "formats": [
+        "ISO-8601",
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 6,
+      "nulls": 0,
+      "nonNulls": 6
+    },
+    "documents.rejected_at": {
+      "table": "documents",
+      "column": "rejected_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 6,
+      "nulls": 6,
+      "nonNulls": 0
+    },
+    "documents.document_date": {
+      "table": "documents",
+      "column": "document_date",
+      "sqliteType": "DATE",
+      "pgType": "DATE",
+      "samples": [
+        "2026-08-19"
+      ],
+      "formats": [
+        "YYYY-MM-DD"
+      ],
+      "total": 6,
+      "nulls": 5,
+      "nonNulls": 1
+    },
+    "documents.external_signature_date": {
+      "table": "documents",
+      "column": "external_signature_date",
+      "sqliteType": "DATE",
+      "pgType": "DATE",
+      "samples": [
+        "2026-08-19"
+      ],
+      "formats": [
+        "YYYY-MM-DD"
+      ],
+      "total": 6,
+      "nulls": 5,
+      "nonNulls": 1
+    },
+    "documents.deleted_at": {
+      "table": "documents",
+      "column": "deleted_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 6,
+      "nulls": 6,
+      "nonNulls": 0
+    },
+    "external_missionaries.expected_start_date": {
+      "table": "external_missionaries",
+      "column": "expected_start_date",
+      "sqliteType": "DATE",
+      "pgType": "DATE",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "external_missionaries.expected_end_date": {
+      "table": "external_missionaries",
+      "column": "expected_end_date",
+      "sqliteType": "DATE",
+      "pgType": "DATE",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "external_missionaries.arrival_date": {
+      "table": "external_missionaries",
+      "column": "arrival_date",
+      "sqliteType": "DATETIME",
+      "pgType": "DATE",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "external_missionaries.arrival_recorded_at": {
+      "table": "external_missionaries",
+      "column": "arrival_recorded_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "external_missionaries.departure_date": {
+      "table": "external_missionaries",
+      "column": "departure_date",
+      "sqliteType": "DATETIME",
+      "pgType": "DATE",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "external_missionaries.departure_recorded_at": {
+      "table": "external_missionaries",
+      "column": "departure_recorded_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "external_missionaries.created_at": {
+      "table": "external_missionaries",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "external_missionaries.updated_at": {
+      "table": "external_missionaries",
+      "column": "updated_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "external_missionaries.signed_at": {
+      "table": "external_missionaries",
+      "column": "signed_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "external_missionaries.rejected_at": {
+      "table": "external_missionaries",
+      "column": "rejected_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "external_missionaries.delivered_at": {
+      "table": "external_missionaries",
+      "column": "delivered_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "external_missionary_history.timestamp": {
+      "table": "external_missionary_history",
+      "column": "timestamp",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "incoming_mails.reception_date": {
+      "table": "incoming_mails",
+      "column": "reception_date",
+      "sqliteType": "DATE",
+      "pgType": "DATE",
+      "samples": [
+        "2026-08-18",
+        "2026-08-19"
+      ],
+      "formats": [
+        "YYYY-MM-DD"
+      ],
+      "total": 2,
+      "nulls": 0,
+      "nonNulls": 2
+    },
+    "institution_settings.updated_at": {
+      "table": "institution_settings",
+      "column": "updated_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-17 10:20:27"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 1,
+      "nulls": 0,
+      "nonNulls": 1
+    },
+    "mission_order_request_attachments.uploaded_at": {
+      "table": "mission_order_request_attachments",
+      "column": "uploaded_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "mission_order_request_history.timestamp": {
+      "table": "mission_order_request_history",
+      "column": "timestamp",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "mission_order_requests.start_date": {
+      "table": "mission_order_requests",
+      "column": "start_date",
+      "sqliteType": "DATE",
+      "pgType": "DATE",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "mission_order_requests.end_date": {
+      "table": "mission_order_requests",
+      "column": "end_date",
+      "sqliteType": "DATE",
+      "pgType": "DATE",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "mission_order_requests.created_at": {
+      "table": "mission_order_requests",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "mission_order_requests.updated_at": {
+      "table": "mission_order_requests",
+      "column": "updated_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "mission_orders.departure_date": {
+      "table": "mission_orders",
+      "column": "departure_date",
+      "sqliteType": "DATE",
+      "pgType": "DATE",
+      "samples": [
+        "2026-08-19",
+        "2026-08-25",
+        "2026-08-20"
+      ],
+      "formats": [
+        "YYYY-MM-DD"
+      ],
+      "total": 4,
+      "nulls": 0,
+      "nonNulls": 4
+    },
+    "mission_orders.return_date": {
+      "table": "mission_orders",
+      "column": "return_date",
+      "sqliteType": "DATE",
+      "pgType": "DATE",
+      "samples": [
+        "2026-08-20",
+        "2026-08-29",
+        "2026-09-02"
+      ],
+      "formats": [
+        "YYYY-MM-DD"
+      ],
+      "total": 4,
+      "nulls": 0,
+      "nonNulls": 4
+    },
+    "mission_orders.signed_at": {
+      "table": "mission_orders",
+      "column": "signed_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-19T10:44:46.568Z",
+        "2026-08-19T10:53:08.282Z",
+        "2026-08-19T11:19:09.695Z"
+      ],
+      "formats": [
+        "ISO-8601"
+      ],
+      "total": 4,
+      "nulls": 1,
+      "nonNulls": 3
+    },
+    "mission_orders.printed_at": {
+      "table": "mission_orders",
+      "column": "printed_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 4,
+      "nulls": 4,
+      "nonNulls": 0
+    },
+    "mission_orders.delivered_at": {
+      "table": "mission_orders",
+      "column": "delivered_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 4,
+      "nulls": 4,
+      "nonNulls": 0
+    },
+    "mission_orders.returned_to_sc_at": {
+      "table": "mission_orders",
+      "column": "returned_to_sc_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-19T10:44:46.568Z",
+        "2026-08-19T10:53:08.282Z",
+        "2026-08-19T11:19:09.695Z"
+      ],
+      "formats": [
+        "ISO-8601"
+      ],
+      "total": 4,
+      "nulls": 1,
+      "nonNulls": 3
+    },
+    "notifications.created_at": {
+      "table": "notifications",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-19 09:58:10",
+        "2026-08-19 09:58:11",
+        "2026-08-19 09:58:11"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 21,
+      "nulls": 0,
+      "nonNulls": 21
+    },
+    "roles.created_at": {
+      "table": "roles",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-10 13:14:41",
+        "2026-08-10 13:14:41",
+        "2026-08-10 13:14:41"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 7,
+      "nulls": 0,
+      "nonNulls": 7
+    },
+    "services.created_at": {
+      "table": "services",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-10 13:14:42",
+        "2026-08-10 13:14:42",
+        "2026-08-10 13:14:42"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 30,
+      "nulls": 0,
+      "nonNulls": 30
+    },
+    "services.updated_at": {
+      "table": "services",
+      "column": "updated_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-10 13:14:42",
+        "2026-08-10 13:14:42",
+        "2026-08-10 13:14:42"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 30,
+      "nulls": 0,
+      "nonNulls": 30
+    },
+    "signature_versions.created_at": {
+      "table": "signature_versions",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-13 00:13:15",
+        "2026-08-13 00:13:37",
+        "2026-08-18 02:11:21"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 3,
+      "nulls": 0,
+      "nonNulls": 3
+    },
+    "signatures.signed_at": {
+      "table": "signatures",
+      "column": "signed_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-19T10:15:43.840Z",
+        "2026-08-19T10:44:46.568Z",
+        "2026-08-19T10:53:08.282Z"
+      ],
+      "formats": [
+        "ISO-8601"
+      ],
+      "total": 5,
+      "nulls": 0,
+      "nonNulls": 5
+    },
+    "staff.created_at": {
+      "table": "staff",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-12 11:28:01",
+        "2026-08-12 11:28:01",
+        "2026-08-12 11:47:10"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 9,
+      "nulls": 0,
+      "nonNulls": 9
+    },
+    "staff.updated_at": {
+      "table": "staff",
+      "column": "updated_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-12 11:45:21",
+        "2026-08-12 11:45:36",
+        "2026-08-12 11:47:10"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 9,
+      "nulls": 0,
+      "nonNulls": 9
+    },
+    "template_fields.created_at": {
+      "table": "template_fields",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-19 09:54:44",
+        "2026-08-19 09:54:44",
+        "2026-08-19 09:54:44"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 6,
+      "nulls": 0,
+      "nonNulls": 6
+    },
+    "template_versions.created_at": {
+      "table": "template_versions",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [],
+      "formats": [],
+      "total": 0,
+      "nulls": 0,
+      "nonNulls": 0
+    },
+    "user_signatures.activation_date": {
+      "table": "user_signatures",
+      "column": "activation_date",
+      "sqliteType": "DATE",
+      "pgType": "DATE",
+      "samples": [
+        "2026-08-13",
+        "2026-08-13",
+        "2026-08-18"
+      ],
+      "formats": [
+        "YYYY-MM-DD"
+      ],
+      "total": 3,
+      "nulls": 0,
+      "nonNulls": 3
+    },
+    "user_signatures.expiration_date": {
+      "table": "user_signatures",
+      "column": "expiration_date",
+      "sqliteType": "DATE",
+      "pgType": "DATE",
+      "samples": [],
+      "formats": [],
+      "total": 3,
+      "nulls": 3,
+      "nonNulls": 0
+    },
+    "user_signatures.created_at": {
+      "table": "user_signatures",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-13 00:13:15",
+        "2026-08-13 00:13:37",
+        "2026-08-18 02:11:21"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 3,
+      "nulls": 0,
+      "nonNulls": 3
+    },
+    "user_signatures.updated_at": {
+      "table": "user_signatures",
+      "column": "updated_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-13 00:13:15",
+        "2026-08-13 00:13:37",
+        "2026-08-18 02:11:21"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 3,
+      "nulls": 0,
+      "nonNulls": 3
+    },
+    "users.last_login": {
+      "table": "users",
+      "column": "last_login",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-19 11:34:13",
+        "2026-08-19 11:35:14",
+        "2026-08-19 11:20:31"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 10,
+      "nulls": 1,
+      "nonNulls": 9
+    },
+    "users.created_at": {
+      "table": "users",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-13 16:45:30",
+        "2026-08-13 16:45:30",
+        "2026-08-13 16:45:30"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 10,
+      "nulls": 0,
+      "nonNulls": 10
+    },
+    "users.updated_at": {
+      "table": "users",
+      "column": "updated_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-14 13:08:24",
+        "2026-08-14 13:07:43",
+        "2026-08-14 13:07:18"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 10,
+      "nulls": 0,
+      "nonNulls": 10
+    },
+    "users_temp.created_at": {
+      "table": "users_temp",
+      "column": "created_at",
+      "sqliteType": "NUM",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-10 13:14:43",
+        "2026-08-10 13:14:43",
+        "2026-08-10 13:14:43"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 8,
+      "nulls": 0,
+      "nonNulls": 8
+    },
+    "users_temp.updated_at": {
+      "table": "users_temp",
+      "column": "updated_at",
+      "sqliteType": "NUM",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-10 17:58:12",
+        "2026-08-10 17:57:14",
+        "2026-08-10 17:56:44"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 8,
+      "nulls": 0,
+      "nonNulls": 8
+    },
+    "vehicles.created_at": {
+      "table": "vehicles",
+      "column": "created_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-12 11:28:01",
+        "2026-08-12 11:28:01",
+        "2026-08-12 14:01:32"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 8,
+      "nulls": 0,
+      "nonNulls": 8
+    },
+    "vehicles.updated_at": {
+      "table": "vehicles",
+      "column": "updated_at",
+      "sqliteType": "DATETIME",
+      "pgType": "TIMESTAMPTZ",
+      "samples": [
+        "2026-08-12 11:45:21",
+        "2026-08-12 11:45:36",
+        "2026-08-12 14:01:32"
+      ],
+      "formats": [
+        "YYYY-MM-DD HH:MM:SS"
+      ],
+      "total": 8,
+      "nulls": 0,
+      "nonNulls": 8
+    }
+  },
+  "booleansAudit": {
+    "appointment_availabilities.is_available": {
+      "table": "appointment_availabilities",
+      "column": "is_available",
+      "sqliteType": "INTEGER",
+      "distinctValues": [],
+      "pgType": "INTEGER"
+    },
+    "appointments.is_reason_private": {
+      "table": "appointments",
+      "column": "is_reason_private",
+      "sqliteType": "INTEGER",
+      "distinctValues": [
+        0
+      ],
+      "pgType": "INTEGER"
+    },
+    "document_templates.is_active": {
+      "table": "document_templates",
+      "column": "is_active",
+      "sqliteType": "INTEGER",
+      "distinctValues": [
+        1
+      ],
+      "pgType": "INTEGER"
+    },
+    "document_templates.is_default": {
+      "table": "document_templates",
+      "column": "is_default",
+      "sqliteType": "INTEGER",
+      "distinctValues": [
+        0
+      ],
+      "pgType": "INTEGER"
+    },
+    "document_type_configs.allow_direct_archive": {
+      "table": "document_type_configs",
+      "column": "allow_direct_archive",
+      "sqliteType": "INTEGER",
+      "distinctValues": [
+        1,
+        0
+      ],
+      "pgType": "INTEGER"
+    },
+    "documents.is_locked": {
+      "table": "documents",
+      "column": "is_locked",
+      "sqliteType": "INTEGER",
+      "distinctValues": [
+        0,
+        1
+      ],
+      "pgType": "INTEGER"
+    },
+    "documents.has_external_signature": {
+      "table": "documents",
+      "column": "has_external_signature",
+      "sqliteType": "INTEGER",
+      "distinctValues": [
+        0,
+        1
+      ],
+      "pgType": "INTEGER"
+    },
+    "external_missionaries.is_locked": {
+      "table": "external_missionaries",
+      "column": "is_locked",
+      "sqliteType": "INTEGER",
+      "distinctValues": [],
+      "pgType": "INTEGER"
+    },
+    "mission_orders.is_signed": {
+      "table": "mission_orders",
+      "column": "is_signed",
+      "sqliteType": "INTEGER",
+      "distinctValues": [
+        0,
+        1
+      ],
+      "pgType": "INTEGER"
+    },
+    "notifications.is_read": {
+      "table": "notifications",
+      "column": "is_read",
+      "sqliteType": "INTEGER",
+      "distinctValues": [
+        0
+      ],
+      "pgType": "INTEGER"
+    },
+    "roles.is_custom": {
+      "table": "roles",
+      "column": "is_custom",
+      "sqliteType": "INTEGER",
+      "distinctValues": [
+        0
+      ],
+      "pgType": "INTEGER"
+    },
+    "signature_versions.is_active": {
+      "table": "signature_versions",
+      "column": "is_active",
+      "sqliteType": "INTEGER",
+      "distinctValues": [
+        1
+      ],
+      "pgType": "INTEGER"
+    },
+    "staff.is_driver": {
+      "table": "staff",
+      "column": "is_driver",
+      "sqliteType": "INTEGER",
+      "distinctValues": [
+        0,
+        1
+      ],
+      "pgType": "INTEGER"
+    },
+    "template_fields.required": {
+      "table": "template_fields",
+      "column": "required",
+      "sqliteType": "INTEGER",
+      "distinctValues": [
+        1,
+        0
+      ],
+      "pgType": "INTEGER"
+    },
+    "user_signatures.is_active": {
+      "table": "user_signatures",
+      "column": "is_active",
+      "sqliteType": "INTEGER",
+      "distinctValues": [
+        1
+      ],
+      "pgType": "INTEGER"
+    },
+    "users.can_receive_appointments": {
+      "table": "users",
+      "column": "can_receive_appointments",
+      "sqliteType": "INTEGER",
+      "distinctValues": [
+        1
+      ],
+      "pgType": "INTEGER"
+    },
+    "users_temp.can_receive_appointments": {
+      "table": "users_temp",
+      "column": "can_receive_appointments",
+      "sqliteType": "INT",
+      "distinctValues": [
+        1
+      ],
+      "pgType": "INTEGER"
+    }
+  },
+  "blobsAudit": {},
+  "identityAudit": [
+    {
+      "table": "appointment_history",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 48,
+      "rowCount": 3
+    },
+    {
+      "table": "appointments",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 23,
+      "rowCount": 1
+    },
+    {
+      "table": "attachments",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 109,
+      "rowCount": 6
+    },
+    {
+      "table": "audit_logs",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 3097,
+      "rowCount": 3097
+    },
+    {
+      "table": "dispatch_logs",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 64,
+      "rowCount": 3
+    },
+    {
+      "table": "dispatch_recipients",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 470,
+      "rowCount": 60
+    },
+    {
+      "table": "document_dispatches",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 23,
+      "rowCount": 2
+    },
+    {
+      "table": "document_history",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 855,
+      "rowCount": 46
+    },
+    {
+      "table": "document_receipts",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 53,
+      "rowCount": 6
+    },
+    {
+      "table": "document_signatures",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 33,
+      "rowCount": 3
+    },
+    {
+      "table": "document_templates",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 80,
+      "rowCount": 7
+    },
+    {
+      "table": "document_transfers",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 288,
+      "rowCount": 11
+    },
+    {
+      "table": "documents",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 234,
+      "rowCount": 6
+    },
+    {
+      "table": "institution_settings",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 1,
+      "rowCount": 1
+    },
+    {
+      "table": "notifications",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 304,
+      "rowCount": 21
+    },
+    {
+      "table": "permissions",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 91,
+      "rowCount": 91
+    },
+    {
+      "table": "roles",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 7,
+      "rowCount": 7
+    },
+    {
+      "table": "services",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 30,
+      "rowCount": 30
+    },
+    {
+      "table": "signature_versions",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 5,
+      "rowCount": 3
+    },
+    {
+      "table": "signatures",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 106,
+      "rowCount": 5
+    },
+    {
+      "table": "staff",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 9,
+      "rowCount": 9
+    },
+    {
+      "table": "template_fields",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 51,
+      "rowCount": 6
+    },
+    {
+      "table": "user_signatures",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 13,
+      "rowCount": 3
+    },
+    {
+      "table": "users",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 10,
+      "rowCount": 10
+    },
+    {
+      "table": "users_temp",
+      "hasIdentityPg": false,
+      "hasSetval": false,
+      "maxIdSqlite": 8,
+      "rowCount": 8
+    },
+    {
+      "table": "vehicles",
+      "hasIdentityPg": true,
+      "hasSetval": true,
+      "maxIdSqlite": 8,
+      "rowCount": 8
+    }
+  ],
+  "indexesAudit": [
+    {
+      "sqliteName": "idx_appointments_date",
+      "sqliteTable": "appointments",
+      "sqliteSql": "CREATE INDEX idx_appointments_date ON appointments(requested_date)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_appointments_date",
+        "table": "appointments",
+        "columns": "\"requested_date\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_appointments_date\" ON \"appointments\" (\"requested_date\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_appointments_ref",
+      "sqliteTable": "appointments",
+      "sqliteSql": "CREATE INDEX idx_appointments_ref ON appointments(reference)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_appointments_ref",
+        "table": "appointments",
+        "columns": "\"reference\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_appointments_ref\" ON \"appointments\" (\"reference\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_appointments_req",
+      "sqliteTable": "appointments",
+      "sqliteSql": "CREATE INDEX idx_appointments_req ON appointments(requester_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_appointments_req",
+        "table": "appointments",
+        "columns": "\"requester_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_appointments_req\" ON \"appointments\" (\"requester_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_appointments_resp",
+      "sqliteTable": "appointments",
+      "sqliteSql": "CREATE INDEX idx_appointments_resp ON appointments(responsible_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_appointments_resp",
+        "table": "appointments",
+        "columns": "\"responsible_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_appointments_resp\" ON \"appointments\" (\"responsible_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_appointments_status",
+      "sqliteTable": "appointments",
+      "sqliteSql": "CREATE INDEX idx_appointments_status ON appointments(status)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_appointments_status",
+        "table": "appointments",
+        "columns": "\"status\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_appointments_status\" ON \"appointments\" (\"status\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_audit_user",
+      "sqliteTable": "audit_logs",
+      "sqliteSql": "CREATE INDEX idx_audit_user ON audit_logs(user_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_audit_user",
+        "table": "audit_logs",
+        "columns": "\"user_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_audit_user\" ON \"audit_logs\" (\"user_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_disp_log_disp",
+      "sqliteTable": "dispatch_logs",
+      "sqliteSql": "CREATE INDEX idx_disp_log_disp ON dispatch_logs(dispatch_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_disp_log_disp",
+        "table": "dispatch_logs",
+        "columns": "\"dispatch_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_disp_log_disp\" ON \"dispatch_logs\" (\"dispatch_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_disp_log_rec",
+      "sqliteTable": "dispatch_logs",
+      "sqliteSql": "CREATE INDEX idx_disp_log_rec ON dispatch_logs(recipient_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_disp_log_rec",
+        "table": "dispatch_logs",
+        "columns": "\"recipient_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_disp_log_rec\" ON \"dispatch_logs\" (\"recipient_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_disp_rec_disp",
+      "sqliteTable": "dispatch_recipients",
+      "sqliteSql": "CREATE INDEX idx_disp_rec_disp ON dispatch_recipients(dispatch_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_disp_rec_disp",
+        "table": "dispatch_recipients",
+        "columns": "\"dispatch_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_disp_rec_disp\" ON \"dispatch_recipients\" (\"dispatch_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_disp_rec_doc",
+      "sqliteTable": "dispatch_recipients",
+      "sqliteSql": "CREATE INDEX idx_disp_rec_doc ON dispatch_recipients(document_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_disp_rec_doc",
+        "table": "dispatch_recipients",
+        "columns": "\"document_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_disp_rec_doc\" ON \"dispatch_recipients\" (\"document_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_disp_rec_service",
+      "sqliteTable": "dispatch_recipients",
+      "sqliteSql": "CREATE INDEX idx_disp_rec_service ON dispatch_recipients(service_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_disp_rec_service",
+        "table": "dispatch_recipients",
+        "columns": "\"service_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_disp_rec_service\" ON \"dispatch_recipients\" (\"service_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_disp_rec_status",
+      "sqliteTable": "dispatch_recipients",
+      "sqliteSql": "CREATE INDEX idx_disp_rec_status ON dispatch_recipients(status)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_disp_rec_status",
+        "table": "dispatch_recipients",
+        "columns": "\"status\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_disp_rec_status\" ON \"dispatch_recipients\" (\"status\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_disp_rec_tenant",
+      "sqliteTable": "dispatch_recipients",
+      "sqliteSql": "CREATE INDEX idx_disp_rec_tenant ON dispatch_recipients(tenant_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_disp_rec_tenant",
+        "table": "dispatch_recipients",
+        "columns": "\"tenant_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_disp_rec_tenant\" ON \"dispatch_recipients\" (\"tenant_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_doc_disp_doc",
+      "sqliteTable": "document_dispatches",
+      "sqliteSql": "CREATE INDEX idx_doc_disp_doc ON document_dispatches(document_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_doc_disp_doc",
+        "table": "document_dispatches",
+        "columns": "\"document_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_doc_disp_doc\" ON \"document_dispatches\" (\"document_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_doc_disp_ref",
+      "sqliteTable": "document_dispatches",
+      "sqliteSql": "CREATE INDEX idx_doc_disp_ref ON document_dispatches(reference)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_doc_disp_ref",
+        "table": "document_dispatches",
+        "columns": "\"reference\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_doc_disp_ref\" ON \"document_dispatches\" (\"reference\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_doc_disp_status",
+      "sqliteTable": "document_dispatches",
+      "sqliteSql": "CREATE INDEX idx_doc_disp_status ON document_dispatches(status)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_doc_disp_status",
+        "table": "document_dispatches",
+        "columns": "\"status\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_doc_disp_status\" ON \"document_dispatches\" (\"status\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_doc_disp_tenant",
+      "sqliteTable": "document_dispatches",
+      "sqliteSql": "CREATE INDEX idx_doc_disp_tenant ON document_dispatches(tenant_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_doc_disp_tenant",
+        "table": "document_dispatches",
+        "columns": "\"tenant_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_doc_disp_tenant\" ON \"document_dispatches\" (\"tenant_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_history_doc",
+      "sqliteTable": "document_history",
+      "sqliteSql": "CREATE INDEX idx_history_doc ON document_history(document_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_history_doc",
+        "table": "document_history",
+        "columns": "\"document_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_history_doc\" ON \"document_history\" (\"document_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_receipt_doc",
+      "sqliteTable": "document_receipts",
+      "sqliteSql": "CREATE INDEX idx_receipt_doc ON document_receipts(document_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_receipt_doc",
+        "table": "document_receipts",
+        "columns": "\"document_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_receipt_doc\" ON \"document_receipts\" (\"document_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_receipt_num",
+      "sqliteTable": "document_receipts",
+      "sqliteSql": "CREATE INDEX idx_receipt_num ON document_receipts(receipt_number)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_receipt_num",
+        "table": "document_receipts",
+        "columns": "\"receipt_number\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_receipt_num\" ON \"document_receipts\" (\"receipt_number\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_receipt_tenant",
+      "sqliteTable": "document_receipts",
+      "sqliteSql": "CREATE INDEX idx_receipt_tenant ON document_receipts(tenant_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_receipt_tenant",
+        "table": "document_receipts",
+        "columns": "\"tenant_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_receipt_tenant\" ON \"document_receipts\" (\"tenant_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_receipt_type",
+      "sqliteTable": "document_receipts",
+      "sqliteSql": "CREATE INDEX idx_receipt_type ON document_receipts(receipt_type)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_receipt_type",
+        "table": "document_receipts",
+        "columns": "\"receipt_type\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_receipt_type\" ON \"document_receipts\" (\"receipt_type\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_transfers_doc",
+      "sqliteTable": "document_transfers",
+      "sqliteSql": "CREATE INDEX idx_transfers_doc ON document_transfers(document_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_transfers_doc",
+        "table": "document_transfers",
+        "columns": "\"document_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_transfers_doc\" ON \"document_transfers\" (\"document_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_transfers_to_service",
+      "sqliteTable": "document_transfers",
+      "sqliteSql": "CREATE INDEX idx_transfers_to_service ON document_transfers(to_service_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_transfers_to_service",
+        "table": "document_transfers",
+        "columns": "\"to_service_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_transfers_to_service\" ON \"document_transfers\" (\"to_service_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_docs_created_by",
+      "sqliteTable": "documents",
+      "sqliteSql": "CREATE INDEX idx_docs_created_by ON documents(created_by)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_docs_created_by",
+        "table": "documents",
+        "columns": "\"created_by\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_docs_created_by\" ON \"documents\" (\"created_by\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_docs_curr_service",
+      "sqliteTable": "documents",
+      "sqliteSql": "CREATE INDEX idx_docs_curr_service ON documents(current_service_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_docs_curr_service",
+        "table": "documents",
+        "columns": "\"current_service_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_docs_curr_service\" ON \"documents\" (\"current_service_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_docs_curr_user",
+      "sqliteTable": "documents",
+      "sqliteSql": "CREATE INDEX idx_docs_curr_user ON documents(current_user_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_docs_curr_user",
+        "table": "documents",
+        "columns": "\"current_user_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_docs_curr_user\" ON \"documents\" (\"current_user_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_docs_ref",
+      "sqliteTable": "documents",
+      "sqliteSql": "CREATE INDEX idx_docs_ref ON documents(reference)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_docs_ref",
+        "table": "documents",
+        "columns": "\"reference\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_docs_ref\" ON \"documents\" (\"reference\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_docs_token",
+      "sqliteTable": "documents",
+      "sqliteSql": "CREATE INDEX idx_docs_token ON documents(tracking_token)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_docs_token",
+        "table": "documents",
+        "columns": "\"tracking_token\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_docs_token\" ON \"documents\" (\"tracking_token\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_ext_miss_ref",
+      "sqliteTable": "external_missionaries",
+      "sqliteSql": "CREATE INDEX idx_ext_miss_ref ON external_missionaries(reference)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_ext_miss_ref",
+        "table": "external_missionaries",
+        "columns": "\"reference\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_ext_miss_ref\" ON \"external_missionaries\" (\"reference\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_ext_miss_status",
+      "sqliteTable": "external_missionaries",
+      "sqliteSql": "CREATE INDEX idx_ext_miss_status ON external_missionaries(status)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_ext_miss_status",
+        "table": "external_missionaries",
+        "columns": "\"status\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_ext_miss_status\" ON \"external_missionaries\" (\"status\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_ext_miss_hist_miss_id",
+      "sqliteTable": "external_missionary_history",
+      "sqliteSql": "CREATE INDEX idx_ext_miss_hist_miss_id ON external_missionary_history(missionary_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_ext_miss_hist_miss_id",
+        "table": "external_missionary_history",
+        "columns": "\"missionary_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_ext_miss_hist_miss_id\" ON \"external_missionary_history\" (\"missionary_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_mo_req_att_req_id",
+      "sqliteTable": "mission_order_request_attachments",
+      "sqliteSql": "CREATE INDEX idx_mo_req_att_req_id ON mission_order_request_attachments(request_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_mo_req_att_req_id",
+        "table": "mission_order_request_attachments",
+        "columns": "\"request_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_mo_req_att_req_id\" ON \"mission_order_request_attachments\" (\"request_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_mo_req_hist_req_id",
+      "sqliteTable": "mission_order_request_history",
+      "sqliteSql": "CREATE INDEX idx_mo_req_hist_req_id ON mission_order_request_history(request_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_mo_req_hist_req_id",
+        "table": "mission_order_request_history",
+        "columns": "\"request_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_mo_req_hist_req_id\" ON \"mission_order_request_history\" (\"request_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_mo_req_dest_service",
+      "sqliteTable": "mission_order_requests",
+      "sqliteSql": "CREATE INDEX idx_mo_req_dest_service ON mission_order_requests(destination_service_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_mo_req_dest_service",
+        "table": "mission_order_requests",
+        "columns": "\"destination_service_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_mo_req_dest_service\" ON \"mission_order_requests\" (\"destination_service_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_mo_req_email",
+      "sqliteTable": "mission_order_requests",
+      "sqliteSql": "CREATE INDEX idx_mo_req_email ON mission_order_requests(applicant_email)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_mo_req_email",
+        "table": "mission_order_requests",
+        "columns": "\"applicant_email\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_mo_req_email\" ON \"mission_order_requests\" (\"applicant_email\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_mo_req_phone",
+      "sqliteTable": "mission_order_requests",
+      "sqliteSql": "CREATE INDEX idx_mo_req_phone ON mission_order_requests(applicant_phone)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_mo_req_phone",
+        "table": "mission_order_requests",
+        "columns": "\"applicant_phone\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_mo_req_phone\" ON \"mission_order_requests\" (\"applicant_phone\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_mo_req_ref",
+      "sqliteTable": "mission_order_requests",
+      "sqliteSql": "CREATE INDEX idx_mo_req_ref ON mission_order_requests(reference)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_mo_req_ref",
+        "table": "mission_order_requests",
+        "columns": "\"reference\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_mo_req_ref\" ON \"mission_order_requests\" (\"reference\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_mo_req_status",
+      "sqliteTable": "mission_order_requests",
+      "sqliteSql": "CREATE INDEX idx_mo_req_status ON mission_order_requests(status)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_mo_req_status",
+        "table": "mission_order_requests",
+        "columns": "\"status\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_mo_req_status\" ON \"mission_order_requests\" (\"status\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_notifs_user",
+      "sqliteTable": "notifications",
+      "sqliteSql": "CREATE INDEX idx_notifs_user ON notifications(user_id)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_notifs_user",
+        "table": "notifications",
+        "columns": "\"user_id\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_notifs_user\" ON \"notifications\" (\"user_id\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_staff_is_driver",
+      "sqliteTable": "staff",
+      "sqliteSql": "CREATE INDEX idx_staff_is_driver ON staff(is_driver)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_staff_is_driver",
+        "table": "staff",
+        "columns": "\"is_driver\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_staff_is_driver\" ON \"staff\" (\"is_driver\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_staff_matricule",
+      "sqliteTable": "staff",
+      "sqliteSql": "CREATE INDEX idx_staff_matricule ON staff(matricule)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_staff_matricule",
+        "table": "staff",
+        "columns": "\"matricule\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_staff_matricule\" ON \"staff\" (\"matricule\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    },
+    {
+      "sqliteName": "idx_staff_status",
+      "sqliteTable": "staff",
+      "sqliteSql": "CREATE INDEX idx_staff_status ON staff(status)",
+      "pgFound": true,
+      "pgIndex": {
+        "name": "idx_staff_status",
+        "table": "staff",
+        "columns": "\"status\"",
+        "raw": "CREATE INDEX IF NOT EXISTS \"idx_staff_status\" ON \"staff\" (\"status\");",
+        "isUnique": false
+      },
+      "status": "CONFORME"
+    }
+  ],
+  "foreignKeysAudit": [
+    {
+      "fromTable": "appointment_availabilities",
+      "fromCol": "user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "appointment_history",
+      "fromCol": "user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "appointment_history",
+      "fromCol": "appointment_id",
+      "toTable": "appointments",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "appointments",
+      "fromCol": "completed_by",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "appointments",
+      "fromCol": "checked_in_by",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "appointments",
+      "fromCol": "cancelled_by",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "appointments",
+      "fromCol": "reschedule_proposed_by",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "appointments",
+      "fromCol": "document_id",
+      "toTable": "documents",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "appointments",
+      "fromCol": "responsible_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "appointments",
+      "fromCol": "requester_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "attachments",
+      "fromCol": "uploaded_by",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "attachments",
+      "fromCol": "document_id",
+      "toTable": "documents",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "audit_logs",
+      "fromCol": "user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "calendar_blocks",
+      "fromCol": "created_by",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "calendar_blocks",
+      "fromCol": "user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "dispatch_logs",
+      "fromCol": "user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "dispatch_logs",
+      "fromCol": "service_id",
+      "toTable": "services",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "dispatch_logs",
+      "fromCol": "recipient_id",
+      "toTable": "dispatch_recipients",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "dispatch_logs",
+      "fromCol": "dispatch_id",
+      "toTable": "document_dispatches",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "dispatch_recipients",
+      "fromCol": "action_completed_by",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "dispatch_recipients",
+      "fromCol": "acknowledged_by",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "dispatch_recipients",
+      "fromCol": "first_viewed_by",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "dispatch_recipients",
+      "fromCol": "user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "dispatch_recipients",
+      "fromCol": "service_id",
+      "toTable": "services",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "dispatch_recipients",
+      "fromCol": "document_id",
+      "toTable": "documents",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "dispatch_recipients",
+      "fromCol": "dispatch_id",
+      "toTable": "document_dispatches",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "document_dispatches",
+      "fromCol": "sender_service_id",
+      "toTable": "services",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "document_dispatches",
+      "fromCol": "sender_user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "document_dispatches",
+      "fromCol": "document_id",
+      "toTable": "documents",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "document_history",
+      "fromCol": "service_id",
+      "toTable": "services",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "document_history",
+      "fromCol": "user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "document_history",
+      "fromCol": "document_id",
+      "toTable": "documents",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "document_receipts",
+      "fromCol": "created_by",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "document_receipts",
+      "fromCol": "document_id",
+      "toTable": "documents",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "document_signatures",
+      "fromCol": "signature_id",
+      "toTable": "user_signatures",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "document_signatures",
+      "fromCol": "document_id",
+      "toTable": "documents",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "document_template_instances",
+      "fromCol": "document_id",
+      "toTable": "documents",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "document_transfers",
+      "fromCol": "to_user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "document_transfers",
+      "fromCol": "to_service_id",
+      "toTable": "services",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "document_transfers",
+      "fromCol": "from_user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "document_transfers",
+      "fromCol": "from_service_id",
+      "toTable": "services",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "document_transfers",
+      "fromCol": "document_id",
+      "toTable": "documents",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "documents",
+      "fromCol": "created_by",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "documents",
+      "fromCol": "current_user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "documents",
+      "fromCol": "current_service_id",
+      "toTable": "services",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "external_missionaries",
+      "fromCol": "departure_recorded_by",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "external_missionaries",
+      "fromCol": "arrival_recorded_by",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "external_missionaries",
+      "fromCol": "host_service_id",
+      "toTable": "services",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "external_missionaries",
+      "fromCol": "delivered_by_user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "external_missionaries",
+      "fromCol": "rejected_by_user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "external_missionaries",
+      "fromCol": "signed_by_user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "external_missionaries",
+      "fromCol": "current_user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "external_missionaries",
+      "fromCol": "current_service_id",
+      "toTable": "services",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "external_missionary_history",
+      "fromCol": "service_id",
+      "toTable": "services",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "external_missionary_history",
+      "fromCol": "user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "external_missionary_history",
+      "fromCol": "missionary_id",
+      "toTable": "external_missionaries",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "incoming_mails",
+      "fromCol": "document_id",
+      "toTable": "documents",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "mission_order_request_attachments",
+      "fromCol": "request_id",
+      "toTable": "mission_order_requests",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "mission_order_request_history",
+      "fromCol": "user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "mission_order_request_history",
+      "fromCol": "request_id",
+      "toTable": "mission_order_requests",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "mission_order_requests",
+      "fromCol": "official_document_id",
+      "toTable": "documents",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "mission_order_requests",
+      "fromCol": "user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "mission_orders",
+      "fromCol": "signed_by_user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "mission_orders",
+      "fromCol": "document_id",
+      "toTable": "documents",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "notifications",
+      "fromCol": "document_id",
+      "toTable": "documents",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "notifications",
+      "fromCol": "user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "outgoing_mails",
+      "fromCol": "signatory_user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "outgoing_mails",
+      "fromCol": "document_id",
+      "toTable": "documents",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "role_permissions",
+      "fromCol": "permission_id",
+      "toTable": "permissions",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "role_permissions",
+      "fromCol": "role_id",
+      "toTable": "roles",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "signature_versions",
+      "fromCol": "signature_id",
+      "toTable": "user_signatures",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "signatures",
+      "fromCol": "user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "signatures",
+      "fromCol": "document_id",
+      "toTable": "documents",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "staff",
+      "fromCol": "service_id",
+      "toTable": "services",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "template_fields",
+      "fromCol": "template_id",
+      "toTable": "document_templates",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "template_versions",
+      "fromCol": "template_id",
+      "toTable": "document_templates",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "user_signatures",
+      "fromCol": "service_id",
+      "toTable": "services",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "user_signatures",
+      "fromCol": "user_id",
+      "toTable": "users",
+      "toCol": "id",
+      "onDelete": "CASCADE",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "users",
+      "fromCol": "role_id",
+      "toTable": "roles",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "users",
+      "fromCol": "service_id",
+      "toTable": "services",
+      "toCol": "id",
+      "onDelete": "NO ACTION",
+      "onUpdate": "NO ACTION"
+    },
+    {
+      "fromTable": "vehicles",
+      "fromCol": "assigned_staff_id",
+      "toTable": "staff",
+      "toCol": "id",
+      "onDelete": "SET NULL",
+      "onUpdate": "NO ACTION"
+    }
+  ],
+  "keywordsAudit": [],
+  "securityAudit": [],
+  "totalSrcRecords": 3766,
+  "totalPgInserts": 0
+}

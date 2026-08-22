@@ -63,23 +63,25 @@ async function extractHtmlFromTemplateFile(fullPath, ext) {
 
 // 1. GET /api/templates - List all document templates with filters & search (Rules 1 & 2)
 router.get('/', authenticateToken, async (req, res) => {
-  const { type, status, is_default, category, search } = req.query;
+  const { type, status, is_default, category, scope_type, target_service_id, search } = req.query;
 
   try {
     let query = `
       SELECT t.*, 
+             s.name as target_service_name, s.code as target_service_code, s.reference_code as target_service_ref,
              dtc.label as document_type_label,
              (SELECT COUNT(*) FROM template_fields f WHERE f.template_id = t.id) as fields_count,
              (SELECT COUNT(*) FROM template_versions v WHERE v.template_id = t.id) as versions_count
       FROM document_templates t
+      LEFT JOIN services s ON t.target_service_id = s.id
       LEFT JOIN document_type_configs dtc ON t.code = dtc.code OR t.document_type_code = dtc.code
       WHERE 1=1
     `;
     const params = [];
 
     if (type) {
-      query += ` AND (t.code = ? OR t.document_type_code = ?)`;
-      params.push(type, type);
+      query += ` AND (t.code = ? OR t.document_type_code = ? OR t.document_category = ?)`;
+      params.push(type, type, type);
     }
     if (status) {
       if (status === 'ACTIVE' || status === 'actives') {
@@ -88,13 +90,21 @@ router.get('/', authenticateToken, async (req, res) => {
         query += ` AND t.is_active = 0`;
       }
     }
+    if (scope_type) {
+      query += ` AND t.scope_type = ?`;
+      params.push(scope_type);
+    }
+    if (target_service_id) {
+      query += ` AND t.target_service_id = ?`;
+      params.push(target_service_id);
+    }
     if (is_default !== undefined) {
       query += ` AND t.is_default = ?`;
       params.push(is_default === 'true' || is_default === '1' ? 1 : 0);
     }
     if (category) {
-      query += ` AND t.category = ?`;
-      params.push(category);
+      query += ` AND (t.category = ? OR t.document_category = ?)`;
+      params.push(category, category);
     }
     if (search && search.trim()) {
       query += ` AND (t.name LIKE ? OR t.code LIKE ? OR t.description LIKE ?)`;
@@ -109,6 +119,43 @@ router.get('/', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Fetch templates error:', err);
     res.status(500).json({ error: 'Erreur lors de la récupération des modèles de documents.' });
+  }
+});
+
+// 1b. GET /api/templates/available-for-user - List templates authorized specifically for the user's service (Rule 5 & 6)
+router.get('/available-for-user', authenticateToken, async (req, res) => {
+  const user = req.user;
+  const userServId = user.service_id;
+
+  try {
+    let parentServiceId = null;
+    if (userServId) {
+      const userServ = await db.get('SELECT parent_id FROM services WHERE id = ?', [userServId]);
+      if (userServ) parentServiceId = userServ.parent_id;
+    }
+
+    // Accessible models: GLOBAL + target_service_id = userServId + target_service_id = parentServiceId
+    let query = `
+      SELECT t.*, 
+             s.name as target_service_name, s.code as target_service_code, s.reference_code as target_service_ref
+      FROM document_templates t
+      LEFT JOIN services s ON t.target_service_id = s.id
+      WHERE t.is_active = 1 
+        AND (
+          t.scope_type = 'GLOBAL' 
+          OR t.scope_type IS NULL 
+          OR t.target_service_id IS NULL
+          ${userServId ? `OR t.target_service_id = ${Number(userServId)}` : ''}
+          ${parentServiceId ? `OR t.target_service_id = ${Number(parentServiceId)}` : ''}
+        )
+      ORDER BY t.scope_type DESC, t.is_default DESC, t.name ASC
+    `;
+
+    const availableTemplates = await db.all(query);
+    res.json(availableTemplates);
+  } catch (err) {
+    console.error('Fetch available templates error:', err);
+    res.status(500).json({ error: 'Erreur lors de la récupération des modèles autorisés.' });
   }
 });
 

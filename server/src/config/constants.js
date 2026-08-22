@@ -64,6 +64,18 @@ module.exports = {
     { code: 'documents.download', category: 'Documents', description: 'Télécharger les pièces jointes' },
     { code: 'documents.archive', category: 'Documents', description: 'Archiver des documents' },
     { code: 'documents.archive_direct', category: 'Documents', description: 'Archiver directement des documents officiels' },
+    { code: 'documents.manage_service_settings', category: 'Documents', description: 'Gérer les paramètres des documents du service (références, en-tête, pied de page)' },
+    
+    // Permissions Archivage Électronique Hiérarchique & Sécurisé
+    { code: 'archives.view_service', category: 'Archives', description: 'Consulter les archives de son propre service/département' },
+    { code: 'archives.view_faculty', category: 'Archives', description: 'Consulter les archives décanales et de faculté' },
+    { code: 'archives.view_central', category: 'Archives', description: 'Consulter les archives centrales de l’Université (Secrétariat Central)' },
+    { code: 'archives.archive_service', category: 'Archives', description: 'Archiver un document dans les archives de son service' },
+    { code: 'archives.transmit_to_central', category: 'Archives', description: 'Transmettre un document au Secrétariat Central pour archivage central' },
+    { code: 'archives.archive_central', category: 'Archives', description: 'Acter le versement d’un document dans les archives centrales' },
+    { code: 'archives.share', category: 'Archives', description: 'Partager un document archivé avec un autre service' },
+    { code: 'archives.unarchive', category: 'Archives', description: 'Désarchiver un document (Restaurer dans le circuit actif)' },
+    { code: 'archives.manage_categories', category: 'Archives', description: 'Gérer les catégories d’archivage du service' },
 
     { code: 'incoming_mail.create', category: 'Courriers Entrants', description: 'Créer un courrier entrant' },
     { code: 'incoming_mail.read', category: 'Courriers Entrants', description: 'Lire les courriers entrants' },
