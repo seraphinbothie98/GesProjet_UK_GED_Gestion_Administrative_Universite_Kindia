@@ -108,6 +108,18 @@ export const api = {
     return data;
   },
 
+  async createAdministrativeDocument(formData) {
+    const isFormData = formData instanceof FormData;
+    const res = await fetch(`${API_BASE}/documents/administrative`, {
+      method: 'POST',
+      headers: isFormData ? getAuthHeader() : { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: isFormData ? formData : JSON.stringify(formData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur création document administratif');
+    return data;
+  },
+
   async archiveServiceDocument(formData) {
     const res = await fetch(`${API_BASE}/documents/service-archive`, {
       method: 'POST',
@@ -1980,6 +1992,36 @@ export const api = {
     return this.getDocumentTemplates(params);
   },
 
+  async getAvailableTemplates() {
+    const res = await fetch(`${API_BASE}/templates/available-for-user`, { headers: getAuthHeader() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur récupération modèles autorisés');
+    return data;
+  },
+
+  async extractTemplateFileContent(formData) {
+    const res = await fetch(`${API_BASE}/templates/extract-content`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Erreur lors de l'extraction du fichier de modèle");
+    return data;
+  },
+
+  async createCustomTemplate(formDataOrJson) {
+    const isFormData = formDataOrJson instanceof FormData;
+    const res = await fetch(`${API_BASE}/templates`, {
+      method: 'POST',
+      headers: isFormData ? getAuthHeader() : { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: isFormData ? formDataOrJson : JSON.stringify(formDataOrJson)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur création modèle');
+    return data;
+  },
+
   async getDocumentTemplates(params = {}) {
     const query = new URLSearchParams(params).toString();
     const res = await fetch(`${API_BASE}/templates?${query}`, { headers: getAuthHeader() });
@@ -1996,10 +2038,11 @@ export const api = {
   },
 
   async createDocumentTemplate(payload) {
+    const isFormData = payload instanceof FormData;
     const res = await fetch(`${API_BASE}/templates`, {
       method: 'POST',
-      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      headers: isFormData ? getAuthHeader() : { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: isFormData ? payload : JSON.stringify(payload)
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Erreur création modèle');

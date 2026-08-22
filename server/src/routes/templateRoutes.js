@@ -187,44 +187,123 @@ router.get('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// 3. POST /api/templates - Add a new template with file upload (Rule 2 & 3)
-router.post('/', authenticateToken, requirePermission('templates.manage'), upload.single('template_file'), async (req, res) => {
-  const { name, code, document_type_code, category, description, format, is_default, editor_type } = req.body;
+// Helper to resolve dynamic variables (Rule 12)
+function resolveDynamicTemplateVariables(text, context = {}) {
+  if (!text) return '';
+  const now = new Date();
+  const months = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+  const formattedDate = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+  
+  const replacements = {
+    '{{REFERENCE}}': context.reference || context.preview_reference || '[RÉFÉRENCE OFFICIELLE]',
+    '{{DATE}}': context.date || formattedDate,
+    '{{SERVICE}}': context.service_name || '',
+    '{{FACULTE}}': context.faculty_name || '',
+    '{{DEPARTEMENT}}': context.department_name || '',
+    '{{DESTINATAIRE}}': context.recipient_name || context.target_recipient_name || '',
+    '{{OBJET}}': context.object || context.title || context.object_title || '',
+    '{{RESPONSABLE}}': context.head_name || '',
+    '{{FONCTION_RESPONSABLE}}': context.head_title || '',
+    '{{ANNEE}}': context.year || String(now.getFullYear())
+  };
 
-  if (!name || (!code && !document_type_code)) {
-    return res.status(400).json({ error: 'Nom et Type du modèle sont obligatoires.' });
+  let result = text;
+  for (const [key, val] of Object.entries(replacements)) {
+    const regex = new RegExp(key.replace(/[{}]/g, '\\$&'), 'g');
+    result = result.replace(regex, val || '');
+  }
+  return result;
+}
+
+// 2b. POST /api/templates/extract-content - Extract HTML/text from uploaded template file (DOCX, ODT, TXT, HTML)
+router.post('/extract-content', authenticateToken, upload.single('template_file'), async (req, res) => {
+  const file = req.file;
+  if (!file) {
+    return res.status(400).json({ error: 'Aucun fichier fourni.' });
   }
 
-  const templateCode = (code || document_type_code).trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+  try {
+    const ext = path.extname(file.originalname).substring(1).toUpperCase();
+    const filePath = path.join(uploadDir, file.filename);
+    const extractedHtml = await extractHtmlFromTemplateFile(filePath, ext);
+
+    const baseName = path.basename(file.originalname, path.extname(file.originalname))
+      .replace(/[_-]+/g, ' ')
+      .trim();
+
+    res.json({
+      success: true,
+      filename: file.filename,
+      original_name: file.originalname,
+      suggested_name: baseName,
+      format: ext,
+      extracted_html: extractedHtml || `<p>${baseName}</p>`,
+      size: file.size
+    });
+  } catch (err) {
+    console.error('Extract template content error:', err);
+    res.status(500).json({ error: "Erreur lors de l'analyse du fichier de modèle : " + err.message });
+  }
+});
+
+// 3. POST /api/templates - Add or import a new template for a service or globally (Rules 4, 6, 10, 11)
+router.post('/', authenticateToken, upload.single('template_file'), async (req, res) => {
+  const { 
+    name, 
+    code, 
+    document_type_code, 
+    category, 
+    description, 
+    format, 
+    is_default, 
+    editor_type,
+    scope_type,
+    target_service_id,
+    associated_category_id,
+    content_body_html,
+    header_text,
+    footer_text
+  } = req.body;
+
+  if (!name || !name.trim()) {
+    return res.status(400).json({ error: 'Le nom du modèle est obligatoire.' });
+  }
+
+  const user = req.user;
+  const isAdmin = user.role_code === 'ADMINISTRATEUR' || (user.permissions && user.permissions.includes('templates.manage'));
+  
+  // Resolve target service
+  let assignedServiceId = null;
+  let resolvedScope = scope_type || 'SERVICE';
+
+  if (target_service_id) {
+    assignedServiceId = Number(target_service_id);
+  } else if (!isAdmin && user.service_id) {
+    assignedServiceId = user.service_id;
+  } else if (isAdmin && resolvedScope === 'GLOBAL') {
+    assignedServiceId = null;
+  } else if (user.service_id) {
+    assignedServiceId = user.service_id;
+  }
+
+  const docTypeCode = (document_type_code || code || 'SOIT_TRANSMIS').trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+  const templateCode = (code || `TPL_${assignedServiceId ? `SRV${assignedServiceId}` : 'GEN'}_${Date.now()}`).trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
   const file = req.file;
   const editorTypeVal = (editor_type === 'MS_WORD' || editor_type === 'WORD' || editor_type === 'DOCX') ? 'MS_WORD' : 'UK_GED_EDITOR';
 
   try {
-    let ext = file ? path.extname(file.originalname).substring(1).toUpperCase() : (editorTypeVal === 'MS_WORD' ? 'DOCX' : (format || 'DOCX'));
+    let ext = file ? path.extname(file.originalname).substring(1).toUpperCase() : (editorTypeVal === 'MS_WORD' ? 'DOCX' : (format || 'HTML'));
     const isDefaultVal = (is_default === 'true' || is_default === '1') ? 1 : 0;
-
-    // Rule 6: Single default template check per type
-    if (isDefaultVal === 1) {
-      await db.run(
-        'UPDATE document_templates SET is_default = 0 WHERE code = ? OR document_type_code = ?',
-        [templateCode, templateCode]
-      );
-    }
 
     let filePath = file ? file.filename : null;
 
-    // If Microsoft Word editor is chosen and no file is uploaded, generate the official default Word template file
-    if (!filePath && editorTypeVal === 'MS_WORD') {
-      const docxBuffer = await docxService.buildOfficialKindiaMissionDocx();
-      const docxFilename = `template_${Date.now()}_modele_word_${templateCode.toLowerCase()}.docx`;
-      fs.writeFileSync(path.join(uploadDir, docxFilename), docxBuffer);
-      filePath = docxFilename;
-      ext = 'DOCX';
+    let extractedHtml = content_body_html || null;
+    if (filePath && !extractedHtml) {
+      extractedHtml = await extractHtmlFromTemplateFile(path.join(uploadDir, filePath), ext);
     }
 
-    let extractedHtml = null;
-    if (filePath) {
-      extractedHtml = await extractHtmlFromTemplateFile(path.join(uploadDir, filePath), ext);
+    if (!extractedHtml) {
+      extractedHtml = `<h3 style="color:#0B2545; text-align:center;">${name.trim()}</h3>\n<p style="margin-top:16px;">Contenu du modèle administratif pour ${user.service_name || "l'Université de Kindia"}.</p>`;
     }
 
     const existingTpl = await db.get('SELECT id FROM document_templates WHERE code = ?', [templateCode]);
@@ -234,27 +313,48 @@ router.post('/', authenticateToken, requirePermission('templates.manage'), uploa
       templateId = existingTpl.id;
       await db.run(
         `UPDATE document_templates SET
-           name = ?, category = ?, description = ?, editor_type = ?, format = ?, is_active = 1, is_default = ?, file_path = ?, content_body_html = ?, updated_at = CURRENT_TIMESTAMP
+           name = ?, document_type_code = ?, category = ?, scope_type = ?, target_service_id = ?, description = ?, 
+           editor_type = ?, format = ?, is_active = 1, is_default = ?, file_path = COALESCE(?, file_path), 
+           content_body_html = COALESCE(?, content_body_html), header_text = COALESCE(?, header_text), 
+           footer_text = COALESCE(?, footer_text), updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
-        [name.trim(), category || 'OFFICIAL', description || '', editorTypeVal, ext, isDefaultVal, filePath, extractedHtml, templateId]
-      );
-    } else {
-      const result = await db.run(
-        `INSERT INTO document_templates 
-         (code, document_type_code, name, category, description, editor_type, format, version, is_active, is_default, file_path, header_text, footer_text, content_body_html, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?, ?)`,
         [
-          templateCode,
-          templateCode,
           name.trim(),
-          category || 'OFFICIAL',
+          docTypeCode,
+          category || docTypeCode,
+          resolvedScope,
+          assignedServiceId,
           description || '',
           editorTypeVal,
           ext,
           isDefaultVal,
           filePath,
-          'RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA',
-          'UNIVERSITÉ DE KINDIA • Service Administratif',
+          extractedHtml,
+          header_text || null,
+          footer_text || null,
+          templateId
+        ]
+      );
+    } else {
+      const result = await db.run(
+        `INSERT INTO document_templates 
+         (code, document_type_code, name, category, scope_type, target_service_id, document_category, description, editor_type, format, version, is_active, is_default, file_path, header_text, footer_text, content_body_html, created_by)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?, ?)`,
+        [
+          templateCode,
+          docTypeCode,
+          name.trim(),
+          category || docTypeCode,
+          resolvedScope,
+          assignedServiceId,
+          docTypeCode,
+          description || '',
+          editorTypeVal,
+          ext,
+          isDefaultVal,
+          filePath,
+          header_text || 'RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA',
+          footer_text || 'UNIVERSITÉ DE KINDIA • Service Administratif',
           extractedHtml,
           req.user.id
         ]
@@ -262,28 +362,34 @@ router.post('/', authenticateToken, requirePermission('templates.manage'), uploa
       templateId = result.lastID;
     }
 
-    // Create Version 1 entry (Rule 7)
+    // Create Version 1 entry
     await db.run(
       `INSERT INTO template_versions (template_id, version, version_number, file_path, file_type, editor_type, content_body_html, change_description, status, created_by, uploaded_by)
-       VALUES (?, 1, 1, ?, ?, ?, ?, 'Importation initiale v1', 'ACTIVE', ?, ?)`,
+       VALUES (?, 1, 1, ?, ?, ?, ?, 'Création / Importation initiale', 'ACTIVE', ?, ?)`,
       [templateId, filePath, ext, editorTypeVal, extractedHtml, req.user ? req.user.id : 1, req.user ? req.user.id : 1]
     );
+
+    const savedTemplate = await db.get(`
+      SELECT t.*, s.name as target_service_name, s.code as target_service_code
+      FROM document_templates t
+      LEFT JOIN services s ON t.target_service_id = s.id
+      WHERE t.id = ?
+    `, [templateId]);
 
     await logAuditAction(req.user.id, 'CREATE_TEMPLATE', 'TEMPLATE', templateId, req, {
       code: templateCode,
       name,
-      is_default: isDefaultVal
+      service_id: assignedServiceId
     });
 
     res.status(201).json({
       success: true,
-      message: `Modèle officiel [${name}] ajouté avec succès.`,
-      id: templateId,
-      code: templateCode
+      message: `Modèle [${name}] enregistré avec succès.`,
+      template: savedTemplate
     });
   } catch (err) {
     console.error('Create template error:', err);
-    res.status(500).json({ error: 'Erreur lors de l’ajout du modèle de document.' });
+    res.status(500).json({ error: 'Erreur lors de la création du modèle : ' + err.message });
   }
 });
 
@@ -681,9 +787,10 @@ router.put('/:id/versions/:versionId/restore', authenticateToken, requirePermiss
   }
 });
 
-// 8. DELETE /api/templates/:id - Delete template version (Rule 33 Protection)
-router.delete('/:id', authenticateToken, requirePermission('templates.manage'), async (req, res) => {
+// 8. DELETE /api/templates/:id - Delete template (Rule 10 & 11)
+router.delete('/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
+  const user = req.user;
 
   try {
     const template = await db.get('SELECT * FROM document_templates WHERE id = ? OR code = ?', [id, id]);
@@ -691,27 +798,30 @@ router.delete('/:id', authenticateToken, requirePermission('templates.manage'), 
       return res.status(404).json({ error: 'Modèle introuvable.' });
     }
 
-    // Protection check: check if template was used in generated documents
-    const usageCount = await db.get('SELECT COUNT(*) as count FROM document_template_instances WHERE template_id = ?', [template.id]);
-    if (usageCount && usageCount.count > 0) {
-      return res.status(400).json({
-        error: "⚠️ Ce modèle a été utilisé pour générer des documents historiques. Il ne peut pas être supprimé physiquement. Vous pouvez le désactiver."
-      });
+    const isAdmin = user.role_code === 'ADMINISTRATEUR' || (user.permissions && user.permissions.includes('templates.manage'));
+    const isOwnerService = user.service_id && template.target_service_id === user.service_id;
+
+    if (!isAdmin && !isOwnerService) {
+      return res.status(403).json({ error: 'Action non autorisée sur ce modèle.' });
     }
 
     // Delete physical file if exists
     if (template.file_path) {
       const fullPath = path.join(uploadDir, template.file_path);
-      if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+      if (fs.existsSync(fullPath)) {
+        try { fs.unlinkSync(fullPath); } catch (e) {}
+      }
     }
 
+    await db.run('DELETE FROM template_versions WHERE template_id = ?', [template.id]);
+    await db.run('DELETE FROM template_fields WHERE template_id = ?', [template.id]);
     await db.run('DELETE FROM document_templates WHERE id = ?', [template.id]);
     await logAuditAction(req.user.id, 'DELETE_TEMPLATE', 'TEMPLATE', template.id, req, { code: template.code });
 
     res.json({ success: true, message: `Modèle [${template.name}] supprimé avec succès.` });
   } catch (err) {
     console.error('Delete template error:', err);
-    res.status(500).json({ error: 'Erreur lors de la suppression du modèle.' });
+    res.status(500).json({ error: 'Erreur lors de la suppression du modèle : ' + err.message });
   }
 });
 
