@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { ShieldCheck, Lock, Mail, ArrowRight, UserCheck, FileText, Search, Calendar } from 'lucide-react';
 import PublicMissionRequestModal from '../components/PublicMissionRequestModal';
 import PublicMissionTrackingModal from '../components/PublicMissionTrackingModal';
+import ForgotPasswordModal from '../components/ForgotPasswordModal';
 
 export default function Login() {
   const { login, institution, getLogoUrl } = useAuth();
@@ -16,6 +17,7 @@ export default function Login() {
 
   const [showPublicModal, setShowPublicModal] = useState(false);
   const [showTrackingModal, setShowTrackingModal] = useState(false);
+  const [showForgotModal, setShowForgotModal] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -110,7 +112,16 @@ export default function Login() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Mot de passe *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700">Mot de passe *</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotModal(true)}
+                    className="text-[11px] text-kindia-blue hover:text-kindia-lightBlue font-semibold hover:underline"
+                  >
+                    Mot de passe oublié ?
+                  </button>
+                </div>
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                   <input
@@ -202,6 +213,7 @@ export default function Login() {
       {/* Modals */}
       <PublicMissionRequestModal isOpen={showPublicModal} onClose={() => setShowPublicModal(false)} />
       <PublicMissionTrackingModal isOpen={showTrackingModal} onClose={() => setShowTrackingModal(false)} />
+      <ForgotPasswordModal isOpen={showForgotModal} onClose={() => setShowForgotModal(false)} />
     </div>
   );
 }

@@ -2,11 +2,17 @@ const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const db = require('./db');
-const { INITIAL_SERVICES, PERMISSIONS, ROLES } = require('../config/constants');
+const { INITIAL_SERVICES, PERMISSIONS, ROLES, NODE_ENV } = require('../config/constants');
 
-async function seedDatabase() {
+async function seedDatabase(options = {}) {
+  if (NODE_ENV === 'production' && !options.forceInProduction) {
+    const errorMsg = '❌ [CRITICAL SECURITY GUARD] Exécution de seedDatabase() STRICTEMENT INTERDITE en environnement de PRODUCTION.';
+    console.error(errorMsg);
+    throw new Error(errorMsg);
+  }
+
   try {
-    console.log('--- INITIALIZING UK-GED DATABASE SCHEMA ---');
+    console.log(`--- INITIALIZING UK-GED DATABASE SEED (${NODE_ENV}) ---`);
     try {
       const schemaSql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf-8');
       await db.exec(schemaSql);
@@ -202,6 +208,32 @@ async function seedDatabase() {
       );
       CREATE INDEX IF NOT EXISTS idx_serv_doc_settings_hist_srv ON service_document_settings_history(service_id);
 
+      CREATE TABLE IF NOT EXISTS service_custom_fields (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        field_key VARCHAR(100) NOT NULL,
+        service_id INTEGER NOT NULL,
+        name VARCHAR(150) NOT NULL,
+        variable_code VARCHAR(100) NOT NULL,
+        label VARCHAR(200),
+        field_type VARCHAR(50) NOT NULL DEFAULT 'TEXT',
+        options_json TEXT,
+        default_value TEXT,
+        description TEXT,
+        is_required INTEGER DEFAULT 0,
+        is_system INTEGER DEFAULT 0,
+        applies_to_reference INTEGER DEFAULT 1,
+        applies_to_header INTEGER DEFAULT 1,
+        applies_to_footer INTEGER DEFAULT 1,
+        applies_to_document INTEGER DEFAULT 1,
+        order_index INTEGER DEFAULT 0,
+        is_active INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+        UNIQUE(service_id, variable_code)
+      );
+      CREATE INDEX IF NOT EXISTS idx_serv_custom_fields_srv ON service_custom_fields(service_id);
+
       CREATE TABLE IF NOT EXISTS document_versions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         document_id INTEGER NOT NULL,
@@ -291,6 +323,16 @@ async function seedDatabase() {
       if (!dtColNames.includes(c.name)) {
         await db.run(`ALTER TABLE document_templates ADD COLUMN ${c.name} ${c.type};`);
       }
+    }
+
+    // Dynamic column migrations for documents table
+    const existingDocCols = await db.all("PRAGMA table_info(documents)");
+    const docColNames = existingDocCols.map(c => c.name);
+    if (!docColNames.includes('custom_values_json')) {
+      await db.run("ALTER TABLE documents ADD COLUMN custom_values_json TEXT DEFAULT '{}';");
+    }
+    if (!docColNames.includes('service_sequence_number')) {
+      await db.run("ALTER TABLE documents ADD COLUMN service_sequence_number INTEGER;");
     }
 
     // Dynamic column migrations for users table

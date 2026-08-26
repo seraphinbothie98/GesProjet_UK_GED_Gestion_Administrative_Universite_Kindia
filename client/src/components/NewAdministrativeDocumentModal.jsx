@@ -21,6 +21,8 @@ export default function NewAdministrativeDocumentModal({ isOpen, onClose, onSucc
   const [services, setServices] = useState([]);
   const [hierarchy, setHierarchy] = useState([]);
   const [users, setUsers] = useState([]);
+  const [serviceCustomFields, setServiceCustomFields] = useState([]);
+  const [customFieldValues, setCustomFieldValues] = useState({});
 
   // Form state
   const [selectedTemplate, setSelectedTemplate] = useState(null); // template object or null (blank)
@@ -62,31 +64,43 @@ export default function NewAdministrativeDocumentModal({ isOpen, onClose, onSucc
   const loadInitialData = async () => {
     try {
       setLoading(true);
-      const [typesRes, tmplRes, servRes, hierRes, usrRes] = await Promise.all([
-        api.getDocumentTypes().catch(() => []),
+      const [typesRes, tmplRes, servRes, hierRes, usrRes, cfRes] = await Promise.all([
+        api.getCreatableDocumentTypes().catch(() => []),
         api.getAvailableTemplates().catch(() => []),
         api.getServices().catch(() => []),
         api.getServiceHierarchy().catch(() => []),
-        api.getUsers().catch(() => [])
+        api.getUsers().catch(() => []),
+        api.getServiceCustomFields(user?.service_id).catch(() => ({ custom_fields: [] }))
       ]);
 
-      const loadedTypes = typesRes.length > 0 ? typesRes : [
+      const loadedTypes = typesRes && typesRes.length > 0 ? typesRes : [
         { code: 'SOIT_TRANSMIS', label: 'Soit-Transmis', description: 'Bordereau officiel de transmission' },
         { code: 'DEMANDE', label: 'Demande administrative', description: 'Demande de congé, absence ou matériel' },
         { code: 'LETTRE', label: 'Lettre officielle', description: 'Courrier officiel et correspondance' },
         { code: 'NOTE_SERVICE', label: 'Note de service', description: 'Directive et communication interne' },
         { code: 'RAPPORT', label: 'Rapport d’activité / académique', description: 'Compte-rendu et rapport annuel' },
         { code: 'PROCES_VERBAL', label: 'Procès-verbal', description: 'PV de délibération ou de réunion' },
-        { code: 'DECISION', label: 'Décision rectorale / décanale', description: 'Acte réglementaire d’application' },
-        { code: 'ARRETE', label: 'Arrêté', description: 'Arrêté ministériel ou rectoral' },
-        { code: 'CIRCULAIRE', label: 'Circulaire', description: 'Note d’instruction générale' }
+        { code: 'ATTESTATION', label: 'Attestation', description: 'Attestation administrative et de présence' },
+        { code: 'CONVOCATION', label: 'Convocation', description: 'Convocation aux réunions et commissions' }
       ];
 
       setDocTypes(loadedTypes);
+      if (loadedTypes.length > 0 && !loadedTypes.some(t => t.code === selectedType)) {
+        setSelectedType(loadedTypes[0].code);
+      }
       setAvailableTemplates(tmplRes || []);
       setServices(servRes || []);
       setHierarchy(hierRes || []);
       setUsers(usrRes || []);
+
+      const customFieldsList = cfRes.custom_fields || [];
+      setServiceCustomFields(customFieldsList);
+      
+      const initialCustomValues = {};
+      customFieldsList.forEach(cf => {
+        initialCustomValues[cf.variable_code] = cf.default_value || '';
+      });
+      setCustomFieldValues(initialCustomValues);
 
       // Default target service is SG
       const sg = servRes?.find(s => s.code === 'SG');
@@ -139,6 +153,14 @@ export default function NewAdministrativeDocumentModal({ isOpen, onClose, onSucc
       const regex = new RegExp(key.replace(/[{}]/g, '\\$&'), 'g');
       result = result.replace(regex, val || '');
     }
+
+    // Replace custom service variables (Rules 9, 10, 11)
+    for (const [key, val] of Object.entries(customFieldValues)) {
+      const regex1 = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+      const regex2 = new RegExp(`\\{${key}\\}`, 'g');
+      result = result.replace(regex1, val || '').replace(regex2, val || '');
+    }
+
     return result;
   };
 
@@ -294,6 +316,7 @@ export default function NewAdministrativeDocumentModal({ isOpen, onClose, onSucc
       formData.append('target_service_id', targetServiceId || '');
       formData.append('target_recipient_id', targetRecipientId || '');
       formData.append('target_recipient_name', targetRecipientName || (services.find(s => s.id === Number(targetServiceId))?.name || 'Destinataire'));
+      formData.append('custom_values', JSON.stringify(customFieldValues));
       formData.append('action', actionType); // 'DRAFT' or 'SUBMIT'
 
       for (let i = 0; i < files.length; i++) {
@@ -348,209 +371,228 @@ export default function NewAdministrativeDocumentModal({ isOpen, onClose, onSucc
 
         {/* Step Indicator */}
         <div className="bg-slate-50 border-b border-slate-200 px-6 py-3 flex items-center justify-between shrink-0">
-          <div className="flex items-center space-x-4 sm:space-x-8 text-xs font-bold">
-            <button 
-              onClick={() => setStep(1)}
-              className={`flex items-center space-x-2 transition ${step === 1 ? 'text-kindia-blue font-black' : 'text-slate-400 hover:text-slate-600'}`}
-            >
-              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${step === 1 ? 'bg-kindia-blue text-white shadow-xs' : 'bg-slate-200 text-slate-600'}`}>1</span>
-              <span>Modèle de document</span>
-            </button>
-            <ArrowRight className="w-3.5 h-3.5 text-slate-300" />
-            <button 
-              onClick={() => { if (selectedTemplate || isDraftingBlank) setStep(2); }}
-              className={`flex items-center space-x-2 transition ${step === 2 ? 'text-kindia-blue font-black' : 'text-slate-400 hover:text-slate-600'}`}
-            >
-              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${step === 2 ? 'bg-kindia-blue text-white shadow-xs' : 'bg-slate-200 text-slate-600'}`}>2</span>
-              <span>Rédaction & Contenu</span>
-            </button>
-            <ArrowRight className="w-3.5 h-3.5 text-slate-300" />
-            <button 
-              onClick={() => { if (objectTitle.trim()) setStep(3); }}
-              className={`flex items-center space-x-2 transition ${step === 3 ? 'text-kindia-blue font-black' : 'text-slate-400 hover:text-slate-600'}`}
-            >
-              <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-black ${step === 3 ? 'bg-kindia-blue text-white shadow-xs' : 'bg-slate-200 text-slate-600'}`}>3</span>
+          <div className="flex items-center space-x-2 sm:space-x-4 text-xs font-bold">
+            <span className={`flex items-center space-x-1.5 ${step === 1 ? 'text-kindia-blue font-black' : 'text-slate-400'}`}>
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${step === 1 ? 'bg-kindia-blue text-white' : 'bg-slate-200 text-slate-600'}`}>1</span>
+              <span>Type d'acte & Modèle</span>
+            </span>
+            <span className="text-slate-300">/</span>
+            <span className={`flex items-center space-x-1.5 ${step === 2 ? 'text-kindia-blue font-black' : 'text-slate-400'}`}>
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${step === 2 ? 'bg-kindia-blue text-white' : 'bg-slate-200 text-slate-600'}`}>2</span>
+              <span>Rédaction & Champs</span>
+            </span>
+            <span className="text-slate-300">/</span>
+            <span className={`flex items-center space-x-1.5 ${step === 3 ? 'text-kindia-blue font-black' : 'text-slate-400'}`}>
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${step === 3 ? 'bg-kindia-blue text-white' : 'bg-slate-200 text-slate-600'}`}>3</span>
               <span>Destinataire & Pièces</span>
-            </button>
+            </span>
           </div>
 
-          <span className="text-[11px] font-bold text-slate-500 hidden sm:inline">
-            Étape {step} sur 3
-          </span>
+          <span className="text-[11px] text-slate-400 font-medium">Étape {step} sur 3</span>
         </div>
 
-        {/* Modal Body Content */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-6">
-          {error && (
-            <div className="bg-rose-50 border-l-4 border-rose-500 p-3.5 rounded-xl flex items-center space-x-2.5 text-rose-700 text-xs font-semibold shadow-xs">
-              <AlertCircle className="w-4 h-4 shrink-0" />
+        {error && (
+          <div className="bg-rose-50 border-b border-rose-200 px-6 py-2.5 flex items-center justify-between text-rose-800 text-xs font-bold">
+            <div className="flex items-center space-x-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
               <span>{error}</span>
             </div>
-          )}
+            <button onClick={() => setError('')} className="text-rose-600 hover:text-rose-900">✕</button>
+          </div>
+        )}
 
+        {/* Modal Body with Multi-Step Flow */}
+        <div className="p-6 overflow-y-auto flex-1">
+          
           {/* ========================================================================= */}
-          {/* STEP 1: MODÈLES RÉELLEMENT DISPONIBLES (RULES 1, 2, 3, 5, 7, 8, 9 & 15)   */}
+          {/* STEP 1: TYPE D'ACTE AUTORISÉ & MODÈLES (RULES 1, 2, 3, 5, 8, 9, 10, 11)     */}
           {/* ========================================================================= */}
           {step === 1 && (
             <div className="space-y-6">
               
-              {/* Header & Quick Action Buttons */}
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 border-b border-slate-100">
-                <div>
-                  <h4 className="text-sm font-black uppercase tracking-wider text-slate-800 flex items-center space-x-2">
-                    <FileText className="w-4 h-4 text-kindia-blue" />
-                    <span>Bibliothèque des modèles de votre service</span>
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Sélectionnez un modèle enregistré ou importez/créez un nouveau modèle personnalisé.
-                  </p>
-                </div>
-
-                <div className="flex items-center space-x-2 w-full sm:w-auto">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewTemplateMode('IMPORT');
-                      setShowAddTemplateModal(true);
-                    }}
-                    className="px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-xs"
-                  >
-                    <Upload className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Importer un modèle (.docx)</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewTemplateMode('CREATE');
-                      setShowAddTemplateModal(true);
-                    }}
-                    className="px-3 py-2 bg-kindia-blue hover:bg-blue-800 text-white rounded-xl text-xs font-black transition flex items-center space-x-1.5 shadow-xs"
-                  >
-                    <Plus className="w-3.5 h-3.5 text-kindia-gold" />
-                    <span>+ Ajouter un modèle</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* RÈGLE 2 & 9 : SI AUCUN MODÈLE N'EXISTE ENCORE */}
-              {availableTemplates.length === 0 ? (
-                <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-3xl p-8 text-center space-y-4">
-                  <div className="w-14 h-14 rounded-2xl bg-white flex items-center justify-center text-slate-400 mx-auto shadow-xs border border-slate-200">
-                    <FileText className="w-7 h-7" />
-                  </div>
+              {/* Section 1: Choix du Type de Document Autorisé */}
+              <div className="bg-slate-50 border border-slate-200 rounded-3xl p-5 shadow-2xs">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-3">
                   <div>
-                    <h5 className="font-heading font-black text-base text-slate-800">
-                      Aucun modèle disponible pour ce service.
-                    </h5>
-                    <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
-                      Le système ne précharge aucun faux modèle par défaut. Vous pouvez importer votre propre modèle (Word, PDF...) ou rédiger directement un document vierge.
+                    <span className="text-[10px] font-black uppercase tracking-widest text-kindia-blue bg-blue-100/70 px-2.5 py-0.5 rounded-full">
+                      Étape 1.1 • Type d'acte administratif
+                    </span>
+                    <h4 className="font-heading font-extrabold text-base text-slate-900 mt-1">
+                      Sélectionnez le type de document à produire
+                    </h4>
+                    <p className="text-xs text-slate-500">
+                      Types autorisés pour votre service (<strong className="text-slate-700">{currentServiceObj?.name || 'Votre service'}</strong>) et votre rôle (<strong className="text-slate-700">{user?.role_name || user?.role_code}</strong>).
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+                  <div className="shrink-0">
+                    <span className="text-xs font-bold text-slate-600 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
+                      {docTypes.length} type(s) autorisé(s)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Types Chips Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 pt-2">
+                  {docTypes.map(dt => {
+                    const isTypeSelected = selectedType === dt.code;
+                    return (
+                      <button
+                        key={dt.code}
+                        type="button"
+                        onClick={() => {
+                          setSelectedType(dt.code);
+                          setSelectedTemplate(null);
+                          setIsDraftingBlank(false);
+                        }}
+                        className={`p-3 rounded-2xl border text-left transition flex flex-col justify-between ${
+                          isTypeSelected
+                            ? 'bg-kindia-blue text-white border-kindia-blue shadow-md ring-2 ring-kindia-blue/20'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-100/60'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-1 mb-1">
+                          <span className="font-heading font-black text-xs leading-snug">
+                            {dt.label}
+                          </span>
+                          {isTypeSelected && <CheckCircle2 className="w-3.5 h-3.5 text-white shrink-0" />}
+                        </div>
+                        {dt.description && (
+                          <span className={`text-[10px] line-clamp-1 ${isTypeSelected ? 'text-blue-100' : 'text-slate-400'}`}>
+                            {dt.description}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Section 2: Choix du Mode de Conception pour ce Type */}
+              <div className="space-y-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700 bg-emerald-100/70 px-2.5 py-0.5 rounded-full">
+                      Étape 1.2 • Mode de rédaction
+                    </span>
+                    <h4 className="font-heading font-extrabold text-base text-slate-900 mt-1">
+                      Comment souhaitez-vous concevoir ce document ?
+                    </h4>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                  {/* Option A: Modèle Existant */}
+                  <div className="bg-white border-2 border-slate-200 rounded-3xl p-4 flex flex-col justify-between hover:border-kindia-blue/50 transition">
+                    <div>
+                      <div className="flex items-center space-x-2 mb-2">
+                        <span className="w-7 h-7 rounded-xl bg-blue-100 text-kindia-blue font-black text-xs flex items-center justify-center">A</span>
+                        <h5 className="font-heading font-extrabold text-xs text-slate-900">Modèle Officiel par Défaut</h5>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mb-3">
+                        Modèle actif configuré par l'Administrateur pour <strong>{docTypes.find(d => d.code === selectedType)?.label || selectedType}</strong>.
+                      </p>
+                    </div>
+
+                    {(() => {
+                      const defaultTpl = availableTemplates.find(
+                        t => (t.document_type_code === selectedType || t.document_category === selectedType || t.code === selectedType || t.category === selectedType)
+                             && t.is_active === 1 
+                             && t.is_default === 1
+                      );
+
+                      if (!defaultTpl) {
+                        return (
+                          <div className="p-3.5 bg-amber-50 rounded-2xl border border-amber-200 text-center space-y-1">
+                            <span className="text-[11px] font-bold text-amber-800 block">
+                              « Aucun modèle par défaut n'est configuré pour ce type de document. »
+                            </span>
+                            <span className="text-[10px] text-amber-700/80 block">
+                              Utilisez les options B ou C ci-contre pour importer un fichier Word ou rédiger directement.
+                            </span>
+                          </div>
+                        );
+                      }
+
+                      const isSelected = selectedTemplate?.id === defaultTpl.id;
+                      return (
+                        <div className="space-y-2">
+                          <button
+                            type="button"
+                            onClick={() => handleSelectTemplate(defaultTpl)}
+                            className={`w-full p-3 rounded-2xl border text-left text-xs font-bold transition flex items-center justify-between ${
+                              isSelected
+                                ? 'border-kindia-blue bg-blue-50/90 text-kindia-blue shadow-md ring-2 ring-kindia-blue/20'
+                                : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                            }`}
+                          >
+                            <div className="truncate pr-2">
+                              <span className="font-black text-slate-900 block truncate">📄 {defaultTpl.name}</span>
+                              <span className="text-[10px] text-kindia-blue font-mono">v{defaultTpl.version || 1} • Modèle officiel actif</span>
+                            </div>
+                            {isSelected ? (
+                              <CheckCircle2 className="w-5 h-5 text-kindia-blue shrink-0" />
+                            ) : (
+                              <span className="px-2 py-0.5 bg-slate-100 rounded-md text-[10px] text-slate-500 font-bold">Sélectionner</span>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Option B: Importer un modèle Word (.docx) */}
+                  <div className="bg-white border-2 border-slate-200 rounded-3xl p-4 flex flex-col justify-between hover:border-emerald-500/50 transition">
+                    <div>
+                      <div className="flex items-center space-x-2 mb-2">
+                        <span className="w-7 h-7 rounded-xl bg-emerald-100 text-emerald-700 font-black text-xs flex items-center justify-center">B</span>
+                        <h5 className="font-heading font-extrabold text-xs text-slate-900">Importer un modèle Word</h5>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mb-3">
+                        Chargez un fichier <strong>.docx</strong> officiel pour l'ajouter à la bibliothèque de votre service.
+                      </p>
+                    </div>
+
                     <button
                       type="button"
                       onClick={() => {
-                        setNewTemplateMode('IMPORT');
+                        setNewTemplateDocType(selectedType);
                         setShowAddTemplateModal(true);
                       }}
-                      className="px-4 py-2.5 bg-kindia-blue hover:bg-blue-800 text-white rounded-xl text-xs font-black transition flex items-center space-x-2 shadow-md"
+                      className="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-black transition flex items-center justify-center space-x-2 shadow-2xs cursor-pointer"
                     >
-                      <Plus className="w-4 h-4 text-kindia-gold" />
-                      <span>+ Ajouter / Importer un modèle</span>
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Importer un fichier .docx</span>
                     </button>
+                  </div>
+
+                  {/* Option C: Créer directement (Document Vierge) */}
+                  <div className="bg-white border-2 border-slate-200 rounded-3xl p-4 flex flex-col justify-between hover:border-indigo-500/50 transition">
+                    <div>
+                      <div className="flex items-center space-x-2 mb-2">
+                        <span className="w-7 h-7 rounded-xl bg-indigo-100 text-indigo-700 font-black text-xs flex items-center justify-center">C</span>
+                        <h5 className="font-heading font-extrabold text-xs text-slate-900">Créer Directement</h5>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mb-3">
+                        Rédigez directement avec l'éditeur intégré ou ONLYOFFICE avec la charte officielle de l'Université.
+                      </p>
+                    </div>
 
                     <button
                       type="button"
-                      onClick={() => handleSelectBlank('SOIT_TRANSMIS')}
-                      className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${
+                      onClick={() => handleSelectBlank(selectedType)}
+                      className={`w-full py-2.5 px-3 rounded-2xl text-xs font-black transition flex items-center justify-center space-x-2 cursor-pointer ${
                         isDraftingBlank
-                          ? 'bg-kindia-gold text-kindia-blue font-black ring-2 ring-kindia-blue'
-                          : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                          ? 'bg-kindia-blue text-white shadow-md'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200'
                       }`}
                     >
-                      <FileCode className="w-4 h-4 text-kindia-blue" />
-                      <span>✍️ Rédiger un document vierge</span>
+                      {isDraftingBlank && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
+                      <span>{isDraftingBlank ? 'Sélectionné Vierge' : 'Rédiger Directement'}</span>
                     </button>
                   </div>
                 </div>
-              ) : (
-                /* RÈGLE 3, 5, 9 : LISTE DES MODÈLES RÉELLEMENT DISPONIBLES */
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                    
-                    {/* Option Document Vierge */}
-                    <div
-                      onClick={() => handleSelectBlank('SOIT_TRANSMIS')}
-                      className={`p-4 rounded-2xl border-2 cursor-pointer transition flex flex-col justify-between ${
-                        isDraftingBlank
-                          ? 'border-kindia-gold bg-amber-50/50 shadow-md ring-2 ring-kindia-gold/30 font-bold'
-                          : 'border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50'
-                      }`}
-                    >
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="font-heading font-black text-xs text-slate-900">
-                            ✍️ Document Vierge (Sans modèle)
-                          </span>
-                          {isDraftingBlank && <CheckCircle2 className="w-4 h-4 text-kindia-gold" />}
-                        </div>
-                        <p className="text-[11px] text-slate-500 leading-relaxed">
-                          Rédigez librement votre document tout en bénéficiant de l'en-tête, pied de page et référence officiels de votre service.
-                        </p>
-                      </div>
-
-                      <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[10px]">
-                        <span className="font-bold text-slate-600">Standard</span>
-                        <span className="text-kindia-blue font-bold">Éditeur libre</span>
-                      </div>
-                    </div>
-
-                    {/* Modèles enregistrés du service */}
-                    {availableTemplates.map((tmpl) => {
-                      const isSelected = selectedTemplate?.id === tmpl.id;
-                      const typeLabel = docTypes.find(dt => dt.code === tmpl.document_type_code || dt.code === tmpl.document_category)?.label || tmpl.document_type_code || 'Document';
-
-                      return (
-                        <div
-                          key={tmpl.id}
-                          onClick={() => handleSelectTemplate(tmpl)}
-                          className={`p-4 rounded-2xl border-2 cursor-pointer transition flex flex-col justify-between ${
-                            isSelected
-                              ? 'border-kindia-blue bg-blue-50/60 shadow-md ring-2 ring-kindia-blue/20'
-                              : 'border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50'
-                          }`}
-                        >
-                          <div>
-                            <div className="flex items-start justify-between gap-2 mb-2">
-                              <span className="font-heading font-black text-xs text-slate-900 line-clamp-2">
-                                📄 {tmpl.name}
-                              </span>
-                              {isSelected && <CheckCircle2 className="w-4 h-4 text-kindia-blue shrink-0" />}
-                            </div>
-                            
-                            {tmpl.description && (
-                              <p className="text-[11px] text-slate-500 line-clamp-2 mb-2 leading-relaxed">
-                                {tmpl.description}
-                              </p>
-                            )}
-                          </div>
-
-                          <div className="mt-3 pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-1 text-[10px]">
-                            <span className="px-2 py-0.5 rounded-md bg-blue-100/80 text-kindia-blue font-black uppercase">
-                              🏷️ {typeLabel}
-                            </span>
-                            <span className="text-slate-400 font-medium">
-                              {tmpl.target_service_name ? tmpl.target_service_name : (tmpl.scope_type === 'GLOBAL' ? '🏛️ Institutionnel' : 'Service')}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+              </div>
 
               {/* Action Button to Step 2 */}
               <div className="pt-4 border-t border-slate-200 flex justify-end">
@@ -558,7 +600,7 @@ export default function NewAdministrativeDocumentModal({ isOpen, onClose, onSucc
                   type="button"
                   onClick={handleProceedToRedaction}
                   disabled={!selectedTemplate && !isDraftingBlank}
-                  className="px-6 py-2.5 bg-kindia-blue hover:bg-blue-800 disabled:opacity-40 text-white rounded-2xl text-xs font-black transition flex items-center space-x-2 shadow-md hover:shadow-lg"
+                  className="px-6 py-2.5 bg-kindia-blue hover:bg-blue-800 disabled:opacity-40 text-white rounded-2xl text-xs font-black transition flex items-center space-x-2 shadow-md hover:shadow-lg cursor-pointer"
                 >
                   <span>Suivant (Rédaction & Contenu)</span>
                   <ArrowRight className="w-4 h-4" />
@@ -568,7 +610,7 @@ export default function NewAdministrativeDocumentModal({ isOpen, onClose, onSucc
           )}
 
           {/* ========================================================================= */}
-          {/* STEP 2: RÉDACTION & CONTENU (RULES 5, 12, 13)                              */}
+          {/* STEP 2: RÉDACTION & CONTENU (RULES 5, 10, 11, 12, 13)                      */}
           {/* ========================================================================= */}
           {step === 2 && (
             <div className="space-y-5">
@@ -606,14 +648,91 @@ export default function NewAdministrativeDocumentModal({ isOpen, onClose, onSucc
                 </div>
               </div>
 
-              {/* Dynamic Variables Helper Toolbar (Rule 12) */}
+              {/* Service Custom Fields Input Section (Rules 10, 11) */}
+              {serviceCustomFields.filter(f => f.applies_to_document !== 0 || f.applies_to_reference !== 0).length > 0 && (
+                <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-4 space-y-3">
+                  <div className="flex items-center justify-between text-xs font-bold text-amber-900">
+                    <span className="flex items-center space-x-1.5">
+                      <Tag className="w-4 h-4 text-amber-700" />
+                      <span>Champs dynamiques propres à votre service ({currentServiceObj?.name || 'Mon Service'}) :</span>
+                    </span>
+                    <span className="text-[10px] text-amber-700 font-normal">
+                      Renseignés ici et injectés automatiquement dans la référence et le document
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {serviceCustomFields.filter(f => f.applies_to_document !== 0 || f.applies_to_reference !== 0).map(cf => (
+                      <div key={cf.id} className="space-y-1">
+                        <label className="block text-[11px] font-bold text-amber-950">
+                          {cf.name} {cf.is_required ? <span className="text-rose-500">*</span> : ''}
+                          <span className="text-[10px] text-amber-600 font-mono ml-1 font-normal">({`{{${cf.variable_code}}}`})</span>
+                        </label>
+                        
+                        {cf.field_type === 'SELECT' ? (
+                          <select
+                            value={customFieldValues[cf.variable_code] || ''}
+                            onChange={(e) => setCustomFieldValues({
+                              ...customFieldValues,
+                              [cf.variable_code]: e.target.value
+                            })}
+                            className="w-full px-3 py-1.5 bg-white border border-amber-200 rounded-xl text-xs font-bold text-slate-800 outline-hidden"
+                          >
+                            <option value="">Sélectionner une option...</option>
+                            {(cf.options || []).map((opt, i) => (
+                              <option key={i} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        ) : cf.field_type === 'DATE' ? (
+                          <input
+                            type="date"
+                            value={customFieldValues[cf.variable_code] || ''}
+                            onChange={(e) => setCustomFieldValues({
+                              ...customFieldValues,
+                              [cf.variable_code]: e.target.value
+                            })}
+                            className="w-full px-3 py-1.5 bg-white border border-amber-200 rounded-xl text-xs font-bold text-slate-800 outline-hidden"
+                          />
+                        ) : cf.field_type === 'NUMBER' ? (
+                          <input
+                            type="number"
+                            value={customFieldValues[cf.variable_code] || ''}
+                            onChange={(e) => setCustomFieldValues({
+                              ...customFieldValues,
+                              [cf.variable_code]: e.target.value
+                            })}
+                            placeholder={cf.default_value || '0'}
+                            className="w-full px-3 py-1.5 bg-white border border-amber-200 rounded-xl text-xs font-bold text-slate-800 outline-hidden"
+                          />
+                        ) : (
+                          <input
+                            type="text"
+                            value={customFieldValues[cf.variable_code] || ''}
+                            onChange={(e) => setCustomFieldValues({
+                              ...customFieldValues,
+                              [cf.variable_code]: e.target.value
+                            })}
+                            placeholder={cf.default_value || `Valeur pour ${cf.name}`}
+                            className="w-full px-3 py-1.5 bg-white border border-amber-200 rounded-xl text-xs font-bold text-slate-800 outline-hidden"
+                          />
+                        )}
+                        {cf.description && <p className="text-[9px] text-amber-700">{cf.description}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Dynamic Variables Helper Toolbar (Rule 12 & Custom Tags) */}
               <div className="bg-blue-50/60 border border-blue-200/80 rounded-2xl p-3 space-y-2">
                 <div className="flex items-center justify-between text-xs font-bold text-kindia-blue">
                   <span className="flex items-center space-x-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-kindia-gold" />
-                    <span>Variables dynamiques disponibles (remplacées automatiquement à l'édition) :</span>
+                    <span>Variables dynamiques disponibles (remplacées automatiquement) :</span>
                   </span>
                 </div>
+                
+                {/* System variables */}
                 <div className="flex flex-wrap gap-1.5">
                   {[
                     '{{REFERENCE}}', '{{DATE}}', '{{SERVICE}}', '{{FACULTE}}', 
@@ -627,6 +746,19 @@ export default function NewAdministrativeDocumentModal({ isOpen, onClose, onSucc
                       title={`Insérer la variable ${v}`}
                     >
                       + {v}
+                    </button>
+                  ))}
+                  
+                  {/* Service custom variables */}
+                  {serviceCustomFields.map(cf => (
+                    <button
+                      key={cf.id}
+                      type="button"
+                      onClick={() => insertVariableTag(`{{${cf.variable_code}}}`)}
+                      className="px-2 py-1 bg-amber-50 hover:bg-kindia-gold hover:text-kindia-blue border border-amber-200 text-amber-900 rounded-lg text-[10px] font-mono font-bold transition shadow-2xs"
+                      title={`Insérer la variable personnalisée {{${cf.variable_code}}}`}
+                    >
+                      + {`{{${cf.variable_code}}}`}
                     </button>
                   ))}
                 </div>

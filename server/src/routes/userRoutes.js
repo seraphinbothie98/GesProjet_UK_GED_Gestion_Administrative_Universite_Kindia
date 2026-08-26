@@ -42,22 +42,43 @@ router.post('/', authenticateToken, requirePermission('users.create'), async (re
   }
 
   try {
-    const existing = await db.get('SELECT id FROM users WHERE email = ? OR matricule = ?', [email, matricule]);
+    const existing = await db.get('SELECT id FROM users WHERE email = ? OR matricule = ?', [email.trim(), matricule.trim()]);
     if (existing) {
       return res.status(400).json({ error: 'Un utilisateur avec cet email ou ce matricule existe déjà.' });
     }
 
     const hash = await bcrypt.hash(password, 10);
+    const userUid = accountSecurityService.generateUserUid();
     const result = await db.run(
-      `INSERT INTO users (matricule, first_name, last_name, email, phone, function_title, service_id, role_id, password_hash, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')`,
-      [matricule, first_name, last_name, email, phone || '', function_title, service_id, role_id, hash]
+      `INSERT INTO users (user_uid, matricule, first_name, last_name, email, phone, function_title, service_id, role_id, password_hash, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')`,
+      [userUid, matricule.trim(), first_name.trim(), last_name.trim(), email.trim(), phone || '', function_title.trim(), service_id, role_id, hash]
     );
 
-    await logAuditAction(req.user.id, 'CREATE', 'USER', result.lastID, req, { email, matricule });
+    const userId = result.lastID;
 
-    res.status(201).json({ success: true, id: result.lastID });
+    // Automatic Synchronization with Staff Directory (Module Personnel)
+    const existingStaff = await db.get('SELECT id FROM staff WHERE user_id = ? OR matricule = ? OR (email != "" AND LOWER(email) = LOWER(?))', [userId, matricule.trim(), email.trim()]);
+    if (existingStaff) {
+      await db.run(
+        `UPDATE staff 
+         SET user_id = ?, matricule = ?, nom = ?, prenoms = ?, fonction = ?, service_id = ?, telephone = ?, email = ?, status = 'ACTIF', updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [userId, matricule.trim(), last_name.trim().toUpperCase(), first_name.trim(), function_title.trim(), service_id, phone || '', email.trim(), existingStaff.id]
+      );
+    } else {
+      await db.run(
+        `INSERT INTO staff (user_id, matricule, nom, prenoms, nationality, fonction, service_id, telephone, email, status, is_driver)
+         VALUES (?, ?, ?, ?, 'Guinéenne', ?, ?, ?, ?, 'ACTIF', 0)`,
+        [userId, matricule.trim(), last_name.trim().toUpperCase(), first_name.trim(), function_title.trim(), service_id, phone || '', email.trim()]
+      );
+    }
+
+    await logAuditAction(req.user.id, 'CREATE', 'USER', userId, req, { email, matricule, user_uid: userUid });
+
+    res.status(201).json({ success: true, id: userId, user_uid: userUid });
   } catch (err) {
+    console.error('Create user error:', err);
     res.status(500).json({ error: 'Erreur lors de la création de l’utilisateur.' });
   }
 });
@@ -73,6 +94,11 @@ router.put('/:id/status', authenticateToken, requirePermission('users.disable'),
 
   try {
     await db.run('UPDATE users SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [status, userId]);
+    
+    // Synchronize status in staff directory
+    const staffStatus = status === 'INACTIVE' ? 'INACTIF' : 'ACTIF';
+    await db.run('UPDATE staff SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?', [staffStatus, userId]);
+
     await logAuditAction(req.user.id, 'UPDATE_STATUS', 'USER', userId, req, { newStatus: status });
     res.json({ success: true });
   } catch (err) {
@@ -80,22 +106,77 @@ router.put('/:id/status', authenticateToken, requirePermission('users.disable'),
   }
 });
 
-// PUT /api/users/:id/reset-password - Reset password
-router.put('/:id/reset-password', authenticateToken, requirePermission('users.update'), async (req, res) => {
-  const { new_password } = req.body;
-  const userId = req.params.id;
+const accountSecurityService = require('../services/accountSecurityService');
 
-  if (!new_password || new_password.length < 6) {
-    return res.status(400).json({ error: 'Le nouveau mot de passe doit contenir au moins 6 caractères.' });
+// POST /api/users/:id/reset-password - Admin Reset Password (generates temporary password and revokes sessions)
+router.post('/:id/reset-password', authenticateToken, async (req, res) => {
+  const userId = req.params.id;
+  const { custom_temp_password } = req.body;
+
+  try {
+    const result = await accountSecurityService.adminResetPassword(
+      req.user,
+      userId,
+      { customTempPassword: custom_temp_password },
+      req
+    );
+    res.json(result);
+  } catch (err) {
+    console.error('Admin reset password error:', err);
+    res.status(err.status || 400).json({ error: err.message });
+  }
+});
+
+// Backward-compatible PUT /api/users/:id/reset-password
+router.put('/:id/reset-password', authenticateToken, async (req, res) => {
+  const userId = req.params.id;
+  const { new_password } = req.body;
+
+  try {
+    const result = await accountSecurityService.adminResetPassword(
+      req.user,
+      userId,
+      { customTempPassword: new_password },
+      req
+    );
+    res.json(result);
+  } catch (err) {
+    console.error('Admin reset password error:', err);
+    res.status(err.status || 400).json({ error: err.message });
+  }
+});
+
+// POST /api/users/:id/revoke-sessions - Revoke user active sessions
+router.post('/:id/revoke-sessions', authenticateToken, async (req, res) => {
+  const userId = req.params.id;
+  const user = req.user;
+
+  const canManage = user.permissions?.includes('users.manage_sessions') || 
+                    user.permissions?.includes('users.update') || 
+                    user.role_code === 'ADMINISTRATEUR';
+
+  if (!canManage) {
+    return res.status(403).json({ error: 'Permission insuffisante pour révoquer les sessions.' });
   }
 
   try {
-    const hash = await bcrypt.hash(new_password, 10);
-    await db.run('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [hash, userId]);
-    await logAuditAction(req.user.id, 'RESET_PASSWORD', 'USER', userId, req);
-    res.json({ success: true, message: 'Mot de passe réinitialisé avec succès.' });
+    const result = await accountSecurityService.revokeSessions(userId, user, req);
+    res.json(result);
   } catch (err) {
-    res.status(500).json({ error: 'Erreur lors de la réinitialisation du mot de passe.' });
+    console.error('Revoke sessions error:', err);
+    res.status(500).json({ error: 'Erreur lors de la révocation des sessions.' });
+  }
+});
+
+// GET /api/users/:id/security-info - Get user security status (without password)
+router.get('/:id/security-info', authenticateToken, async (req, res) => {
+  const userId = req.params.id;
+  try {
+    const info = await accountSecurityService.getSecurityInfo(userId);
+    res.json(info);
+  } catch (err) {
+    console.error('Fetch security info error:', err);
+    res.status(500).json({ error: 'Erreur lors du chargement des informations de sécurité.' });
   }
 });
 
@@ -191,6 +272,24 @@ router.put('/:id', authenticateToken, async (req, res) => {
       [updatedMatricule, updatedFirstName, updatedLastName, updatedEmail, updatedPhone, updatedFunction, updatedServiceId, updatedRoleId, updatedStatus, userId]
     );
 
+    // Automatic Synchronization with Staff Directory (Module Personnel)
+    const staffStatus = updatedStatus === 'INACTIVE' ? 'INACTIF' : 'ACTIF';
+    const existingStaff = await db.get('SELECT id FROM staff WHERE user_id = ? OR matricule = ? OR (email != "" AND LOWER(email) = LOWER(?))', [userId, updatedMatricule, updatedEmail]);
+    if (existingStaff) {
+      await db.run(
+        `UPDATE staff 
+         SET user_id = ?, matricule = ?, nom = ?, prenoms = ?, fonction = ?, service_id = ?, telephone = ?, email = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [userId, updatedMatricule, updatedLastName.trim().toUpperCase(), updatedFirstName.trim(), updatedFunction, updatedServiceId, updatedPhone || '', updatedEmail, staffStatus, existingStaff.id]
+      );
+    } else {
+      await db.run(
+        `INSERT INTO staff (user_id, matricule, nom, prenoms, nationality, fonction, service_id, telephone, email, status, is_driver)
+         VALUES (?, ?, ?, ?, 'Guinéenne', ?, ?, ?, ?, ?, 0)`,
+        [userId, updatedMatricule, updatedLastName.trim().toUpperCase(), updatedFirstName.trim(), updatedFunction, updatedServiceId, updatedPhone || '', updatedEmail, staffStatus]
+      );
+    }
+
     // If marked as Chef de service or assigned Chef de Service role, update service head_user_id
     const targetRole = await db.get('SELECT code FROM roles WHERE id = ?', [updatedRoleId]);
     if (is_chef_service || (targetRole && targetRole.code === 'CHEF_SERVICE')) {
@@ -218,6 +317,94 @@ router.put('/:id', authenticateToken, async (req, res) => {
   } catch (err) {
     console.error('Update user error:', err);
     res.status(500).json({ error: 'Erreur lors de la mise à jour de l’utilisateur.' });
+  }
+});
+
+// DELETE /api/users/:id - Delete user account and synchronized staff entry
+router.delete('/:id', authenticateToken, async (req, res) => {
+  const targetUserId = parseInt(req.params.id);
+
+  // Authorization check
+  const canDelete = req.user.role_code === 'ADMINISTRATEUR' || 
+                    req.user.permissions?.includes('users.delete') || 
+                    req.user.permissions?.includes('users.manage_service_heads');
+
+  if (!canDelete) {
+    return res.status(403).json({ error: 'Permission refusée pour la suppression d’un compte utilisateur.' });
+  }
+
+  // Safety checks
+  if (targetUserId === Number(req.user.id)) {
+    return res.status(400).json({ error: 'Impossible de supprimer votre propre compte administrateur actuellement connecté.' });
+  }
+
+  if (targetUserId === 1) {
+    return res.status(400).json({ error: 'Le compte administrateur principal système ne peut pas être supprimé.' });
+  }
+
+  try {
+    const targetUser = await db.get('SELECT * FROM users WHERE id = ?', [targetUserId]);
+    if (!targetUser) {
+      return res.status(404).json({ error: 'Utilisateur non trouvé.' });
+    }
+
+    await db.run('PRAGMA foreign_keys = OFF');
+
+    // 1. Clean up references to staff in vehicles and mission orders
+    const staffIds = (await db.all('SELECT id FROM staff WHERE user_id = ? OR (matricule = ? AND matricule != "")', [targetUserId, targetUser.matricule])).map(s => s.id);
+    if (staffIds.length > 0) {
+      const placeholders = staffIds.map(() => '?').join(',');
+      await db.run(`UPDATE vehicles SET assigned_staff_id = NULL WHERE assigned_staff_id IN (${placeholders})`, staffIds).catch(() => {});
+      await db.run(`UPDATE mission_orders SET staff_id = NULL WHERE staff_id IN (${placeholders})`, staffIds).catch(() => {});
+    }
+
+    // 2. Remove or clean up synchronized staff directory entry
+    await db.run('DELETE FROM staff WHERE user_id = ? OR (matricule = ? AND matricule != "")', [targetUserId, targetUser.matricule]);
+
+    // 3. Unassign service head if this user was head
+    await db.run('UPDATE services SET head_user_id = NULL WHERE head_user_id = ?', [targetUserId]);
+
+    // 4. Clean up user signatures, notifications, delegations
+    await db.run('DELETE FROM user_signatures WHERE user_id = ?', [targetUserId]).catch(() => {});
+    await db.run('DELETE FROM notifications WHERE user_id = ?', [targetUserId]).catch(() => {});
+    await db.run('DELETE FROM delegations WHERE delegator_user_id = ? OR delegatee_user_id = ?', [targetUserId, targetUserId]).catch(() => {});
+    await db.run('DELETE FROM appointment_availabilities WHERE user_id = ?', [targetUserId]).catch(() => {});
+    await db.run('DELETE FROM password_reset_tokens WHERE user_id = ?', [targetUserId]).catch(() => {});
+    await db.run('DELETE FROM document_editing_locks WHERE user_id = ?', [targetUserId]).catch(() => {});
+
+    // 5. Nullify document references and history/audit links
+    await db.run('UPDATE documents SET current_user_id = NULL WHERE current_user_id = ?', [targetUserId]).catch(() => {});
+    await db.run('UPDATE documents SET created_by = NULL WHERE created_by = ?', [targetUserId]).catch(() => {});
+    await db.run('UPDATE documents SET archived_by = NULL WHERE archived_by = ?', [targetUserId]).catch(() => {});
+    await db.run('UPDATE documents SET archived_by_id = NULL WHERE archived_by_id = ?', [targetUserId]).catch(() => {});
+    await db.run('UPDATE documents SET central_archived_by = NULL WHERE central_archived_by = ?', [targetUserId]).catch(() => {});
+    await db.run('UPDATE documents SET transmitted_to_sc_by = NULL WHERE transmitted_to_sc_by = ?', [targetUserId]).catch(() => {});
+    await db.run('UPDATE documents SET last_edited_by = NULL WHERE last_edited_by = ?', [targetUserId]).catch(() => {});
+    await db.run('UPDATE documents SET sg_routed_by = NULL WHERE sg_routed_by = ?', [targetUserId]).catch(() => {});
+    await db.run('UPDATE documents SET target_recipient_id = NULL WHERE target_recipient_id = ?', [targetUserId]).catch(() => {});
+    await db.run('UPDATE document_history SET user_id = NULL WHERE user_id = ?', [targetUserId]).catch(() => {});
+    await db.run('UPDATE audit_logs SET user_id = NULL WHERE user_id = ?', [targetUserId]).catch(() => {});
+
+    // 6. Delete the user record
+    await db.run('DELETE FROM users WHERE id = ?', [targetUserId]);
+
+    await db.run('PRAGMA foreign_keys = ON');
+
+    // 7. Audit log
+    await logAuditAction(req.user.id, 'DELETE_USER', 'USER', targetUserId, req, {
+      deleted_matricule: targetUser.matricule,
+      deleted_name: `${targetUser.first_name} ${targetUser.last_name}`,
+      deleted_email: targetUser.email,
+      deleted_service_id: targetUser.service_id
+    });
+
+    res.json({
+      success: true,
+      message: `Compte utilisateur ${targetUser.first_name} ${targetUser.last_name} supprimé avec succès.`
+    });
+  } catch (err) {
+    console.error('Delete user error:', err);
+    res.status(500).json({ error: 'Erreur lors de la suppression de l’utilisateur.' });
   }
 });
 

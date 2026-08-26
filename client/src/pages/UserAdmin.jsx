@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
-import { Users, Plus, Edit, Power, X, Award, Check, Shield } from 'lucide-react';
+import { Users, Plus, Edit, Power, X, Award, Check, Shield, Key, Lock, Laptop, CheckCircle2, AlertCircle, Copy, Trash2 } from 'lucide-react';
 
 export default function UserAdmin() {
   const [users, setUsers] = useState([]);
@@ -14,6 +14,12 @@ export default function UserAdmin() {
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
+  const [securityUser, setSecurityUser] = useState(null);
+  const [securityInfo, setSecurityInfo] = useState(null);
+  const [generatedTempPassword, setGeneratedTempPassword] = useState('');
+  const [securityLoading, setSecurityLoading] = useState(false);
+  const [securityMsg, setSecurityMsg] = useState({ type: '', text: '' });
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -73,6 +79,76 @@ export default function UserAdmin() {
     setRoleId(String(u.role_id || ''));
     setStatus(u.status || 'ACTIVE');
     setIsChefService(u.role_code === 'CHEF_SERVICE');
+  };
+
+  const openSecurityModal = async (u) => {
+    setSecurityUser(u);
+    setSecurityInfo(null);
+    setGeneratedTempPassword('');
+    setSecurityMsg({ type: '', text: '' });
+    setCopied(false);
+    setSecurityLoading(true);
+
+    try {
+      const info = await api.getUserSecurityInfo(u.id);
+      setSecurityInfo(info);
+    } catch (err) {
+      console.error('Failed to load user security info:', err);
+    } finally {
+      setSecurityLoading(false);
+    }
+  };
+
+  const handleAdminResetPassword = async () => {
+    if (!securityUser) return;
+    if (!window.confirm(`Confirmez-vous la réinitialisation du mot de passe de ${securityUser.first_name} ${securityUser.last_name} ? Un mot de passe temporaire sera généré et ses sessions actives seront déconnectées.`)) {
+      return;
+    }
+
+    setSecurityLoading(true);
+    setSecurityMsg({ type: '', text: '' });
+    setGeneratedTempPassword('');
+
+    try {
+      const res = await api.adminResetUserPassword(securityUser.id);
+      setGeneratedTempPassword(res.temporaryPassword);
+      setSecurityMsg({ type: 'success', text: 'Mot de passe temporaire généré avec succès ! Transmettez-le de manière confidentielle à l’utilisateur.' });
+      const info = await api.getUserSecurityInfo(securityUser.id);
+      setSecurityInfo(info);
+    } catch (err) {
+      setSecurityMsg({ type: 'error', text: err.message || 'Erreur lors de la réinitialisation.' });
+    } finally {
+      setSecurityLoading(false);
+    }
+  };
+
+  const handleAdminRevokeSessions = async () => {
+    if (!securityUser) return;
+    if (!window.confirm(`Voulez-vous déconnecter immédiatement toutes les sessions actives de ${securityUser.first_name} ${securityUser.last_name} ?`)) {
+      return;
+    }
+
+    setSecurityLoading(true);
+    setSecurityMsg({ type: '', text: '' });
+
+    try {
+      await api.adminRevokeUserSessions(securityUser.id);
+      setSecurityMsg({ type: 'success', text: 'Toutes les sessions de l’utilisateur ont été révoquées.' });
+      const info = await api.getUserSecurityInfo(securityUser.id);
+      setSecurityInfo(info);
+    } catch (err) {
+      setSecurityMsg({ type: 'error', text: err.message || 'Erreur lors de la révocation des sessions.' });
+    } finally {
+      setSecurityLoading(false);
+    }
+  };
+
+  const handleCopyPassword = () => {
+    if (generatedTempPassword) {
+      navigator.clipboard.writeText(generatedTempPassword);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    }
   };
 
   const resetForm = () => {
@@ -159,6 +235,27 @@ export default function UserAdmin() {
     }
   };
 
+  const handleDeleteUser = async (userObj) => {
+    if (userObj.id === 1) {
+      alert("Le compte administrateur principal système ne peut pas être supprimé.");
+      return;
+    }
+
+    const userName = `${userObj.first_name || ''} ${userObj.last_name || ''}`.trim() || userObj.matricule || 'cet utilisateur';
+    if (!window.confirm(`⚠️ SUPPRESSION DÉFINITIVE D'UTILISATEUR\n\nÊtes-vous sûr de vouloir supprimer définitivement le compte de : ${userName} (Matricule: ${userObj.matricule || 'N/A'}, Email: ${userObj.email}) ?\n\nCette action supprimera également sa fiche associée dans le répertoire du personnel.`)) {
+      return;
+    }
+
+    try {
+      await api.deleteUser(userObj.id);
+      setSuccessMsg(`Compte utilisateur [${userName}] supprimé avec succès.`);
+      setTimeout(() => setSuccessMsg(''), 4000);
+      loadData();
+    } catch (err) {
+      alert('Erreur lors de la suppression : ' + err.message);
+    }
+  };
+
   const filteredUsers = users.filter(u => {
     if (activeTab === 'CHEFS_SERVICE') {
       return u.role_code === 'CHEF_SERVICE' || u.function_title.toLowerCase().includes('chef') || u.function_title.toLowerCase().includes('directeur');
@@ -192,6 +289,13 @@ export default function UserAdmin() {
           <span>Créer un Utilisateur / Chef</span>
         </button>
       </div>
+
+      {successMsg && (
+        <div className="p-3 bg-emerald-50 text-emerald-800 font-bold text-xs rounded-xl flex items-center space-x-2 border border-emerald-200 shadow-xs">
+          <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{successMsg}</span>
+        </div>
+      )}
 
       {/* Filter Tabs */}
       <div className="flex border-b border-slate-200 space-x-2">
@@ -264,6 +368,14 @@ export default function UserAdmin() {
                     </td>
                     <td className="p-3.5 text-right space-x-1">
                       <button
+                        onClick={() => openSecurityModal(u)}
+                        className="p-1.5 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white transition"
+                        title="Sécurité du compte, mot de passe et sessions"
+                      >
+                        <Key className="w-4 h-4" />
+                      </button>
+
+                      <button
                         onClick={() => openEditModal(u)}
                         className="p-1.5 rounded-lg bg-kindia-blue/10 text-kindia-blue hover:bg-kindia-blue hover:text-white transition"
                         title="Modifier les informations du chef/utilisateur"
@@ -273,11 +385,21 @@ export default function UserAdmin() {
 
                       <button
                         onClick={() => handleToggleStatus(u)}
-                        className={`p-1.5 rounded-lg transition ${u.status === 'ACTIVE' ? 'bg-red-50 text-red-600 hover:bg-red-100' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
+                        className={`p-1.5 rounded-lg transition ${u.status === 'ACTIVE' ? 'bg-amber-50 text-amber-600 hover:bg-amber-100' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
                         title={u.status === 'ACTIVE' ? 'Désactiver le compte' : 'Activer le compte'}
                       >
                         <Power className="w-4 h-4" />
                       </button>
+
+                      {u.id !== 1 && (
+                        <button
+                          onClick={() => handleDeleteUser(u)}
+                          className="p-1.5 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition"
+                          title="Supprimer définitivement l'utilisateur et son doublon"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -460,6 +582,171 @@ export default function UserAdmin() {
                 <button type="submit" className="px-5 py-2.5 bg-kindia-blue text-white font-bold rounded-xl shadow">Créer l'utilisateur</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* User Security Management Modal */}
+      {securityUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto custom-scrollbar border border-slate-200 animate-in zoom-in-95 duration-200">
+            
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-slate-900 via-kindia-blue to-slate-950 p-5 text-white flex justify-between items-center sticky top-0 z-10">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center border border-white/20">
+                  <Key className="w-4 h-4 text-kindia-gold" />
+                </div>
+                <div>
+                  <h3 className="font-heading font-extrabold text-sm text-white">
+                    Sécurité du Compte & Identifiants
+                  </h3>
+                  <p className="text-[11px] text-slate-300">
+                    {securityUser.first_name} {securityUser.last_name} ({securityUser.role_name})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSecurityUser(null)}
+                className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-5">
+              
+              {/* Feedback messages */}
+              {securityMsg.text && (
+                <div className={`p-3.5 rounded-xl text-xs flex items-center space-x-2 ${
+                  securityMsg.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'
+                }`}>
+                  {securityMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                  <span>{securityMsg.text}</span>
+                </div>
+              )}
+
+              {/* Account details card */}
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-slate-500 font-medium">Identifiant / Matricule :</span>
+                  <span className="font-bold text-slate-800">{securityUser.matricule}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 font-medium">Adresse Email :</span>
+                  <span className="font-bold text-slate-800">{securityUser.email}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 font-medium">ID Interne Immuable :</span>
+                  <span className="font-mono font-bold text-kindia-blue">{securityInfo?.user_uid || `usr_${securityUser.id}`}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 font-medium">Dernière connexion :</span>
+                  <span className="text-slate-700 font-medium">
+                    {securityInfo?.last_login ? new Date(securityInfo.last_login).toLocaleString('fr-FR') : 'Aucune'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500 font-medium">Version des sessions actives :</span>
+                  <span className="font-mono text-slate-700">v{securityInfo?.token_version || 1}</span>
+                </div>
+                <div className="flex justify-between items-center pt-1 border-t border-slate-200">
+                  <span className="text-slate-500 font-medium">Statut du mot de passe :</span>
+                  {securityInfo?.must_change_password ? (
+                    <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold text-[10px]">
+                      Mot de passe temporaire actif
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[10px]">
+                      Mot de passe personnel défini
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Temporary Password Box when Generated */}
+              {generatedTempPassword && (
+                <div className="bg-amber-50 border-2 border-dashed border-amber-300 rounded-2xl p-4 space-y-2">
+                  <span className="text-[11px] font-bold text-amber-900 uppercase block">
+                    Nouveau Mot de Passe Temporaire Généré :
+                  </span>
+                  <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-amber-200">
+                    <span className="font-mono text-sm font-black text-slate-900 tracking-wider">
+                      {generatedTempPassword}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleCopyPassword}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1"
+                    >
+                      {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copied ? 'Copié !' : 'Copier'}</span>
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-amber-800">
+                    * Transmettez ce mot de passe à l'utilisateur. Lors de sa première connexion, le système lui demandera obligatoirement de définir son mot de passe personnel.
+                  </p>
+                </div>
+              )}
+
+              {/* Action 1: Reset Password */}
+              <div className="p-4 rounded-2xl border border-slate-200 hover:border-slate-300 transition space-y-2 bg-white">
+                <div className="flex items-center space-x-2">
+                  <Lock className="w-4 h-4 text-amber-600" />
+                  <h4 className="text-xs font-bold text-slate-800">
+                    Réinitialiser le Mot de Passe de l'Utilisateur
+                  </h4>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Génère un mot de passe temporaire sécurisé, révoque immédiatement toutes ses sessions actives et active le statut de changement obligatoire.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleAdminResetPassword}
+                  disabled={securityLoading}
+                  className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  <Key className="w-3.5 h-3.5" />
+                  <span>{securityLoading ? 'Génération...' : 'Générer un mot de passe temporaire'}</span>
+                </button>
+              </div>
+
+              {/* Action 2: Revoke Sessions */}
+              <div className="p-4 rounded-2xl border border-slate-200 hover:border-slate-300 transition space-y-2 bg-white">
+                <div className="flex items-center space-x-2">
+                  <Laptop className="w-4 h-4 text-red-600" />
+                  <h4 className="text-xs font-bold text-slate-800">
+                    Déconnecter les Sessions Actives (Révocation Immédiate)
+                  </h4>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Invalide tous les jetons JWT en circulation pour cet utilisateur afin de forcer sa reconnexion sur tous les terminaux.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleAdminRevokeSessions}
+                  disabled={securityLoading}
+                  className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  <Power className="w-3.5 h-3.5" />
+                  <span>{securityLoading ? 'Traitement...' : 'Révoquer toutes ses sessions'}</span>
+                </button>
+              </div>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSecurityUser(null)}
+                className="px-5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs transition"
+              >
+                Fermer
+              </button>
+            </div>
+
           </div>
         </div>
       )}

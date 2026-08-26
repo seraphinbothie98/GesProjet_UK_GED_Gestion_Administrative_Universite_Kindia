@@ -122,9 +122,10 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-// 1b. GET /api/templates/available-for-user - List templates authorized specifically for the user's service (Rule 5 & 6)
+// 1b. GET /api/templates/available-for-user - List templates authorized specifically for the user's service
 router.get('/available-for-user', authenticateToken, async (req, res) => {
   const user = req.user;
+  const { type, search, default_only } = req.query;
   const userServId = user.service_id;
 
   try {
@@ -134,7 +135,6 @@ router.get('/available-for-user', authenticateToken, async (req, res) => {
       if (userServ) parentServiceId = userServ.parent_id;
     }
 
-    // Accessible models: GLOBAL + target_service_id = userServId + target_service_id = parentServiceId
     let query = `
       SELECT t.*, 
              s.name as target_service_name, s.code as target_service_code, s.reference_code as target_service_ref
@@ -143,19 +143,96 @@ router.get('/available-for-user', authenticateToken, async (req, res) => {
       WHERE t.is_active = 1 
         AND (
           t.scope_type = 'GLOBAL' 
-          OR t.scope_type IS NULL 
+          OR t.is_default = 1
           OR t.target_service_id IS NULL
           ${userServId ? `OR t.target_service_id = ${Number(userServId)}` : ''}
           ${parentServiceId ? `OR t.target_service_id = ${Number(parentServiceId)}` : ''}
+          OR t.created_by = ${Number(user.id)}
         )
-      ORDER BY t.scope_type DESC, t.is_default DESC, t.name ASC
     `;
+    const params = [];
 
-    const availableTemplates = await db.all(query);
+    if (type) {
+      query += ` AND (t.code = ? OR t.document_type_code = ? OR t.document_category = ? OR t.category = ?)`;
+      params.push(type, type, type, type);
+    }
+    if (default_only === 'true' || default_only === '1' || default_only === true) {
+      query += ` AND t.is_default = 1`;
+    }
+    if (search && search.trim()) {
+      query += ` AND (t.name LIKE ? OR t.description LIKE ?)`;
+      const term = `%${search.trim()}%`;
+      params.push(term, term);
+    }
+
+    query += ` ORDER BY t.scope_type DESC, t.is_default DESC, t.name ASC`;
+
+    const availableTemplates = await db.all(query, params);
     res.json(availableTemplates);
   } catch (err) {
     console.error('Fetch available templates error:', err);
     res.status(500).json({ error: 'Erreur lors de la récupération des modèles autorisés.' });
+  }
+});
+
+// 1c. GET /api/templates/default-by-type/:type - Get the single active default template for a specific document type
+router.get('/default-by-type/:type', authenticateToken, async (req, res) => {
+  const { type } = req.params;
+  const user = req.user;
+  const userServId = user?.service_id;
+
+  try {
+    let parentServiceId = null;
+    if (userServId) {
+      const userServ = await db.get('SELECT parent_id FROM services WHERE id = ?', [userServId]);
+      if (userServ) parentServiceId = userServ.parent_id;
+    }
+
+    const cleanType = (type || '').trim().toUpperCase();
+
+    // Query for the single active default template for this document type within user's service scope
+    const defaultTemplate = await db.get(
+      `SELECT t.*, 
+              s.name as target_service_name, s.code as target_service_code, s.reference_code as target_service_ref
+       FROM document_templates t
+       LEFT JOIN services s ON t.target_service_id = s.id
+       WHERE t.is_active = 1 
+         AND t.is_default = 1
+         AND (
+           UPPER(t.document_type_code) = ? 
+           OR UPPER(t.code) = ? 
+           OR UPPER(t.document_category) = ?
+           OR UPPER(t.category) = ?
+         )
+         AND (
+           t.scope_type = 'GLOBAL' 
+           OR t.target_service_id IS NULL
+           ${userServId ? `OR t.target_service_id = ${Number(userServId)}` : ''}
+           ${parentServiceId ? `OR t.target_service_id = ${Number(parentServiceId)}` : ''}
+           OR t.created_by = ${Number(user.id)}
+         )
+       ORDER BY t.scope_type DESC, t.updated_at DESC
+       LIMIT 1`,
+      [cleanType, cleanType, cleanType, cleanType]
+    );
+
+    if (!defaultTemplate) {
+      return res.json({
+        success: true,
+        has_default: false,
+        template: null,
+        message: "Aucun modèle par défaut n'est configuré pour ce type de document."
+      });
+    }
+
+    res.json({
+      success: true,
+      has_default: true,
+      template: defaultTemplate
+    });
+  } catch (err) {
+    console.error('Fetch default template by type error:', err);
+    res.status(500).json({ error: 'Erreur lors de la récupération du modèle par défaut.' });
   }
 });
 
@@ -393,27 +470,74 @@ router.post('/', authenticateToken, upload.single('template_file'), async (req, 
   }
 });
 
-// 4. GET /api/templates/:id/download - Download template file (Rule 4)
-router.get('/:id/download', authenticateToken, async (req, res) => {
+// Helper to resolve user from Bearer header or ?token= query parameter
+async function resolveAuthUserFromRequest(req) {
+  if (req.user) return req.user;
+  const token = req.query.token || (req.headers.authorization && req.headers.authorization.startsWith('Bearer ') ? req.headers.authorization.split(' ')[1] : null);
+  if (!token) return null;
+  try {
+    const { JWT_SECRET } = require('../config/constants');
+    return jwt.verify(token, JWT_SECRET);
+  } catch (e) {
+    return null;
+  }
+}
+
+// 4. GET /api/templates/:id/download and /api/templates/:id/download-docx - Download official DOCX file
+async function handleDownloadDocx(req, res) {
   const { id } = req.params;
 
   try {
+    const user = await resolveAuthUserFromRequest(req);
+    if (!user) {
+      return res.status(401).json({ error: 'Authentification requise pour télécharger ce modèle.' });
+    }
+
     const template = await db.get('SELECT * FROM document_templates WHERE id = ? OR code = ?', [id, id]);
-    if (!template || !template.file_path) {
-      return res.status(404).json({ error: 'Fichier modèle introuvable sur le serveur.' });
+    if (!template) {
+      return res.status(404).json({ error: 'Modèle de document introuvable.' });
     }
 
-    const fullPath = path.join(uploadDir, template.file_path);
-    if (!fs.existsSync(fullPath)) {
-      return res.status(404).json({ error: 'Le fichier physique du modèle n’existe plus.' });
+    let filePath = template.file_path;
+    let fullPath = filePath ? path.join(uploadDir, filePath) : null;
+
+    // If physical file doesn't exist on server, generate standard official DOCX dynamically
+    if (!fullPath || !fs.existsSync(fullPath)) {
+      const generatedBuffer = await docxService.buildGenericOfficialDocx({
+        templateName: template.name,
+        documentTypeCode: template.document_type_code || template.code,
+        institutionName: 'UNIVERSITÉ DE KINDIA',
+        serviceName: template.target_service_name || '',
+        contentHtml: template.content_body_html
+      });
+      const generatedFilename = `template_${Date.now()}_${(template.code || 'doc').toLowerCase()}.docx`;
+      fullPath = path.join(uploadDir, generatedFilename);
+      fs.writeFileSync(fullPath, generatedBuffer);
+      filePath = generatedFilename;
+
+      await db.run('UPDATE document_templates SET file_path = ?, format = "DOCX", editor_type = "MS_WORD", updated_at = CURRENT_TIMESTAMP WHERE id = ?', [generatedFilename, template.id]);
     }
 
-    res.download(fullPath, `${template.name}.${template.format || 'docx'}`);
+    const cleanFilename = `${(template.name || 'Modele_Officiel').replace(/[^a-zA-Z0-9_\-\s]/g, '_').trim().replace(/\s+/g, '_')}.docx`;
+
+    await logAuditAction(user.id || 1, 'TEMPLATE_DOWNLOADED', 'TEMPLATE', template.id, req, {
+      template_name: template.name,
+      version: template.version || 1,
+      filename: cleanFilename
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(cleanFilename)}"`);
+    return res.sendFile(fullPath);
   } catch (err) {
-    console.error('Download template file error:', err);
-    res.status(500).json({ error: 'Erreur lors du téléchargement du modèle.' });
+    console.error('Download template DOCX error:', err);
+    res.status(500).json({ error: 'Impossible de télécharger ce modèle Word : ' + err.message });
   }
-});
+}
+
+router.get('/:id/download', handleDownloadDocx);
+router.get('/:id/download-docx', handleDownloadDocx);
+
 
 // 5. PUT /api/templates/:id/set-default - Set template as default (Rules 5 & 6)
 router.put('/:id/set-default', authenticateToken, requirePermission('templates.manage'), async (req, res) => {
@@ -926,9 +1050,16 @@ router.put('/:code/toggle-status', authenticateToken, requirePermission('templat
     const newActiveState = template.is_active === 1 ? 0 : 1;
     await db.run('UPDATE document_templates SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [newActiveState, template.id]);
 
+    await logAuditAction(req.user.id, newActiveState === 1 ? 'TEMPLATE_ACTIVATED' : 'TEMPLATE_DEACTIVATED', 'TEMPLATE', template.id, req, {
+      template_name: template.name,
+      code: template.code,
+      is_active: newActiveState
+    });
+
     res.json({
       success: true,
-      message: `Statut du modèle [${template.name}] mis à jour (${newActiveState === 1 ? 'Actif' : 'Inactif'}).`
+      message: `Statut du modèle [${template.name}] mis à jour (${newActiveState === 1 ? 'Actif' : 'Inactif'}).`,
+      is_active: newActiveState
     });
   } catch (err) {
     console.error('Toggle template status error:', err);
@@ -1068,7 +1199,7 @@ router.post('/:id/customize', authenticateToken, requirePermission('templates.ma
   }
 });
 
-// 14. POST /api/templates/:id/duplicate - Duplicate template (Rule 18)
+// 14. POST /api/templates/:id/duplicate - Duplicate template and physical file (Rule 18)
 router.post('/:id/duplicate', authenticateToken, requirePermission('templates.manage'), async (req, res) => {
   const { id } = req.params;
 
@@ -1076,23 +1207,63 @@ router.post('/:id/duplicate', authenticateToken, requirePermission('templates.ma
     const template = await db.get('SELECT * FROM document_templates WHERE id = ? OR code = ?', [id, id]);
     if (!template) return res.status(404).json({ error: 'Modèle introuvable.' });
 
-    const newCode = `${template.code}_COPY_${Date.now()}`;
+    const newCode = `${template.code}_COPIE_${Date.now()}`.toUpperCase().replace(/[^A-Z0-9_]/g, '_');
     const newName = `${template.name} (Copie)`;
+
+    // Duplicate physical .docx file on disk
+    let newFileName = `template_${Date.now()}_copy_${newCode.toLowerCase()}.docx`;
+    const newFilePath = path.join(uploadDir, newFileName);
+
+    if (template.file_path && fs.existsSync(path.join(uploadDir, template.file_path))) {
+      fs.copyFileSync(path.join(uploadDir, template.file_path), newFilePath);
+    } else {
+      const genericBuffer = await docxService.buildGenericOfficialDocx({
+        templateName: newName,
+        documentTypeCode: template.document_type_code || template.code,
+        institutionName: 'UNIVERSITÉ DE KINDIA',
+        serviceName: template.target_service_name || '',
+        contentHtml: template.content_body_html
+      });
+      fs.writeFileSync(newFilePath, genericBuffer);
+    }
 
     const result = await db.run(
       `INSERT INTO document_templates 
-       (code, document_type_code, name, category, description, format, version, is_active, is_default, file_path, header_text, footer_text, logo_path, font_family, font_size, primary_color, secondary_color, content_body_html, header_html, footer_html, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, 1, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (code, document_type_code, name, category, scope_type, target_service_id, document_category, description, editor_type, format, version, is_active, is_default, file_path, header_text, footer_text, logo_path, font_family, font_size, primary_color, secondary_color, content_body_html, header_html, footer_html, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'DOCX', 1, 1, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        newCode, template.document_type_code || template.code, newName, template.category,
-        template.description, template.format || 'DOCX', template.file_path, template.header_text,
-        template.footer_text, template.logo_path, template.font_family, template.font_size,
-        template.primary_color, template.secondary_color, template.content_body_html,
-        template.header_html, template.footer_html, req.user.id
+        newCode, 
+        template.document_type_code || template.code, 
+        newName, 
+        template.category || template.document_type_code || 'ADMINISTRATIF',
+        template.scope_type || 'GLOBAL',
+        template.target_service_id || null,
+        template.document_category || template.document_type_code || 'ADMINISTRATIF',
+        template.description ? `${template.description} (Copie)` : 'Copie de modèle administratif', 
+        template.editor_type || 'MS_WORD',
+        newFileName, 
+        template.header_text || 'RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA',
+        template.footer_text || 'UNIVERSITÉ DE KINDIA • BP 164 Kindia, Guinée', 
+        template.logo_path, 
+        template.font_family || 'Calibri', 
+        template.font_size || 11,
+        template.primary_color || '#0B2545', 
+        template.secondary_color || '#D4AF37', 
+        template.content_body_html,
+        template.header_html, 
+        template.footer_html, 
+        req.user.id
       ]
     );
 
     const duplicatedId = result.lastID;
+
+    // Create Version 1 entry for the duplicated template
+    await db.run(
+      `INSERT INTO template_versions (template_id, version, version_number, file_path, file_type, editor_type, content_body_html, change_description, status, created_by, uploaded_by)
+       VALUES (?, 1, 1, ?, 'DOCX', ?, ?, 'Duplication initiale', 'ACTIVE', ?, ?)`,
+      [duplicatedId, newFileName, template.editor_type || 'MS_WORD', template.content_body_html, req.user.id, req.user.id]
+    );
 
     // Copy template fields
     const fields = await db.all('SELECT * FROM template_fields WHERE template_id = ?', [template.id]);
@@ -1104,17 +1275,25 @@ router.post('/:id/duplicate', authenticateToken, requirePermission('templates.ma
       );
     }
 
-    await logAuditAction(req.user.id, 'DUPLICATE_TEMPLATE', 'TEMPLATE', duplicatedId, req, { newCode });
+    await logAuditAction(req.user.id, 'TEMPLATE_DUPLICATED', 'TEMPLATE', duplicatedId, req, { 
+      original_id: template.id,
+      original_name: template.name,
+      new_code: newCode,
+      new_name: newName
+    });
+
+    const duplicatedRecord = await db.get('SELECT * FROM document_templates WHERE id = ?', [duplicatedId]);
 
     res.status(201).json({
       success: true,
-      message: `Modèle dupliqué avec succès [${newName}].`,
+      message: `Modèle [${template.name}] dupliqué avec succès en [${newName}].`,
+      template: duplicatedRecord,
       id: duplicatedId,
       code: newCode
     });
   } catch (err) {
     console.error('Duplicate template error:', err);
-    res.status(500).json({ error: 'Erreur lors de la duplication du modèle.' });
+    res.status(500).json({ error: 'Erreur lors de la duplication du modèle : ' + err.message });
   }
 });
 
@@ -1312,11 +1491,18 @@ router.post('/:id/upload-docx-revision', authenticateToken, requirePermission('t
 function downloadFileFromUrl(fileUrl, destPath) {
   return new Promise((resolve, reject) => {
     try {
-      const parsedUrl = new URL(fileUrl);
+      let targetUrl = fileUrl;
+      // In local dev, translate container names if accessed from host backend
+      if (process.env.NODE_ENV === 'development') {
+        targetUrl = targetUrl.replace(/http:\/\/uk_ged_onlyoffice(:\d+)?/i, 'http://localhost:80');
+        targetUrl = targetUrl.replace(/http:\/\/onlyoffice(:\d+)?/i, 'http://localhost:80');
+      }
+
+      const parsedUrl = new URL(targetUrl);
       const client = parsedUrl.protocol === 'https:' ? https : http;
       const fileStream = fs.createWriteStream(destPath);
 
-      const req = client.get(fileUrl, (res) => {
+      const req = client.get(targetUrl, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           fileStream.close();
           fs.unlink(destPath, () => {});
@@ -1376,12 +1562,18 @@ router.get('/:id/onlyoffice/config', authenticateToken, async (req, res) => {
 
     // Ensure physical DOCX file exists on disk, create official default DOCX if missing
     if (!filePath || !fs.existsSync(path.join(uploadDir, filePath))) {
-      const defaultDocxBuffer = await docxService.buildOfficialKindiaMissionDocx();
-      const generatedFilename = `template_${Date.now()}_modele_${(template.code || 'DOC').toLowerCase()}.docx`;
+      const defaultDocxBuffer = await docxService.buildGenericOfficialDocx({
+        templateName: template.name,
+        documentTypeCode: template.document_type_code || template.code,
+        institutionName: 'UNIVERSITÉ DE KINDIA',
+        serviceName: template.target_service_name || '',
+        contentHtml: template.content_body_html
+      });
+      const generatedFilename = `template_${Date.now()}_modele_${(template.code || 'doc').toLowerCase()}.docx`;
       fs.writeFileSync(path.join(uploadDir, generatedFilename), defaultDocxBuffer);
       filePath = generatedFilename;
 
-      await db.run('UPDATE document_templates SET file_path = ?, format = "DOCX", editor_type = "MS_WORD" WHERE id = ?', [generatedFilename, template.id]);
+      await db.run('UPDATE document_templates SET file_path = ?, format = "DOCX", editor_type = "MS_WORD", updated_at = CURRENT_TIMESTAMP WHERE id = ?', [generatedFilename, template.id]);
       if (versionRecord) {
         await db.run('UPDATE template_versions SET file_path = ?, file_type = "DOCX" WHERE id = ?', [generatedFilename, versionRecord.id]);
       }
@@ -1389,7 +1581,7 @@ router.get('/:id/onlyoffice/config', authenticateToken, async (req, res) => {
       template.format = 'DOCX';
     }
 
-    console.log(`[PERSONNALISER] template_id = ${template.id}, document_id = ${template.id}, file_id = ${filePath}, version_id = ${version_id || 'current'}`);
+    console.log(`[PERSONNALISER] template_id = ${template.id}, file_id = ${filePath}, version_id = ${version_id || 'current'}`);
 
     const editorMode = mode === 'view' ? 'view' : 'edit';
     const onlyofficePayload = buildOnlyofficeDocEditorConfig({
@@ -1400,7 +1592,7 @@ router.get('/:id/onlyoffice/config', authenticateToken, async (req, res) => {
       tenantId
     });
 
-    await logAuditAction(req.user.id, 'TEMPLATE_OPENED', 'TEMPLATE', template.id, req, {
+    await logAuditAction(req.user.id, 'TEMPLATE_OPENED_ONLYOFFICE', 'TEMPLATE', template.id, req, {
       template_name: template.name,
       version: versionRecord ? (versionRecord.version_number || versionRecord.version) : (template.version || 1),
       mode: editorMode,
@@ -1465,8 +1657,13 @@ router.get('/:id/versions/:versionId/onlyoffice-file', async (req, res) => {
     }
 
     if (!filePath || !fs.existsSync(path.join(uploadDir, filePath))) {
-      // Generate default if not present
-      const defaultDocxBuffer = await docxService.buildOfficialKindiaMissionDocx();
+      const defaultDocxBuffer = await docxService.buildGenericOfficialDocx({
+        templateName: template.name,
+        documentTypeCode: template.document_type_code || template.code,
+        institutionName: 'UNIVERSITÉ DE KINDIA',
+        serviceName: template.target_service_name || '',
+        contentHtml: template.content_body_html
+      });
       const generatedFilename = `template_${Date.now()}_${(template.code || 'doc').toLowerCase()}.docx`;
       fs.writeFileSync(path.join(uploadDir, generatedFilename), defaultDocxBuffer);
       filePath = generatedFilename;
@@ -1474,7 +1671,7 @@ router.get('/:id/versions/:versionId/onlyoffice-file', async (req, res) => {
     }
 
     const fullPath = path.join(uploadDir, filePath);
-    const fileName = `${(template.name || 'Modele_Officiel').replace(/[^a-zA-Z0-9_-]/g, '_')}.docx`;
+    const fileName = `${(template.name || 'Modele_Officiel').replace(/[^a-zA-Z0-9_\-\s]/g, '_').trim().replace(/\s+/g, '_')}.docx`;
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
@@ -1503,10 +1700,22 @@ router.post('/:id/onlyoffice/callback', async (req, res) => {
 
     // Status 1: Document is being edited
     if (status === 1) {
-      await logAuditAction(1, 'TEMPLATE_EDITED', 'TEMPLATE', template.id, req, {
+      await logAuditAction(1, 'TEMPLATE_EDITING_IN_PROGRESS', 'TEMPLATE', template.id, req, {
         template_name: template.name,
         users: callbackData.users
       });
+      return res.json({ error: 0 });
+    }
+
+    // Status 4: Document closed without modifications
+    if (status === 4) {
+      console.log(`[ONLYOFFICE CALLBACK] Template [${template.name}] closed without modification.`);
+      return res.json({ error: 0 });
+    }
+
+    // Status 3 or 7: Document saving error / Corrupted
+    if (status === 3 || status === 7) {
+      console.error(`[ONLYOFFICE CALLBACK] Template [${template.name}] saving error (Status: ${status})`);
       return res.json({ error: 0 });
     }
 
@@ -1557,48 +1766,36 @@ router.post('/:id/onlyoffice/callback', async (req, res) => {
         await logAuditAction(1, 'TEMPLATE_VERSION_CREATED', 'TEMPLATE', template.id, req, {
           template_name: template.name,
           version: targetVersionNum,
-          file_name: newFileName,
-          saved_via: 'ONLYOFFICE_DOCS'
+          file_name: newFileName
         });
       } else {
-        // Update current version
-        const currentVersionRecord = await db.get(
-          'SELECT id FROM template_versions WHERE template_id = ? AND (status = "ACTIVE" OR version_number = ?)',
-          [template.id, template.version || 1]
+        // Overwrite current version
+        await db.run(
+          `UPDATE template_versions 
+           SET file_path = ?, file_type = 'DOCX', editor_type = 'MS_WORD', content_body_html = ? 
+           WHERE template_id = ? AND (status = 'ACTIVE' OR version_number = ?)`,
+          [newFileName, extractedHtml, template.id, targetVersionNum]
         );
-
-        if (currentVersionRecord) {
-          await db.run(
-            `UPDATE template_versions SET file_path = ?, file_type = 'DOCX', editor_type = 'MS_WORD', content_body_html = ? WHERE id = ?`,
-            [newFileName, extractedHtml, currentVersionRecord.id]
-          );
-        } else {
-          await db.run(
-            `INSERT INTO template_versions (template_id, version, version_number, file_path, file_type, editor_type, content_body_html, change_description, status, created_by, uploaded_by)
-             VALUES (?, ?, ?, ?, 'DOCX', 'MS_WORD', ?, 'Enregistrement initial ONLYOFFICE Docs', 'ACTIVE', 1, 1)`,
-            [template.id, targetVersionNum, targetVersionNum, newFileName, extractedHtml]
-          );
-        }
 
         await db.run(
           `UPDATE document_templates SET file_path = ?, format = 'DOCX', editor_type = 'MS_WORD', content_body_html = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
           [newFileName, extractedHtml, template.id]
         );
 
-        await logAuditAction(1, 'TEMPLATE_SAVED', 'TEMPLATE', template.id, req, {
+        await logAuditAction(1, 'TEMPLATE_UPDATED_ONLYOFFICE', 'TEMPLATE', template.id, req, {
           template_name: template.name,
           version: targetVersionNum,
-          file_name: newFileName,
-          saved_via: 'ONLYOFFICE_DOCS'
+          file_name: newFileName
         });
       }
+
+      return res.json({ error: 0 });
     }
 
-    res.json({ error: 0 });
+    return res.json({ error: 0 });
   } catch (err) {
-    console.error('[ONLYOFFICE CALLBACK] Error handling callback:', err);
-    await logAuditAction(1, 'DOCUMENT_SAVE_FAILED', 'TEMPLATE', id, req, { error: err.message });
-    res.json({ error: 0 }); // ONLYOFFICE expects error 0 to prevent continuous retries
+    console.error('ONLYOFFICE callback processing error:', err);
+    res.status(500).json({ error: 1, message: err.message });
   }
 });
 
@@ -1626,7 +1823,13 @@ router.post('/:id/onlyoffice/manual-save', authenticateToken, requirePermission(
       if (currentFile && fs.existsSync(path.join(uploadDir, currentFile))) {
         fs.copyFileSync(path.join(uploadDir, currentFile), path.join(uploadDir, newFileName));
       } else {
-        const defaultDocx = await docxService.buildOfficialKindiaMissionDocx();
+        const defaultDocx = await docxService.buildGenericOfficialDocx({
+          templateName: template.name,
+          documentTypeCode: template.document_type_code || template.code,
+          institutionName: 'UNIVERSITÉ DE KINDIA',
+          serviceName: template.target_service_name || '',
+          contentHtml: template.content_body_html
+        });
         fs.writeFileSync(path.join(uploadDir, newFileName), defaultDocx);
       }
 

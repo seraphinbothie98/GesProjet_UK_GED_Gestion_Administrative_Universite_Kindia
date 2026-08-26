@@ -7,9 +7,10 @@ const db = require('../database/db');
 const { UPLOAD_DIR } = require('../config/constants');
 const { authenticateToken, requirePermission } = require('../middleware/auth');
 const { buildABACDocumentFilter, verifyDocumentAccess } = require('../middleware/abac');
-const { generateReference, generateReferenceWithMeta, previewReference } = require('../services/numberGenerator');
+const { generateReference, generateReferenceWithMeta, previewReference, resolveAllDynamicVariables } = require('../services/numberGenerator');
 const { logAuditAction } = require('../middleware/audit');
 const { generateAndStoreReceipt } = require('../services/receiptService');
+const documentTypeService = require('../services/documentTypeService');
 
 // Configure Multer for file uploads
 const storage = multer.diskStorage({
@@ -679,7 +680,13 @@ router.get(['/:id/signed-pdf/view', '/:id/view', '/:id/download'], authenticateT
 // GET /api/documents/archives - Retrieve Hierarchical & Isolated Archives with Dynamic Categories (Deny by Default)
 router.get('/archives', authenticateToken, async (req, res) => {
   const user = req.user;
-  const { scope, year, type, category, search, service_id } = req.query;
+  const isAdmin = user.role_code === 'ADMINISTRATEUR';
+  const isSC = user.role_code === 'AGENT_SC' || user.role_code === 'AGENT_SECRÉTARIAT_CENTRAL' || user.service_code === 'SC';
+  const { scope, year, type, category, search, service_id, serviceId } = req.query;
+  const rawServiceId = service_id || serviceId;
+  const targetServiceId = rawServiceId 
+    ? Number(rawServiceId) 
+    : (isAdmin ? null : (Number(user.service_id) || 1));
 
   try {
     const { sql: abacSql } = buildABACDocumentFilter(user);
@@ -692,25 +699,27 @@ router.get('/archives', authenticateToken, async (req, res) => {
        ORDER BY display_order ASC, label ASC`
     );
 
-    // 1b. Fetch custom categories for the target/current user's service
-    const targetServiceId = Number(service_id || user.service_id) || 1;
+    // 1b. Fetch custom categories for the target service if specified, or user's service
+    const serviceForCats = targetServiceId || (Number(user.service_id) || 5);
     const customCategories = await db.all(
       `SELECT id, code, name as label, 'CUSTOM' as category, description, icon, color, display_order, is_active, 1 as is_custom 
        FROM archive_custom_categories 
        WHERE service_id = ? AND is_active = 1 
        ORDER BY display_order ASC, name ASC`,
-      [targetServiceId]
+      [serviceForCats]
     );
 
     // Strict Service Categories vs Institutional Categories
     let mergedCategories = [];
-    if (scope === 'INSTITUTIONNEL' || scope === 'CENTRAL' || (!customCategories || customCategories.length === 0)) {
+    if (scope === 'INSTITUTIONNEL' || scope === 'CENTRAL' || (!rawServiceId && isAdmin)) {
       mergedCategories = configuredCategories || [];
-    } else {
+    } else if (customCategories && customCategories.length > 0) {
       mergedCategories = customCategories;
+    } else {
+      mergedCategories = configuredCategories || [];
     }
 
-    // 2. Query all accessible archived documents for the user
+    // 2. Query all accessible archived documents for the user / service
     let baseQuery = `
       SELECT DISTINCT d.*, 
              s.name as current_service_name, s.code as current_service_code,
@@ -734,6 +743,12 @@ router.get('/archives', authenticateToken, async (req, res) => {
 
     const baseParams = [];
 
+    // Filter strictly by target service when specified or when non-admin (unless querying global central scope)
+    if (targetServiceId) {
+      baseQuery += ` AND (d.owner_service_id = ? OR (d.owner_service_id IS NULL AND (d.originating_service_id = ? OR d.current_service_id = ?)))`;
+      baseParams.push(targetServiceId, targetServiceId, targetServiceId);
+    }
+
     // Scope filter
     if (scope && scope !== 'ALL') {
       if (scope === 'TRANSMITTED_SC') {
@@ -753,56 +768,115 @@ router.get('/archives', authenticateToken, async (req, res) => {
       baseParams.push(year.toString(), year.toString());
     }
 
-    // Specific service filter
-    if (service_id) {
-      baseQuery += ` AND (d.owner_service_id = ? OR d.originating_service_id = ?)`;
-      baseParams.push(service_id, service_id);
-    }
-
     baseQuery += ` ORDER BY COALESCE(d.archived_at, d.created_at) DESC`;
 
     const allAccessibleDocs = await db.all(baseQuery, baseParams);
 
-    // 3. Helper to determine category of a document
+    // 3. Helper to determine category of a document within mergedCategories
     const getDocCategoryCode = (d) => {
-      // 1. Check direct custom_category_id match
+      // 1. Direct custom_category_id match
       if (d.custom_category_id) {
-        const matchedCust = customCategories.find(c => c.id === Number(d.custom_category_id));
+        const matchedCust = mergedCategories.find(c => c.id && Number(c.id) === Number(d.custom_category_id));
         if (matchedCust) return matchedCust.code;
       }
 
       const t = (d.document_type || d.document_category || '').toUpperCase().trim();
       const archCat = (d.archive_category || '').trim().toLowerCase();
+      const docTitle = (d.title || '').trim().toLowerCase();
 
-      // 2. Check custom category by code or name
-      if (customCategories.length > 0) {
-        const matchedCust = customCategories.find(c => 
-          c.code === t || 
-          (archCat && c.label.toLowerCase() === archCat)
-        );
-        if (matchedCust) return matchedCust.code;
+      // 2. Direct exact code or label match in mergedCategories
+      const exactCode = mergedCategories.find(c => c.code && c.code.toUpperCase() === t);
+      if (exactCode) return exactCode.code;
+
+      if (archCat) {
+        const exactLabel = mergedCategories.find(c => c.label && c.label.toLowerCase() === archCat);
+        if (exactLabel) return exactLabel.code;
+        const exactCodeFromArchCat = mergedCategories.find(c => c.code && c.code.toLowerCase() === archCat);
+        if (exactCodeFromArchCat) return exactCodeFromArchCat.code;
       }
 
-      if (!t && !archCat) return 'NON_CLASSE';
-      if (['LETTRE', 'OUTGOING_MAIL', 'INCOMING_MAIL', 'COURRIER_ENTRANT', 'COURRIER_SORTANT', 'MAIL'].includes(t)) return 'LETTRE';
-      if (['MISSION_ORDER', 'ORDRE_MISSION', 'MISSION'].includes(t)) return 'MISSION_ORDER';
-      if (['SOIT_TRANSMIS', 'SOIT-TRANSMIS', 'SOITTRANSMIS'].includes(t)) return 'SOIT_TRANSMIS';
-      if (['DEMANDE'].includes(t)) return 'DEMANDE';
-      if (['NOTE_SERVICE', 'NOTE_DE_SERVICE', 'NOTE'].includes(t)) return 'NOTE_SERVICE';
-      if (['DECISION', 'DÉCISION'].includes(t)) return 'DECISION';
-      if (['ARRETE', 'ARRÊTÉ'].includes(t)) return 'ARRETE';
-      if (['DECRET', 'DÉCRET'].includes(t)) return 'DECRET';
-      if (['CIRCULAIRE'].includes(t)) return 'CIRCULAIRE';
-      if (['RAPPORT'].includes(t)) return 'RAPPORT';
-      if (['PROCES_VERBAL', 'PV'].includes(t)) return 'PROCES_VERBAL';
-      if (['CONVOCATION'].includes(t)) return 'CONVOCATION';
-      if (['INVITATION'].includes(t)) return 'INVITATION';
-      if (['ATTESTATION'].includes(t)) return 'ATTESTATION';
-      if (['AUTRE'].includes(t)) return 'AUTRE';
-      
-      // Match with standard configured code
-      const matched = configuredCategories.find(c => c.code === t || c.label.toLowerCase() === archCat);
-      if (matched) return matched.code;
+      // 3. Robust Semantic Match into mergedCategories
+      if (['MISSION_ORDER', 'ORDRE_MISSION', 'ORDRE_DE_MISSION', 'MISSION'].includes(t) || docTitle.includes('ordre de mission') || archCat.includes('mission')) {
+        const matched = mergedCategories.find(c => c.code === 'MISSION_ORDER' || c.code === 'ORDRE_DE_MISSION' || c.code.includes('MISSION') || (c.label && c.label.toLowerCase().includes('mission')));
+        if (matched) return matched.code;
+      }
+
+      if (['COURRIER_ENTRANT', 'INCOMING_MAIL', 'ARRIVE', 'ARRIVÉ'].includes(t) || archCat.includes('arriv') || docTitle.includes('courrier entrant') || docTitle.includes('arrivée')) {
+        const matched = mergedCategories.find(c => c.code === 'INCOMING_MAIL' || c.code === 'COURRIER_ENTRANT' || c.code === 'ARRIVE' || c.code.includes('ARRIV') || (c.label && (c.label.toLowerCase().includes('arriv') || c.label.toLowerCase().includes('entrant'))));
+        if (matched) return matched.code;
+      }
+
+      if (['COURRIER_SORTANT', 'OUTGOING_MAIL', 'DEPART', 'DÉPART'].includes(t) || archCat.includes('départ') || archCat.includes('depart') || docTitle.includes('courrier sortant') || docTitle.includes('départ')) {
+        const matched = mergedCategories.find(c => c.code === 'OUTGOING_MAIL' || c.code === 'COURRIER_SORTANT' || c.code === 'DEPART' || c.code.includes('DEPART') || (c.label && (c.label.toLowerCase().includes('départ') || c.label.toLowerCase().includes('depart') || c.label.toLowerCase().includes('sortant'))));
+        if (matched) return matched.code;
+      }
+
+      if (['DECISION', 'DÉCISION'].includes(t) || archCat.includes('décision') || archCat.includes('decision') || docTitle.includes('décision') || docTitle.includes('decision')) {
+        const matched = mergedCategories.find(c => c.code === 'DECISION' || c.code.includes('DECISION') || (c.label && (c.label.toLowerCase().includes('décision') || c.label.toLowerCase().includes('decision'))));
+        if (matched) return matched.code;
+      }
+
+      if (['ARRETE', 'ARRÊTÉ'].includes(t) || archCat.includes('arrêté') || archCat.includes('arrete') || docTitle.includes('arrêté') || docTitle.includes('arrete')) {
+        const matched = mergedCategories.find(c => c.code === 'ARRETE' || c.code.includes('ARRETE') || (c.label && (c.label.toLowerCase().includes('arrêté') || c.label.toLowerCase().includes('arrete'))));
+        if (matched) return matched.code;
+      }
+
+      if (['DECRET', 'DÉCRET'].includes(t) || archCat.includes('décret') || archCat.includes('decret') || docTitle.includes('décret') || docTitle.includes('decret')) {
+        const matched = mergedCategories.find(c => c.code === 'DECRET' || c.code.includes('DECRET') || (c.label && (c.label.toLowerCase().includes('décret') || c.label.toLowerCase().includes('decret'))));
+        if (matched) return matched.code;
+      }
+
+      if (['CIRCULAIRE'].includes(t) || archCat.includes('circulaire') || docTitle.includes('circulaire')) {
+        const matched = mergedCategories.find(c => c.code === 'CIRCULAIRE' || c.code.includes('CIRCULAIRE') || (c.label && c.label.toLowerCase().includes('circulaire')));
+        if (matched) return matched.code;
+      }
+
+      if (['NOTE_SERVICE', 'NOTE_DE_SERVICE', 'NOTE'].includes(t) || archCat.includes('note') || docTitle.includes('note de service')) {
+        const matched = mergedCategories.find(c => c.code === 'NOTE_SERVICE' || c.code === 'NOTE_DE_SERVICE' || c.code.includes('NOTE') || (c.label && c.label.toLowerCase().includes('note')));
+        if (matched) return matched.code;
+      }
+
+      if (['SOIT_TRANSMIS', 'SOIT-TRANSMIS', 'SOITTRANSMIS'].includes(t) || archCat.includes('transmis') || docTitle.includes('soit-transmis')) {
+        const matched = mergedCategories.find(c => c.code === 'SOIT_TRANSMIS' || c.code.includes('TRANSMIS') || (c.label && c.label.toLowerCase().includes('transmis')));
+        if (matched) return matched.code;
+      }
+
+      if (['DEMANDE'].includes(t) || archCat.includes('demande') || docTitle.includes('demande')) {
+        const matched = mergedCategories.find(c => c.code === 'DEMANDE' || (c.label && c.label.toLowerCase().includes('demande')));
+        if (matched) return matched.code;
+      }
+
+      if (['RAPPORT'].includes(t) || archCat.includes('rapport') || docTitle.includes('rapport')) {
+        const matched = mergedCategories.find(c => c.code === 'RAPPORT' || (c.label && c.label.toLowerCase().includes('rapport')));
+        if (matched) return matched.code;
+      }
+
+      if (['PROCES_VERBAL', 'PV'].includes(t) || archCat.includes('procès') || archCat.includes('proces') || docTitle.includes('procès-verbal')) {
+        const matched = mergedCategories.find(c => c.code === 'PROCES_VERBAL' || c.code.includes('PV') || (c.label && (c.label.toLowerCase().includes('procès-verbal') || c.label.toLowerCase().includes('proces-verbal'))));
+        if (matched) return matched.code;
+      }
+
+      if (['ATTESTATION'].includes(t) || archCat.includes('attestation') || docTitle.includes('attestation')) {
+        const matched = mergedCategories.find(c => c.code === 'ATTESTATION' || (c.label && c.label.toLowerCase().includes('attestation')));
+        if (matched) return matched.code;
+      }
+
+      if (['CONVOCATION'].includes(t) || archCat.includes('convocation') || docTitle.includes('convocation')) {
+        const matched = mergedCategories.find(c => c.code === 'CONVOCATION' || (c.label && c.label.toLowerCase().includes('convocation')));
+        if (matched) return matched.code;
+      }
+
+      if (['INVITATION'].includes(t) || archCat.includes('invitation') || docTitle.includes('invitation')) {
+        const matched = mergedCategories.find(c => c.code === 'INVITATION' || (c.label && c.label.toLowerCase().includes('invitation')));
+        if (matched) return matched.code;
+      }
+
+      // Check fallback match in configured standard categories if not found in custom
+      const matchedFallback = configuredCategories.find(c => c.code === t || (archCat && c.label.toLowerCase() === archCat));
+      if (matchedFallback && mergedCategories.some(c => c.code === matchedFallback.code)) {
+        return matchedFallback.code;
+      }
+
       return 'NON_CLASSE';
     };
 
@@ -815,9 +889,11 @@ router.get('/archives', authenticateToken, async (req, res) => {
 
     for (const d of allAccessibleDocs) {
       const catCode = getDocCategoryCode(d);
+      d.category_code = catCode;
       if (categoryCounts[catCode] !== undefined) {
         categoryCounts[catCode]++;
       } else {
+        d.category_code = 'NON_CLASSE';
         categoryCounts['NON_CLASSE']++;
       }
     }
@@ -856,7 +932,22 @@ router.get('/archives', authenticateToken, async (req, res) => {
 
     const targetCategory = category || type;
     if (targetCategory && targetCategory !== 'ALL') {
-      filteredDocs = filteredDocs.filter(d => getDocCategoryCode(d) === targetCategory.trim());
+      const targetCatObj = mergedCategories.find(c => 
+        c.code === targetCategory || 
+        String(c.id) === targetCategory || 
+        (c.label && c.label.toLowerCase() === targetCategory.toLowerCase())
+      );
+      const targetCode = targetCatObj ? targetCatObj.code : targetCategory;
+
+      filteredDocs = filteredDocs.filter(d => {
+        if (targetCatObj && targetCatObj.id && Number(d.custom_category_id) === Number(targetCatObj.id)) {
+          return true;
+        }
+        if (d.category_code === targetCode) {
+          return true;
+        }
+        return getDocCategoryCode(d) === targetCode;
+      });
     }
 
     if (search && search.trim()) {
@@ -868,6 +959,7 @@ router.get('/archives', authenticateToken, async (req, res) => {
         (d.sender_name && d.sender_name.toLowerCase().includes(s)) ||
         (d.creator_first && d.creator_first.toLowerCase().includes(s)) ||
         (d.creator_last && d.creator_last.toLowerCase().includes(s)) ||
+        (d.owner_service_name && d.owner_service_name.toLowerCase().includes(s)) ||
         (d.originating_service_name && d.originating_service_name.toLowerCase().includes(s)) ||
         (d.ocr_text && d.ocr_text.toLowerCase().includes(s)) ||
         (d.keywords && d.keywords.toLowerCase().includes(s)) ||
@@ -887,12 +979,13 @@ router.get('/archives', authenticateToken, async (req, res) => {
     };
 
     res.json({ 
-      metrics, 
+      service_id: targetServiceId,
       categories_summary: categoriesSummary, 
-      documents: filteredDocs 
+      documents: filteredDocs, 
+      metrics 
     });
   } catch (err) {
-    console.error('Fetch archives error:', err);
+    console.error('Error fetching archives:', err);
     res.status(500).json({ error: 'Erreur lors de la récupération des archives.' });
   }
 });
@@ -1489,7 +1582,7 @@ router.post(['/incoming', '/'], authenticateToken, requirePermission('incoming_m
 });
 
 // POST /api/documents/administrative - Create administrative document with service reference, head snapshot, and hierarchy routing (Rule 1, 6, 7, 8, 9, 26)
-router.post('/administrative', authenticateToken, upload.array('files'), async (req, res) => {
+router.post('/administrative', authenticateToken, upload.any(), async (req, res) => {
   const {
     document_type,
     document_category,
@@ -1505,6 +1598,7 @@ router.post('/administrative', authenticateToken, upload.array('files'), async (
     target_recipient_name,
     target_service_id,
     target_recipient_id,
+    custom_values,
     action = 'SUBMIT' // 'DRAFT' or 'SUBMIT'
   } = req.body;
 
@@ -1517,7 +1611,23 @@ router.post('/administrative', authenticateToken, upload.array('files'), async (
     return res.status(400).json({ error: 'Le titre ou l’objet du document est obligatoire.' });
   }
 
+  // Parse custom values if string
+  let parsedCustomValues = {};
+  if (typeof custom_values === 'string') {
+    try { parsedCustomValues = JSON.parse(custom_values); } catch (e) { parsedCustomValues = {}; }
+  } else if (typeof custom_values === 'object' && custom_values !== null) {
+    parsedCustomValues = custom_values;
+  }
+
   try {
+    // 0. STRICT PERMISSION CHECK BY DOCUMENT TYPE (Niveau 1, 2, 3)
+    const isTypeAllowed = await documentTypeService.canUserCreateDocumentType(user, docType);
+    if (!isTypeAllowed) {
+      return res.status(403).json({
+        error: `ACCÈS STRICTEMENT REFUSÉ : Votre service et rôle ne sont pas autorisés à créer des documents de type '${docType}'. Seul le Secrétariat Central ou l'Administrateur peut créer ce type, sauf permission explicite accordée.`
+      });
+    }
+
     // 1. Identify originating service & active head snapshot
     const originatingServiceId = user.service_id;
     let originatingService = null;
@@ -1539,8 +1649,11 @@ router.post('/administrative', authenticateToken, upload.array('files'), async (
       }
     }
 
-    // 2. Generate unique sequential reference for this specific service (e.g. FS/INFO/2026/0001)
-    const { reference, sequence_number, reference_meta } = await generateReferenceWithMeta(docType, { serviceId: originatingServiceId });
+    // 2. Generate unique sequential reference for this specific service with custom dynamic values
+    const { reference, sequence_number, reference_meta } = await generateReferenceWithMeta(docType, { 
+      serviceId: originatingServiceId,
+      custom_values: parsedCustomValues
+    });
     const trackingToken = require('crypto').randomBytes(16).toString('hex');
 
     // 3. Resolve template if provided or fetch default
@@ -1557,6 +1670,19 @@ router.post('/administrative', authenticateToken, upload.array('files'), async (
       );
     }
 
+    // Resolve dynamic variables in content_body
+    const rawContent = content_body || description || '';
+    const resolvedContent = resolveAllDynamicVariables(rawContent, {
+      reference,
+      date: new Date().toLocaleDateString('fr-FR'),
+      service_name: originatingService?.name || user.service_name || '',
+      recipient_name: target_recipient_name || '',
+      object: docTitle,
+      head_name: headSnapshotName || '',
+      head_title: headSnapshotFunction || '',
+      sequence: String(sequence_number).padStart(4, '0')
+    }, parsedCustomValues);
+
     // 4. Determine initial destination & SG routing rule (Rule 9: documents submitted to central go to SG for orientation)
     const sgService = await db.get('SELECT id FROM services WHERE code = "SG"');
     const sgServiceId = sgService ? sgService.id : (originatingServiceId || 1);
@@ -1565,7 +1691,7 @@ router.post('/administrative', authenticateToken, upload.array('files'), async (
     const currentServiceId = isDraft ? (originatingServiceId || 1) : (target_service_id ? Number(target_service_id) : sgServiceId);
     const initialStatus = isDraft ? 'BROUILLON' : ((currentServiceId === originatingServiceId) ? 'SOUMIS' : 'SOUMIS');
 
-    // 5. Insert document with full contextual snapshot
+    // 5. Insert document with full contextual snapshot & custom_values_json
     const docRes = await db.run(
       `INSERT INTO documents 
        (reference, tracking_token, document_type, document_category, title, description, content_body,
@@ -1573,16 +1699,16 @@ router.post('/administrative', authenticateToken, upload.array('files'), async (
         priority, confidentiality, status, current_service_id, current_user_id, created_by,
         originating_service_id, originating_head_name, originating_head_function, service_sequence_number,
         target_recipient_type, target_recipient_name, target_service_id, target_recipient_id,
-        reference_meta)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        reference_meta, custom_values_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         reference,
         trackingToken,
         docType,
         docCategory,
         docTitle,
-        description || content_body || '',
-        content_body || description || '',
+        description || resolvedContent,
+        resolvedContent,
         user.id,
         `${user.first_name} ${user.last_name}`,
         originatingService ? originatingService.name : 'Université de Kindia',
@@ -1600,7 +1726,8 @@ router.post('/administrative', authenticateToken, upload.array('files'), async (
         target_recipient_name || '',
         target_service_id || null,
         target_recipient_id || null,
-        reference_meta
+        reference_meta,
+        JSON.stringify(parsedCustomValues)
       ]
     );
 
@@ -1992,10 +2119,61 @@ router.put('/:id/archive', authenticateToken, requirePermission('documents.archi
       });
     }
 
+    // Auto-detect and set custom category if not yet classified
+    let catId = doc.custom_category_id;
+    let catName = doc.archive_category;
+    if (!catId && req.user.service_id) {
+      let matchedCat = null;
+      if (doc.document_type === 'MISSION_ORDER') {
+        matchedCat = await db.get(
+          `SELECT id, name FROM archive_custom_categories 
+           WHERE service_id = ? AND is_active = 1 
+             AND (code LIKE '%MISSION%' OR name LIKE '%Mission%')
+           LIMIT 1`,
+          [req.user.service_id]
+        );
+      } else if (doc.document_type === 'COURRIER_ENTRANT' || doc.document_type === 'INCOMING_MAIL' || doc.document_type === 'ARRIVE') {
+        matchedCat = await db.get(
+          `SELECT id, name FROM archive_custom_categories 
+           WHERE service_id = ? AND is_active = 1 
+             AND (code LIKE '%ARRIVE%' OR code LIKE '%ENTRANT%' OR name LIKE '%Arriv%')
+           LIMIT 1`,
+          [req.user.service_id]
+        );
+      } else if (doc.document_type === 'COURRIER_SORTANT' || doc.document_type === 'OUTGOING_MAIL' || doc.document_type === 'DEPART') {
+        matchedCat = await db.get(
+          `SELECT id, name FROM archive_custom_categories 
+           WHERE service_id = ? AND is_active = 1 
+             AND (code LIKE '%DEPART%' OR code LIKE '%SORTANT%' OR name LIKE '%Départ%' OR name LIKE '%Depart%')
+           LIMIT 1`,
+          [req.user.service_id]
+        );
+      }
+      if (matchedCat) {
+        catId = matchedCat.id;
+        catName = matchedCat.name;
+      }
+    }
+
     await db.run(
-      `UPDATE documents SET status = 'ARCHIVED', archived_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      [docId]
+      `UPDATE documents 
+       SET status = 'ARCHIVED', 
+           archived_at = CURRENT_TIMESTAMP,
+           archived_by = ?,
+           owner_service_id = COALESCE(owner_service_id, originating_service_id, ?),
+           custom_category_id = COALESCE(?, custom_category_id),
+           archive_category = COALESCE(?, archive_category)
+       WHERE id = ?`,
+      [req.user.id, req.user.service_id, catId, catName, docId]
     );
+
+    // Also sync status in mission_orders table if applicable
+    if (doc.document_type === 'MISSION_ORDER') {
+      await db.run(
+        `UPDATE mission_orders SET status = 'ARCHIVED', updated_at = CURRENT_TIMESTAMP WHERE document_id = ?`,
+        [docId]
+      );
+    }
 
     await db.run(
       `INSERT INTO document_history (document_id, user_id, service_id, action, details)

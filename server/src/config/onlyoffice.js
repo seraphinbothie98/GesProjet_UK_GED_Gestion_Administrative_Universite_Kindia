@@ -3,17 +3,20 @@ const jwt = require('jsonwebtoken');
 
 // Centralized ONLYOFFICE configuration
 const ONLYOFFICE_CONFIG = {
-  // Document Server URL (e.g., http://localhost:80, http://onlyoffice:80, or cloud url)
+  // Document Server Public URL accessible by browser (e.g., http://localhost:80 or https://office.ged.universite.edu)
   DOCUMENT_SERVER_URL: process.env.ONLYOFFICE_DOCUMENT_SERVER_URL || 'http://localhost:80',
+
+  // Internal URL of ONLYOFFICE Document Server accessible by UK-GED backend
+  INTERNAL_SERVER_URL: process.env.ONLYOFFICE_INTERNAL_SERVER_URL || process.env.ONLYOFFICE_DOCUMENT_SERVER_URL || 'http://localhost:80',
   
-  // JWT Secret key (keep empty if JWT is disabled on ONLYOFFICE Document Server)
-  JWT_SECRET: process.env.ONLYOFFICE_JWT_SECRET || 'uk_ged_onlyoffice_secret_2026',
+  // JWT Secret key (must match ONLYOFFICE Document Server container environment)
+  JWT_SECRET: process.env.ONLYOFFICE_JWT_SECRET || 'uk_ged_onlyoffice_dev_secret',
   
   // JWT Header expected by ONLYOFFICE
   JWT_HEADER: process.env.ONLYOFFICE_JWT_HEADER || 'Authorization',
   
-  // Public URL of UK-GED backend accessible by ONLYOFFICE Document Server
-  BACKEND_URL: process.env.ONLYOFFICE_CALLBACK_URL || process.env.BACKEND_PUBLIC_URL || 'http://localhost:5000',
+  // URL of UK-GED backend accessible by ONLYOFFICE Document Server (container-to-host or container-to-container)
+  BACKEND_URL: process.env.ONLYOFFICE_CALLBACK_URL || process.env.ONLYOFFICE_BACKEND_URL || (process.env.NODE_ENV === 'production' ? 'https://ged.universite.edu' : 'http://host.docker.internal:5000'),
   
   // Tenant default identifier
   TENANT_ID: 'UNIVERSITE_KINDIA'

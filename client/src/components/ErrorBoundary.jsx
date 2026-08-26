@@ -38,10 +38,10 @@ export default class ErrorBoundary extends React.Component {
 
             <div>
               <h3 className="font-heading font-extrabold text-slate-800 text-lg">
-                L'éditeur n'a pas pu charger ce document
+                Une anomalie d'affichage est survenue
               </h3>
               <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-                Une erreur est survenue lors de l'initialisation du composant de personnalisation.
+                Le système a intercepté une erreur pour préserver vos données en toute sécurité.
               </p>
               {this.state.error?.message && (
                 <div className="mt-3 p-3 bg-red-50 text-red-800 rounded-xl text-[11px] font-mono text-left border border-red-200 overflow-x-auto">
@@ -52,11 +52,11 @@ export default class ErrorBoundary extends React.Component {
 
             <div className="pt-2 flex flex-wrap gap-2 justify-center font-bold text-xs">
               <button
-                onClick={this.handleReset}
-                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl flex items-center space-x-1.5 transition"
+                onClick={() => { this.handleReset(); window.location.reload(); }}
+                className="px-5 py-2.5 bg-kindia-blue text-white hover:bg-blue-800 rounded-xl flex items-center space-x-1.5 transition shadow"
               >
-                <RefreshCw className="w-4 h-4 text-slate-500" />
-                <span>Réessayer</span>
+                <RefreshCw className="w-4 h-4 text-white" />
+                <span>Recharger la page</span>
               </button>
 
               {this.props.onPreviewFallback && (

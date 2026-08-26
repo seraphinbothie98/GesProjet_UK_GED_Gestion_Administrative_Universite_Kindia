@@ -18,8 +18,8 @@ async function authenticateToken(req, res, next) {
     
     // Fetch fresh user profile with service and role permissions (Supports non-service users & Enseignants-Chercheurs)
     const user = await db.get(
-      `SELECT u.id, u.matricule, u.first_name, u.last_name, u.email, u.phone, u.function_title, 
-              u.personnel_category, u.academic_structure, u.service_id, u.role_id, u.status, 
+      `SELECT u.id, u.user_uid, u.matricule, u.first_name, u.last_name, u.email, u.phone, u.function_title, 
+              u.personnel_category, u.academic_structure, u.service_id, u.role_id, u.status, u.token_version, u.must_change_password,
               s.name as service_name, s.code as service_code, r.code as role_code, r.name as role_name
        FROM users u
        LEFT JOIN services s ON u.service_id = s.id
@@ -30,6 +30,15 @@ async function authenticateToken(req, res, next) {
 
     if (!user) {
       return res.status(403).json({ error: 'Utilisateur inactif ou introuvable.' });
+    }
+
+    // Check token version to invalidate revoked sessions immediately
+    const currentTokenVersion = user.token_version || 1;
+    if (decoded.tokenVersion && decoded.tokenVersion !== currentTokenVersion) {
+      return res.status(401).json({ 
+        error: 'Votre session a été révoquée ou votre mot de passe a été modifié. Veuillez vous reconnecter.',
+        code: 'SESSION_REVOKED'
+      });
     }
 
     // Fetch user permissions
@@ -44,7 +53,7 @@ async function authenticateToken(req, res, next) {
     req.user = user;
     next();
   } catch (err) {
-    return res.status(403).json({ error: 'Token invalide ou expiré.' });
+    return res.status(401).json({ error: 'Token invalide ou expiré.' });
   }
 }
 

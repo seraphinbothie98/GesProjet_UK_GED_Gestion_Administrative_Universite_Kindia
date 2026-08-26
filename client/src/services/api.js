@@ -216,6 +216,17 @@ export const api = {
     return data;
   },
 
+  async createDocument(formData) {
+    const res = await fetch(`${API_BASE}/documents/administrative`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
   async createAdministrativeDocument(formData) {
     const res = await fetch(`${API_BASE}/documents/administrative`, {
       method: 'POST',
@@ -488,8 +499,13 @@ export const api = {
   },
 
   async getArchives(params = {}) {
-    const query = new URLSearchParams(params).toString();
-    const res = await fetch(`${API_BASE}/documents/archives?${query}`, {
+    let query = '';
+    if (typeof params === 'object' && params !== null) {
+      query = new URLSearchParams(params).toString();
+    } else if (params) {
+      query = `service_id=${encodeURIComponent(params)}`;
+    }
+    const res = await fetch(`${API_BASE}/documents/archives${query ? `?${query}` : ''}`, {
       headers: getAuthHeader()
     });
     const data = await res.json();
@@ -510,8 +526,13 @@ export const api = {
 
   // Archive Categories Management API
   async getArchiveCategories(params = {}) {
-    const query = new URLSearchParams(params).toString();
-    const res = await fetch(`${API_BASE}/archive-categories?${query}`, {
+    let query = '';
+    if (typeof params === 'object' && params !== null) {
+      query = new URLSearchParams(params).toString();
+    } else if (params) {
+      query = `service_id=${encodeURIComponent(params)}`;
+    }
+    const res = await fetch(`${API_BASE}/archive-categories${query ? `?${query}` : ''}`, {
       headers: getAuthHeader()
     });
     const data = await res.json();
@@ -725,6 +746,16 @@ export const api = {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async deleteUser(id) {
+    const res = await fetch(`${API_BASE}/users/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression de l’utilisateur.');
     return data;
   },
 
@@ -2030,6 +2061,17 @@ export const api = {
     return data;
   },
 
+  async getTemplates(params = {}) {
+    return this.getDocumentTemplates(params);
+  },
+
+  async getDefaultTemplateForType(documentTypeCode) {
+    const res = await fetch(`${API_BASE}/templates/default-by-type/${encodeURIComponent(documentTypeCode)}`, { headers: getAuthHeader() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur récupération modèle par défaut');
+    return data;
+  },
+
   async getDocumentTemplate(idOrCode) {
     const res = await fetch(`${API_BASE}/templates/${encodeURIComponent(idOrCode)}`, { headers: getAuthHeader() });
     const data = await res.json();
@@ -2082,6 +2124,10 @@ export const api = {
     return data;
   },
 
+  async setDefaultDocumentTemplate(id, force = false) {
+    return this.setDefaultTemplate(id, force);
+  },
+
   async duplicateTemplate(id) {
     const res = await fetch(`${API_BASE}/templates/${encodeURIComponent(id)}/duplicate`, {
       method: 'POST',
@@ -2092,6 +2138,10 @@ export const api = {
     return data;
   },
 
+  async duplicateDocumentTemplate(id) {
+    return this.duplicateTemplate(id);
+  },
+
   async deleteTemplate(id) {
     const res = await fetch(`${API_BASE}/templates/${encodeURIComponent(id)}`, {
       method: 'DELETE',
@@ -2100,6 +2150,14 @@ export const api = {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Erreur suppression modèle');
     return data;
+  },
+
+  async deleteDocumentTemplate(id) {
+    return this.deleteTemplate(id);
+  },
+
+  async uploadTemplateFile(id, formData) {
+    return this.uploadDocxRevision(id, formData);
   },
 
   async toggleTemplateStatus(code) {
@@ -2185,8 +2243,14 @@ export const api = {
   },
 
   async downloadTemplateDocx(templateId) {
-    const url = `${API_BASE}/templates/${encodeURIComponent(templateId)}/download-docx`;
-    window.open(url, '_blank');
+    const token = localStorage.getItem('uk_ged_token');
+    const url = `${API_BASE}/templates/${encodeURIComponent(templateId)}/download-docx?token=${encodeURIComponent(token || '')}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   },
 
   async testTemplatePreview(templateId) {
@@ -2199,8 +2263,8 @@ export const api = {
     return data;
   },
 
-  // ONLYOFFICE Docs Integration API
-  async getOnlyofficeConfig(templateId, versionId = 'current', mode = 'edit') {
+  // ONLYOFFICE Docs Integration API for Templates
+  async getTemplateOnlyofficeConfig(templateId, versionId = 'current', mode = 'edit') {
     const query = new URLSearchParams({
       version_id: versionId,
       mode
@@ -2213,7 +2277,11 @@ export const api = {
     return data;
   },
 
-  async manualSaveOnlyoffice(templateId, payload = {}) {
+  async getOnlyofficeConfig(templateId, versionId = 'current', mode = 'edit') {
+    return this.getTemplateOnlyofficeConfig(templateId, versionId, mode);
+  },
+
+  async manualSaveTemplateOnlyoffice(templateId, payload = {}) {
     const res = await fetch(`${API_BASE}/templates/${encodeURIComponent(templateId)}/onlyoffice/manual-save`, {
       method: 'POST',
       headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
@@ -2222,6 +2290,10 @@ export const api = {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Erreur lors de l’enregistrement du modèle.');
     return data;
+  },
+
+  async manualSaveOnlyoffice(templateId, payload = {}) {
+    return this.manualSaveTemplateOnlyoffice(templateId, payload);
   },
 
   // Official Document / Act Types & Smart Category Suggestions
@@ -2253,6 +2325,470 @@ export const api = {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Erreur suggestion catégorie');
+    return data;
+  },
+
+  // Service Document Settings & Custom Dynamic Fields API (Rules 1-21)
+  async getServiceDocumentSettings(serviceId) {
+    const query = serviceId ? `?service_id=${encodeURIComponent(serviceId)}` : '';
+    const res = await fetch(`${API_BASE}/service-settings/document-settings${query}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur chargement paramètres documents de service');
+    return data;
+  },
+
+  async updateServiceDocumentSettings(payload) {
+    const res = await fetch(`${API_BASE}/service-settings/document-settings`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur enregistrement paramètres de service');
+    return data;
+  },
+
+  async previewServiceReference(payload) {
+    const res = await fetch(`${API_BASE}/service-settings/preview-reference`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur calcul aperçu référence');
+    return data;
+  },
+
+  async getServiceSettingsHistory(serviceId) {
+    const query = serviceId ? `?service_id=${encodeURIComponent(serviceId)}` : '';
+    const res = await fetch(`${API_BASE}/service-settings/history${query}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur chargement historique');
+    return data;
+  },
+
+  async getServiceCustomFields(serviceId) {
+    const query = serviceId ? `?service_id=${encodeURIComponent(serviceId)}` : '';
+    const res = await fetch(`${API_BASE}/service-settings/custom-fields${query}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur chargement des champs dynamiques');
+    return data;
+  },
+
+  async createServiceCustomField(payload) {
+    const res = await fetch(`${API_BASE}/service-settings/custom-fields`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur création champ dynamique');
+    return data;
+  },
+
+  async updateServiceCustomField(id, payload) {
+    const res = await fetch(`${API_BASE}/service-settings/custom-fields/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur mise à jour champ dynamique');
+    return data;
+  },
+
+  async checkServiceCustomFieldUsage(id) {
+    const res = await fetch(`${API_BASE}/service-settings/custom-fields/${encodeURIComponent(id)}/usage`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur vérification usage du champ');
+    return data;
+  },
+
+  async deleteServiceCustomField(id) {
+    const res = await fetch(`${API_BASE}/service-settings/custom-fields/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur suppression champ dynamique');
+    return data;
+  },
+
+  // ==========================================
+  // TRANSMISSIONS INTER-SERVICES CONFIDENTIELLES
+  // ==========================================
+  async createTransmission(payload) {
+    const res = await fetch(`${API_BASE}/transmissions`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la transmission du courrier');
+    return data;
+  },
+
+  async getSentTransmissions(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_BASE}/transmissions/sent?${query}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la récupération des courriers envoyés');
+    return data;
+  },
+
+  async getInboxTransmissions(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_BASE}/transmissions/inbox?${query}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la récupération des courriers reçus');
+    return data;
+  },
+
+  async getReturnedTransmissions(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_BASE}/transmissions/returned?${query}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la récupération des courriers retournés');
+    return data;
+  },
+
+  async getTransmissionDetails(id) {
+    const res = await fetch(`${API_BASE}/transmissions/${encodeURIComponent(id)}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la récupération des détails de transmission');
+    return data;
+  },
+
+  async acknowledgeTransmission(id, comments = '') {
+    const res = await fetch(`${API_BASE}/transmissions/${encodeURIComponent(id)}/acknowledge`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ comments })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’accusé de réception');
+    return data;
+  },
+
+  async requestTransmissionModification(id, reason, comments = '') {
+    const res = await fetch(`${API_BASE}/transmissions/${encodeURIComponent(id)}/request-modification`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason, comments })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la demande de modification');
+    return data;
+  },
+
+  async submitNewTransmissionVersion(id, payload) {
+    const res = await fetch(`${API_BASE}/transmissions/${encodeURIComponent(id)}/submit-new-version`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la soumission de la nouvelle version');
+    return data;
+  },
+
+  async approveTransmission(id, comments = '') {
+    const res = await fetch(`${API_BASE}/transmissions/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ comments })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’approbation du courrier');
+    return data;
+  },
+
+  async signTransmission(id, payload = {}) {
+    const res = await fetch(`${API_BASE}/transmissions/${encodeURIComponent(id)}/sign`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la signature électronique');
+    return data;
+  },
+
+  async rejectTransmission(id, reason) {
+    const res = await fetch(`${API_BASE}/transmissions/${encodeURIComponent(id)}/reject`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du refus du courrier');
+    return data;
+  },
+
+  async archiveTransmission(id, payload = {}) {
+    const res = await fetch(`${API_BASE}/transmissions/${encodeURIComponent(id)}/archive`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’archivage du courrier');
+    return data;
+  },
+
+  // ==========================================
+  // GESTION DU COMPTE UTILISATEUR & SÉCURITÉ
+  // ==========================================
+  async getAccountProfile() {
+    const res = await fetch(`${API_BASE}/account/me`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur chargement profil utilisateur');
+    return data;
+  },
+
+  async updateAccountProfile(payload) {
+    const res = await fetch(`${API_BASE}/account/profile`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur mise à jour profil');
+    return data;
+  },
+
+  async updateAccountIdentifier(payload) {
+    const res = await fetch(`${API_BASE}/account/identifier`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur modification identifiant');
+    return data;
+  },
+
+  async updateAccountPassword(payload) {
+    const res = await fetch(`${API_BASE}/account/password`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur modification mot de passe');
+    return data;
+  },
+
+  async revokeAccountOtherSessions() {
+    const res = await fetch(`${API_BASE}/account/revoke-other-sessions`, {
+      method: 'POST',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur révocation des sessions');
+    return data;
+  },
+
+  async requestForgotPassword(identity) {
+    const res = await fetch(`${API_BASE}/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identity })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur demande de réinitialisation');
+    return data;
+  },
+
+  async resetPasswordWithToken(token, newPassword) {
+    const res = await fetch(`${API_BASE}/auth/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, new_password: newPassword })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur réinitialisation du mot de passe');
+    return data;
+  },
+
+  async forceChangePassword(currentTempPassword, newPassword) {
+    const res = await fetch(`${API_BASE}/auth/force-change-password`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_temp_password: currentTempPassword, new_password: newPassword })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur enregistrement nouveau mot de passe');
+    return data;
+  },
+
+  async adminResetUserPassword(userId, customTempPassword = null) {
+    const res = await fetch(`${API_BASE}/users/${encodeURIComponent(userId)}/reset-password`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ custom_temp_password: customTempPassword })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur réinitialisation administrateur');
+    return data;
+  },
+
+  async adminRevokeUserSessions(userId) {
+    const res = await fetch(`${API_BASE}/users/${encodeURIComponent(userId)}/revoke-sessions`, {
+      method: 'POST',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur révocation sessions utilisateur');
+    return data;
+  },
+
+  async getUserSecurityInfo(userId) {
+    const res = await fetch(`${API_BASE}/users/${encodeURIComponent(userId)}/security-info`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur récupération informations de sécurité');
+    return data;
+  },
+
+  // ==========================================
+  // ONLYOFFICE DOCUMENT SERVER INTEGRATION
+  // ==========================================
+  async getOnlyOfficeConfig(documentId) {
+    const res = await fetch(`${API_BASE}/documents/${encodeURIComponent(documentId)}/onlyoffice/config`, {
+      headers: getAuthHeader()
+    });
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      if (!res.ok) {
+        throw new Error(`Le serveur a retourné une erreur HTTP ${res.status}.`);
+      }
+      throw new Error(`Réponse inattendue du serveur: ${text.slice(0, 80)}`);
+    }
+    if (!res.ok) throw new Error(data.error || 'Erreur génération session ONLYOFFICE');
+    return data;
+  },
+
+  async getOnlyOfficeLockStatus(documentId) {
+    const res = await fetch(`${API_BASE}/documents/${encodeURIComponent(documentId)}/onlyoffice/lock-status`, {
+      headers: getAuthHeader()
+    });
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      return { locked: false };
+    }
+    if (!res.ok) throw new Error(data.error || 'Erreur statut verrou ONLYOFFICE');
+    return data;
+  },
+
+  async unlockOnlyOfficeDocument(documentId) {
+    const res = await fetch(`${API_BASE}/documents/${encodeURIComponent(documentId)}/onlyoffice/unlock`, {
+      method: 'POST',
+      headers: getAuthHeader()
+    });
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      return { success: true };
+    }
+  },
+
+  // ==========================================
+  // DOCUMENT TYPES & PERMISSIONS MANAGEMENT
+  // ==========================================
+  async getCreatableDocumentTypes() {
+    const res = await fetch(`${API_BASE}/document-types/creatable`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur récupération types de documents autorisés');
+    return data;
+  },
+
+  async getDocumentTypes() {
+    const res = await fetch(`${API_BASE}/document-types`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur récupération catalogue types de documents');
+    return data;
+  },
+
+  async getDocumentTypePermissions(code) {
+    const res = await fetch(`${API_BASE}/document-types/${encodeURIComponent(code)}/permissions`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur récupération matrice des permissions');
+    return data;
+  },
+
+  async updateDocumentTypePermissions(code, rules) {
+    const res = await fetch(`${API_BASE}/document-types/${encodeURIComponent(code)}/permissions`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rules })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur mise à jour permissions');
+    return data;
+  },
+
+  async createDocumentType(typeData) {
+    const res = await fetch(`${API_BASE}/document-types`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(typeData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur création type de document');
+    return data;
+  },
+
+  async updateDocumentType(code, typeData) {
+    const res = await fetch(`${API_BASE}/document-types/${encodeURIComponent(code)}`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(typeData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur mise à jour type de document');
+    return data;
+  },
+
+  async deleteDocumentType(code) {
+    const res = await fetch(`${API_BASE}/document-types/${encodeURIComponent(code)}`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur désactivation type de document');
     return data;
   }
 };

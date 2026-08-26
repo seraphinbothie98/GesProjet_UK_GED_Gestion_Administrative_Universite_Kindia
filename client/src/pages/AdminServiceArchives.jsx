@@ -1,25 +1,36 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { 
-  Archive, Building2, Folder, Plus, Edit2, Trash2, CheckCircle2, 
+  Archive, Building2, Folder, FolderOpen, Plus, Edit2, Trash2, CheckCircle2, 
   AlertCircle, Search, RefreshCw, Power, ShieldCheck, Tag, 
   Layers, ArrowRight, X, ShieldAlert, Send, FileText, ChevronRight,
-  HelpCircle, ArrowLeftRight
+  HelpCircle, ArrowLeftRight, Download, Eye, Calendar, User, FileUp
 } from 'lucide-react';
 import NewArchiveCategoryModal from '../components/NewArchiveCategoryModal';
 import DynamicCategoryIcon, { AVAILABLE_ICONS, COLOR_PALETTE } from '../components/DynamicCategoryIcon';
+import ArchiveDocumentDetailDrawer from '../components/ArchiveDocumentDetailDrawer';
+import { StatusBadge } from '../components/Badge';
 
 export default function AdminServiceArchives() {
   const [services, setServices] = useState([]);
   const [selectedService, setSelectedService] = useState(null);
+  const [activeTab, setActiveTab] = useState('explorer'); // 'explorer' | 'management'
+  
+  // Data for the selected service
   const [categories, setCategories] = useState({ standards: [], customs: [], all: [] });
+  const [archiveData, setArchiveData] = useState({ categories_summary: [], documents: [], metrics: {} });
+  const [selectedCategoryCode, setSelectedCategoryCode] = useState('ALL');
+  const [selectedYear, setSelectedYear] = useState('2026');
+  const [docSearchTerm, setDocSearchTerm] = useState('');
+  
   const [loadingServices, setLoadingServices] = useState(true);
-  const [loadingCategories, setLoadingCategories] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [loadingServiceData, setLoadingServiceData] = useState(false);
+  const [serviceSearchTerm, setServiceSearchTerm] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Modals state
+  // Modals & Drawers state
+  const [drawerDocId, setDrawerDocId] = useState(null);
   const [isNewCatModalOpen, setIsNewCatModalOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState(null);
   const [deleteConfirmCat, setDeleteConfirmCat] = useState(null);
@@ -33,7 +44,10 @@ export default function AdminServiceArchives() {
 
   useEffect(() => {
     if (selectedService) {
-      loadServiceCategories(selectedService.id);
+      // Reset filter states for newly selected service
+      setSelectedCategoryCode('ALL');
+      setDocSearchTerm('');
+      loadServiceAllData(selectedService.id, 'ALL', selectedYear, '');
     }
   }, [selectedService]);
 
@@ -54,17 +68,87 @@ export default function AdminServiceArchives() {
     }
   };
 
-  const loadServiceCategories = async (srvId) => {
+  const loadServiceAllData = async (srvId, catCode = selectedCategoryCode, yr = selectedYear, search = docSearchTerm) => {
+    if (!srvId) return;
     try {
-      setLoadingCategories(true);
+      setLoadingServiceData(true);
       setErrorMsg('');
-      const data = await api.getArchiveCategories(srvId);
-      setCategories(data || { standards: [], customs: [], all: [] });
+      
+      const [catsRes, archRes] = await Promise.all([
+        api.getArchiveCategories({ service_id: srvId }).catch(() => ({ standards: [], customs: [], all: [] })),
+        api.getArchives({
+          service_id: srvId,
+          year: yr,
+          category: (catCode && catCode !== 'ALL') ? catCode : undefined,
+          search: search || undefined
+        }).catch(() => ({ categories_summary: [], documents: [], metrics: {} }))
+      ]);
+
+      setCategories(catsRes || { standards: [], customs: [], all: [] });
+      setArchiveData(archRes || { categories_summary: [], documents: [], metrics: {} });
     } catch (err) {
-      console.error('Error loading service categories:', err);
-      setErrorMsg('Erreur lors du chargement des catégories du service.');
+      console.error('Error loading service archives data:', err);
+      setErrorMsg('Erreur lors du chargement des archives du service sélectionné.');
     } finally {
-      setLoadingCategories(false);
+      setLoadingServiceData(false);
+    }
+  };
+
+  const handleSelectService = (srv) => {
+    if (selectedService?.id === srv.id) return;
+    setSelectedService(srv);
+    setCategories({ standards: [], customs: [], all: [] });
+    setArchiveData({ categories_summary: [], documents: [], metrics: {} });
+    setSelectedCategoryCode('ALL');
+    setDocSearchTerm('');
+  };
+
+  const handleCategoryFilter = (catCode) => {
+    setSelectedCategoryCode(catCode);
+    if (selectedService) {
+      loadServiceAllData(selectedService.id, catCode, selectedYear, docSearchTerm);
+    }
+  };
+
+  const handleYearFilter = (yr) => {
+    setSelectedYear(yr);
+    if (selectedService) {
+      loadServiceAllData(selectedService.id, selectedCategoryCode, yr, docSearchTerm);
+    }
+  };
+
+  const handleDocSearch = (e) => {
+    e.preventDefault();
+    if (selectedService) {
+      loadServiceAllData(selectedService.id, selectedCategoryCode, selectedYear, docSearchTerm);
+    }
+  };
+
+  const handleDownloadFile = async (docId, reference) => {
+    try {
+      const token = localStorage.getItem('uk_ged_token');
+      const url = `http://127.0.0.1:5000/api/documents/${docId}/download`;
+      
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Erreur de téléchargement (${res.status})`);
+      }
+
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `${reference || 'archive'}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      alert('Erreur lors du téléchargement : ' + err.message);
     }
   };
 
@@ -74,7 +158,7 @@ export default function AdminServiceArchives() {
         is_active: !cat.is_active
       });
       setSuccessMsg(`Statut de [${cat.name}] mis à jour avec succès.`);
-      loadServiceCategories(selectedService.id);
+      loadServiceAllData(selectedService.id);
       loadServicesSummary();
     } catch (err) {
       setErrorMsg(err.message || 'Erreur lors du changement de statut.');
@@ -95,7 +179,7 @@ export default function AdminServiceArchives() {
       });
       setEditingCategory(null);
       setSuccessMsg(`Catégorie [${editingCategory.name}] mise à jour avec succès.`);
-      loadServiceCategories(selectedService.id);
+      loadServiceAllData(selectedService.id);
       loadServicesSummary();
     } catch (err) {
       setErrorMsg(err.message || 'Erreur lors de la modification.');
@@ -109,7 +193,7 @@ export default function AdminServiceArchives() {
       await api.deleteArchiveCategory(cat.id);
       setDeleteConfirmCat(null);
       setSuccessMsg(`Catégorie [${cat.name}] supprimée avec succès.`);
-      loadServiceCategories(selectedService.id);
+      loadServiceAllData(selectedService.id);
       loadServicesSummary();
     } catch (err) {
       setDeleteError(err.message || 'Impossible de supprimer cette catégorie.');
@@ -135,7 +219,7 @@ export default function AdminServiceArchives() {
       setDeleteConfirmCat(null);
       setMoveDocsTarget('');
       setSuccessMsg(`Documents déplacés et catégorie supprimée avec succès.`);
-      loadServiceCategories(selectedService.id);
+      loadServiceAllData(selectedService.id);
       loadServicesSummary();
     } catch (err) {
       setDeleteError(err.message || 'Erreur lors du déplacement des documents.');
@@ -145,12 +229,16 @@ export default function AdminServiceArchives() {
   };
 
   const filteredServices = services.filter(s => 
-    s.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.acronym?.toLowerCase().includes(searchTerm.toLowerCase())
+    s.name?.toLowerCase().includes(serviceSearchTerm.toLowerCase()) ||
+    s.code?.toLowerCase().includes(serviceSearchTerm.toLowerCase()) ||
+    s.acronym?.toLowerCase().includes(serviceSearchTerm.toLowerCase())
   );
 
   const otherCustomCategories = (categories.customs || []).filter(c => c.id !== deleteConfirmCat?.id);
+
+  // Dynamic tree folders for the selected service
+  const serviceCategoriesList = archiveData.categories_summary || [];
+  const totalServiceDocs = serviceCategoriesList.reduce((sum, c) => sum + (c.count || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -163,17 +251,28 @@ export default function AdminServiceArchives() {
           <div>
             <div className="flex items-center space-x-2">
               <span className="text-[11px] font-extrabold uppercase tracking-widest text-kindia-gold bg-white/10 px-2.5 py-0.5 rounded-full">
-                Administration Centrale • Archivage
+                Administration Centrale • Isolation des Archives par Service
               </span>
             </div>
             <h2 className="font-heading font-extrabold text-2xl mt-1 text-white">
               Gestion des Archives des Services
             </h2>
             <p className="text-xs text-slate-300 mt-0.5">
-              Supervision globale, personnalisation et organisation des catégories d'archives pour chaque faculté, département et service de l'Université.
+              Supervision hiérarchique, explorateur de documents et personnalisation exclusive des catégories pour chaque structure de l'Université.
             </p>
           </div>
         </div>
+
+        <button
+          onClick={() => {
+            loadServicesSummary();
+            if (selectedService) loadServiceAllData(selectedService.id);
+          }}
+          className="p-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl border border-white/20 transition flex items-center space-x-2 text-xs font-bold shadow-xs shrink-0"
+        >
+          <RefreshCw className={`w-4 h-4 ${loadingServices || loadingServiceData ? 'animate-spin text-kindia-gold' : ''}`} />
+          <span>Actualiser</span>
+        </button>
       </div>
 
       {successMsg && (
@@ -220,23 +319,23 @@ export default function AdminServiceArchives() {
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
             <input
               type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Filtrer un service (ex: Faculté, DGI, Scolarité)..."
+              value={serviceSearchTerm}
+              onChange={(e) => setServiceSearchTerm(e.target.value)}
+              placeholder="Filtrer un service (ex: Contrôle, DAF, Scolarité)..."
               className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-hidden focus:ring-2 focus:ring-kindia-blue focus:bg-white"
             />
           </div>
 
           {/* List of services */}
-          <div className="space-y-1.5 max-h-[600px] overflow-y-auto pr-1">
+          <div className="space-y-1.5 max-h-[620px] overflow-y-auto pr-1 custom-scrollbar">
             {loadingServices ? (
               <div className="p-8 text-center text-xs text-slate-400">
                 <div className="animate-spin w-5 h-5 border-2 border-kindia-blue border-t-transparent rounded-full mx-auto mb-2"></div>
-                Chargement des services...
+                Chargement des structures...
               </div>
             ) : filteredServices.length === 0 ? (
               <div className="p-6 text-center text-xs text-slate-400">
-                Aucun service trouvé.
+                Aucune structure trouvée.
               </div>
             ) : (
               filteredServices.map((s) => {
@@ -244,7 +343,7 @@ export default function AdminServiceArchives() {
                 return (
                   <button
                     key={s.id}
-                    onClick={() => setSelectedService(s)}
+                    onClick={() => handleSelectService(s)}
                     className={`w-full p-3 rounded-2xl text-left transition flex items-center justify-between border ${
                       isSelected
                         ? 'bg-kindia-blue text-white border-kindia-blue shadow-md'
@@ -261,7 +360,7 @@ export default function AdminServiceArchives() {
                         </span>
                       </div>
                       <div className="flex items-center space-x-2 mt-0.5 text-[10px] opacity-75">
-                        <span>{s.categories_count || 0} catégorie(s)</span>
+                        <span>{s.categories_count || 0} dossier(s)</span>
                         <span>•</span>
                         <span>{s.archived_docs_count || 0} doc(s)</span>
                       </div>
@@ -274,8 +373,8 @@ export default function AdminServiceArchives() {
           </div>
         </div>
 
-        {/* Right Column: Categories Management Table (8 cols) */}
-        <div className="lg:col-span-8 bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-6">
+        {/* Right Column: Service Workspace (8 cols) */}
+        <div key={selectedService?.id || 'none'} className="lg:col-span-8 bg-white rounded-3xl p-6 border border-slate-200 shadow-sm space-y-6">
           {selectedService ? (
             <>
               {/* Header of selected service */}
@@ -288,138 +387,341 @@ export default function AdminServiceArchives() {
                     <span className="text-xs text-slate-400">Code : {selectedService.code}</span>
                   </div>
                   <h3 className="font-heading font-extrabold text-xl text-slate-900 mt-1">
-                    Catégories d'archives — {selectedService.name}
+                    Archives — {selectedService.name}
                   </h3>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setIsNewCatModalOpen(true)}
-                  className="bg-kindia-blue hover:bg-blue-800 text-white px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-sm shrink-0"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>+ Ajouter une catégorie</span>
-                </button>
+                <div className="flex items-center space-x-2">
+                  <div className="bg-slate-100 p-1 rounded-xl flex items-center space-x-1">
+                    <button
+                      onClick={() => setActiveTab('explorer')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
+                        activeTab === 'explorer'
+                          ? 'bg-white text-kindia-blue shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      <span>Explorateur</span>
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('management')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center space-x-1.5 ${
+                        activeTab === 'management'
+                          ? 'bg-white text-kindia-blue shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Tag className="w-3.5 h-3.5" />
+                      <span>Catégories ({categories.customs?.length || 0})</span>
+                    </button>
+                  </div>
+
+                  {activeTab === 'management' && (
+                    <button
+                      type="button"
+                      onClick={() => setIsNewCatModalOpen(true)}
+                      className="bg-kindia-blue hover:bg-blue-800 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-xs shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ Catégorie</span>
+                    </button>
+                  )}
+                </div>
               </div>
 
-              {/* Table of categories for selected service */}
-              {loadingCategories ? (
-                <div className="p-12 text-center text-xs text-slate-400">
-                  <div className="animate-spin w-6 h-6 border-2 border-kindia-blue border-t-transparent rounded-full mx-auto mb-2"></div>
-                  Chargement des catégories du service...
-                </div>
-              ) : categories.customs?.length === 0 ? (
-                <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200 text-slate-500">
-                  <Folder className="w-8 h-8 mx-auto text-slate-300 mb-2" />
-                  <p className="text-xs font-bold">Aucune catégorie pour ce service.</p>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Cliquez sur « + Ajouter une catégorie » pour créer un nouveau dossier d'archives.
-                  </p>
-                </div>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
-                        <th className="py-3 px-3">Catégorie</th>
-                        <th className="py-3 px-3 text-center">Documents</th>
-                        <th className="py-3 px-3 text-center">Icône</th>
-                        <th className="py-3 px-3 text-center">Couleur</th>
-                        <th className="py-3 px-3 text-center">Ordre</th>
-                        <th className="py-3 px-3 text-center">Statut</th>
-                        <th className="py-3 px-3 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {categories.customs.map((cat) => (
-                        <tr key={cat.id} className="hover:bg-slate-50/80 transition">
-                          <td className="py-3 px-3">
-                            <div className="flex items-center space-x-2">
-                              <span className="font-bold text-slate-900">{cat.name}</span>
-                              {cat.is_default && (
-                                <span className="text-[9px] px-1.5 py-0.2 rounded font-extrabold bg-blue-100 text-blue-800 uppercase">
-                                  Standard
-                                </span>
-                              )}
+              {/* TAB 1: EXPLORER VIEW (Folders Tree + Documents List) */}
+              {activeTab === 'explorer' && (
+                <div className="space-y-4">
+                  {/* Filters bar: Year + Search */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                    <div className="flex items-center space-x-2 w-full sm:w-auto">
+                      <Calendar className="w-4 h-4 text-slate-400" />
+                      <select
+                        value={selectedYear}
+                        onChange={(e) => handleYearFilter(e.target.value)}
+                        className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-hidden"
+                      >
+                        <option value="2026">Année 2026</option>
+                        <option value="2025">Année 2025</option>
+                        <option value="2024">Année 2024</option>
+                        <option value="">Toutes les années</option>
+                      </select>
+                    </div>
+
+                    <form onSubmit={handleDocSearch} className="relative w-full sm:w-72">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                      <input
+                        type="text"
+                        value={docSearchTerm}
+                        onChange={(e) => setDocSearchTerm(e.target.value)}
+                        placeholder="Rechercher par référence, titre, émetteur..."
+                        className="w-full pl-8 pr-8 py-1.5 bg-white border border-slate-200 rounded-xl text-xs outline-hidden focus:ring-2 focus:ring-kindia-blue"
+                      />
+                      {docSearchTerm && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDocSearchTerm('');
+                            loadServiceAllData(selectedService.id, selectedCategoryCode, selectedYear, '');
+                          }}
+                          className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 text-xs"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </form>
+                  </div>
+
+                  {/* Sub Grid: Left Folder buttons + Right Document cards */}
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+                    
+                    {/* Folders List (4 cols) */}
+                    <div className="md:col-span-4 space-y-1.5 bg-slate-50/70 p-3 rounded-2xl border border-slate-200">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 px-1 block mb-2">
+                        Dossiers du service ({serviceCategoriesList.length})
+                      </span>
+
+                      {/* All folder button */}
+                      <button
+                        onClick={() => handleCategoryFilter('ALL')}
+                        className={`w-full p-2.5 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                          selectedCategoryCode === 'ALL'
+                            ? 'bg-kindia-blue text-white shadow-xs'
+                            : 'text-slate-700 hover:bg-slate-200/70 bg-white border border-slate-200'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2 truncate">
+                          <FolderOpen className={`w-3.5 h-3.5 shrink-0 ${selectedCategoryCode === 'ALL' ? 'text-kindia-gold' : 'text-slate-400'}`} />
+                          <span className="truncate">Tous les documents</span>
+                        </div>
+                        <span className={`text-[10px] font-black px-1.5 py-0.2 rounded-full shrink-0 ${
+                          selectedCategoryCode === 'ALL' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+                        }`}>
+                          {totalServiceDocs}
+                        </span>
+                      </button>
+
+                      {/* Specific Categories */}
+                      {serviceCategoriesList.map((cat) => {
+                        const isSelected = selectedCategoryCode === cat.code;
+                        return (
+                          <button
+                            key={cat.code}
+                            onClick={() => handleCategoryFilter(cat.code)}
+                            className={`w-full p-2.5 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                              isSelected
+                                ? 'bg-kindia-blue text-white shadow-xs'
+                                : 'text-slate-700 hover:bg-slate-200/70 bg-white border border-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-center space-x-2 truncate">
+                              <DynamicCategoryIcon iconName={cat.icon} className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'text-kindia-gold' : 'text-slate-500'}`} />
+                              <span className="truncate">{cat.label}</span>
                             </div>
-                            {cat.description && (
-                              <p className="text-[11px] text-slate-400 truncate max-w-xs mt-0.5">
-                                {cat.description}
-                              </p>
-                            )}
-                          </td>
-
-                          <td className="py-3 px-3 text-center">
-                            <span className="px-2.5 py-1 rounded-full font-black text-xs bg-slate-100 text-slate-800 border border-slate-200">
-                              {cat.document_count || 0}
+                            <span className={`text-[10px] font-black px-1.5 py-0.2 rounded-full shrink-0 ${
+                              isSelected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+                            }`}>
+                              {cat.count || 0}
                             </span>
-                          </td>
+                          </button>
+                        );
+                      })}
+                    </div>
 
-                          <td className="py-3 px-3 text-center">
-                            <span className={`inline-flex p-1.5 rounded-lg border text-xs font-bold ${cat.color || 'text-teal-700 bg-teal-50 border-teal-200'}`}>
-                              <DynamicCategoryIcon iconName={cat.icon} className="w-4 h-4" />
-                            </span>
-                          </td>
-
-                          <td className="py-3 px-3 text-center">
-                            <span className="text-[10px] font-semibold text-slate-600">
-                              {COLOR_PALETTE.find(c => c.id === cat.color)?.label || 'Par défaut'}
-                            </span>
-                          </td>
-
-                          <td className="py-3 px-3 text-center font-mono font-bold text-slate-600">
-                            {cat.display_order}
-                          </td>
-
-                          <td className="py-3 px-3 text-center">
-                            <button
-                              onClick={() => handleToggleActive(cat)}
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold transition ${
-                                cat.is_active
-                                  ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                                  : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
-                              }`}
+                    {/* Documents List (8 cols) */}
+                    <div className="md:col-span-8 space-y-3">
+                      {loadingServiceData ? (
+                        <div className="p-12 text-center text-xs text-slate-400 bg-slate-50 rounded-2xl border border-slate-200">
+                          <div className="animate-spin w-5 h-5 border-2 border-kindia-blue border-t-transparent rounded-full mx-auto mb-2"></div>
+                          Chargement des documents archivés...
+                        </div>
+                      ) : (archiveData.documents || []).length === 0 ? (
+                        <div className="p-12 text-center bg-slate-50 rounded-2xl border border-slate-200 text-slate-500 space-y-2">
+                          <Folder className="w-8 h-8 mx-auto text-slate-300" />
+                          <p className="text-xs font-bold">Aucun document dans ce dossier.</p>
+                          <p className="text-[11px] text-slate-400">
+                            Aucun acte archivé n'a été trouvé pour la catégorie ou le filtre sélectionné.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-[550px] overflow-y-auto pr-1 custom-scrollbar">
+                          {archiveData.documents.map((doc) => (
+                            <div
+                              key={doc.id}
+                              className="p-3.5 bg-white hover:bg-slate-50 border border-slate-200 rounded-2xl transition shadow-2xs space-y-2"
                             >
-                              {cat.is_active ? 'Active' : 'Inactive'}
-                            </button>
-                          </td>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="space-y-0.5 min-w-0">
+                                  <div className="flex items-center space-x-2">
+                                    <span className="font-mono text-[11px] font-black text-kindia-blue bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                                      {doc.reference || 'REF-NON-DEFINIE'}
+                                    </span>
+                                    <span className="text-[10px] font-bold text-slate-500">
+                                      {doc.document_type || doc.archive_category || 'DOCUMENT'}
+                                    </span>
+                                  </div>
+                                  <h4 className="font-bold text-xs text-slate-900 line-clamp-1 pt-0.5">
+                                    {doc.title || doc.description || 'Document officiel sans titre'}
+                                  </h4>
+                                </div>
 
-                          <td className="py-3 px-3 text-right">
-                            <div className="flex items-center justify-end space-x-1.5">
-                              <button
-                                onClick={() => setEditingCategory({
-                                  ...cat,
-                                  icon: cat.icon || 'Folder',
-                                  color: cat.color || 'text-kindia-blue bg-blue-50 border-blue-200'
-                                })}
-                                className="p-1.5 bg-slate-100 hover:bg-kindia-blue hover:text-white text-slate-700 rounded-lg text-xs transition"
-                                title="Modifier (Renommer, icône, couleur, ordre)"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setDeleteError('');
-                                  setMoveDocsTarget('');
-                                  setDeleteConfirmCat(cat);
-                                }}
-                                className="p-1.5 bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-700 rounded-lg text-xs transition"
-                                title="Supprimer la catégorie"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                                <div className="flex items-center space-x-1 shrink-0">
+                                  <button
+                                    onClick={() => setDrawerDocId(doc.id)}
+                                    className="p-1.5 bg-slate-100 hover:bg-kindia-blue hover:text-white text-slate-700 rounded-lg text-xs transition"
+                                    title="Détails de l'archive"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDownloadFile(doc.id, doc.reference)}
+                                    className="p-1.5 bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 rounded-lg text-xs transition"
+                                    title="Télécharger PDF"
+                                  >
+                                    <Download className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-100">
+                                <span>Archivé le : {doc.archived_at ? doc.archived_at.substring(0, 10) : (doc.created_at ? doc.created_at.substring(0, 10) : '2026')}</span>
+                                <span className="font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded">
+                                  ARCHIVÉ
+                                </span>
+                              </div>
                             </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: CATEGORIES MANAGEMENT TABLE */}
+              {activeTab === 'management' && (
+                <div>
+                  {loadingServiceData ? (
+                    <div className="p-12 text-center text-xs text-slate-400">
+                      <div className="animate-spin w-6 h-6 border-2 border-kindia-blue border-t-transparent rounded-full mx-auto mb-2"></div>
+                      Chargement des catégories du service...
+                    </div>
+                  ) : categories.customs?.length === 0 ? (
+                    <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200 text-slate-500">
+                      <Folder className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+                      <p className="text-xs font-bold">Aucune catégorie pour ce service.</p>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Cliquez sur « + Catégorie » pour créer un nouveau dossier d'archives.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="bg-slate-50 text-slate-600 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
+                            <th className="py-3 px-3">Catégorie</th>
+                            <th className="py-3 px-3 text-center">Documents</th>
+                            <th className="py-3 px-3 text-center">Icône</th>
+                            <th className="py-3 px-3 text-center">Couleur</th>
+                            <th className="py-3 px-3 text-center">Ordre</th>
+                            <th className="py-3 px-3 text-center">Statut</th>
+                            <th className="py-3 px-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {categories.customs.map((cat) => (
+                            <tr key={cat.id} className="hover:bg-slate-50/80 transition">
+                              <td className="py-3 px-3">
+                                <div className="flex items-center space-x-2">
+                                  <span className="font-bold text-slate-900">{cat.name}</span>
+                                  {cat.is_default && (
+                                    <span className="text-[9px] px-1.5 py-0.2 rounded font-extrabold bg-blue-100 text-blue-800 uppercase">
+                                      Standard
+                                    </span>
+                                  )}
+                                </div>
+                                {cat.description && (
+                                  <p className="text-[11px] text-slate-400 truncate max-w-xs mt-0.5">
+                                    {cat.description}
+                                  </p>
+                                )}
+                              </td>
+
+                              <td className="py-3 px-3 text-center">
+                                <span className="px-2.5 py-1 rounded-full font-black text-xs bg-slate-100 text-slate-800 border border-slate-200">
+                                  {cat.document_count || 0}
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-3 text-center">
+                                <span className={`inline-flex p-1.5 rounded-lg border text-xs font-bold ${cat.color || 'text-teal-700 bg-teal-50 border-teal-200'}`}>
+                                  <DynamicCategoryIcon iconName={cat.icon} className="w-4 h-4" />
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-3 text-center">
+                                <span className="text-[10px] font-semibold text-slate-600">
+                                  {COLOR_PALETTE.find(c => c.id === cat.color)?.label || 'Par défaut'}
+                                </span>
+                              </td>
+
+                              <td className="py-3 px-3 text-center font-mono font-bold text-slate-600">
+                                {cat.display_order}
+                              </td>
+
+                              <td className="py-3 px-3 text-center">
+                                <button
+                                  onClick={() => handleToggleActive(cat)}
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold transition ${
+                                    cat.is_active
+                                      ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                      : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                                  }`}
+                                >
+                                  {cat.is_active ? 'Active' : 'Inactive'}
+                                </button>
+                              </td>
+
+                              <td className="py-3 px-3 text-right">
+                                <div className="flex items-center justify-end space-x-1.5">
+                                  <button
+                                    onClick={() => setEditingCategory({
+                                      ...cat,
+                                      icon: cat.icon || 'Folder',
+                                      color: cat.color || 'text-kindia-blue bg-blue-50 border-blue-200'
+                                    })}
+                                    className="p-1.5 bg-slate-100 hover:bg-kindia-blue hover:text-white text-slate-700 rounded-lg text-xs transition"
+                                    title="Modifier (Renommer, icône, couleur, ordre)"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setDeleteError('');
+                                      setMoveDocsTarget('');
+                                      setDeleteConfirmCat(cat);
+                                    }}
+                                    className="p-1.5 bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-700 rounded-lg text-xs transition"
+                                    title="Supprimer la catégorie"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
             </>
           ) : (
             <div className="p-16 text-center text-slate-400 text-xs">
-              Sélectionnez un service dans la liste de gauche pour administrer ses catégories d'archives.
+              Sélectionnez une structure dans la liste de gauche pour explorer et administrer ses archives.
             </div>
           )}
         </div>
@@ -435,7 +737,7 @@ export default function AdminServiceArchives() {
           onSuccess={() => {
             setIsNewCatModalOpen(false);
             setSuccessMsg('Nouvelle catégorie créée avec succès !');
-            loadServiceCategories(selectedService.id);
+            loadServiceAllData(selectedService.id);
             loadServicesSummary();
           }}
         />
@@ -649,6 +951,18 @@ export default function AdminServiceArchives() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Drawer for document details */}
+      {drawerDocId && (
+        <ArchiveDocumentDetailDrawer
+          documentId={drawerDocId}
+          onClose={() => setDrawerDocId(null)}
+          onUpdate={() => {
+            if (selectedService) loadServiceAllData(selectedService.id);
+            loadServicesSummary();
+          }}
+        />
       )}
 
     </div>

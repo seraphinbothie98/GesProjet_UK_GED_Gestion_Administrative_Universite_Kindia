@@ -4,14 +4,16 @@ import {
   Settings, Hash, FileText, AlignCenter, AlignLeft, AlignRight, 
   RotateCcw, Sparkles, Check, Save, History, Eye, ShieldCheck, 
   Building2, Phone, Mail, Globe, MapPin, AlertCircle, CheckCircle2,
-  Calendar, Layers, Tag, HelpCircle, Copy
+  Calendar, Layers, Tag, HelpCircle, Copy, Plus, Trash2, Edit3, AlertTriangle, X
 } from 'lucide-react';
 
 export default function ServiceDocumentSettings({ serviceId = null, onSettingsSaved }) {
-  const [activeTab, setActiveTab] = useState('reference'); // 'reference' | 'header' | 'footer' | 'preview' | 'history'
+  const [activeTab, setActiveTab] = useState('reference'); // 'reference' | 'header' | 'footer' | 'custom_fields' | 'preview' | 'history'
   const [settings, setSettings] = useState(null);
   const [hierarchy, setHierarchy] = useState(null);
   const [history, setHistory] = useState([]);
+  const [customFields, setCustomFields] = useState([]);
+  const [systemFields, setSystemFields] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -19,6 +21,29 @@ export default function ServiceDocumentSettings({ serviceId = null, onSettingsSa
   const [previewRef, setPreviewRef] = useState('');
   const [copied, setCopied] = useState(false);
   const [changeSummary, setChangeSummary] = useState('');
+
+  // Live test values for custom fields preview
+  const [sampleCustomValues, setSampleCustomValues] = useState({});
+
+  // Modal State for Add / Edit Custom Field (Rules 2, 5, 17, 19)
+  const [showFieldModal, setShowFieldModal] = useState(false);
+  const [editingField, setEditingField] = useState(null); // null = new, object = edit
+  const [fieldName, setFieldName] = useState('');
+  const [fieldVarCode, setFieldVarCode] = useState('');
+  const [fieldLabel, setFieldLabel] = useState('');
+  const [fieldType, setFieldType] = useState('TEXT');
+  const [fieldDefaultVal, setFieldDefaultVal] = useState('');
+  const [fieldOptions, setFieldOptions] = useState(''); // comma-separated for SELECT
+  const [fieldDesc, setFieldDesc] = useState('');
+  const [fieldAppliesRef, setFieldAppliesRef] = useState(true);
+  const [fieldAppliesHeader, setFieldAppliesHeader] = useState(true);
+  const [fieldAppliesFooter, setFieldAppliesFooter] = useState(true);
+  const [fieldAppliesDoc, setFieldAppliesDoc] = useState(true);
+  const [fieldSaving, setFieldSaving] = useState(false);
+
+  // Delete Impact Modal State (Rule 6)
+  const [deleteImpactModal, setDeleteImpactModal] = useState(null); // { field, usageInfo }
+  const [deletingField, setDeletingField] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -33,24 +58,33 @@ export default function ServiceDocumentSettings({ serviceId = null, onSettingsSa
     settings?.seq_padding, 
     settings?.prefix, 
     settings?.suffix, 
-    settings?.type_codes
+    settings?.type_codes,
+    sampleCustomValues
   ]);
 
   const loadSettings = async () => {
     try {
       setLoading(true);
       setError('');
-      const data = await api.getServiceDocumentSettings(serviceId);
-      setSettings(data.settings);
-      setHierarchy(data.hierarchy);
+      const [settingsRes, fieldsRes, histRes] = await Promise.all([
+        api.getServiceDocumentSettings(serviceId),
+        api.getServiceCustomFields(serviceId).catch(() => ({ system_fields: [], custom_fields: [] })),
+        api.getServiceSettingsHistory(serviceId).catch(() => ({ history: [] }))
+      ]);
 
-      // Load history
-      try {
-        const histData = await api.getServiceSettingsHistory(serviceId);
-        setHistory(histData.history || []);
-      } catch (e) {
-        console.warn('Could not load history:', e);
-      }
+      setSettings(settingsRes.settings);
+      setHierarchy(settingsRes.hierarchy);
+      setSystemFields(fieldsRes.system_fields || []);
+      setCustomFields(fieldsRes.custom_fields || []);
+      setHistory(histRes.history || []);
+
+      // Initialize default test values for custom fields
+      const initialCustomValues = {};
+      (fieldsRes.custom_fields || []).forEach(f => {
+        initialCustomValues[f.variable_code] = f.default_value || `VAL_${f.variable_code}`;
+      });
+      setSampleCustomValues(initialCustomValues);
+
     } catch (err) {
       console.error('Error loading service document settings:', err);
       setError('Erreur lors du chargement des paramètres de documents.');
@@ -63,24 +97,31 @@ export default function ServiceDocumentSettings({ serviceId = null, onSettingsSa
     if (!settings) return;
     try {
       const res = await api.previewServiceReference({
+        service_id: serviceId,
         ref_pattern: settings.ref_pattern,
         seq_padding: settings.seq_padding,
         prefix: settings.prefix,
         suffix: settings.suffix,
-        type: 'LET'
+        type: 'LET',
+        custom_values: sampleCustomValues
       });
       setPreviewRef(res.preview);
     } catch (e) {
       // Local fallback preview computation
       let p = settings.ref_pattern || '{UNIV}/{FACULTY}/{DEPT}/{TYPE}/{YEAR}/{SEQ}';
-      p = p.replace(/{UNIV}/gi, 'UK')
-           .replace(/{FACULTY}/gi, hierarchy?.facultyCode || 'FS')
-           .replace(/{DEPT}/gi, hierarchy?.deptCode || 'INFO')
-           .replace(/{SERVICE}/gi, hierarchy?.serviceCode || 'INFO')
-           .replace(/{TYPE}/gi, 'LET')
-           .replace(/{YEAR}/gi, '2026')
-           .replace(/{MONTH}/gi, '08')
-           .replace(/{SEQ}/gi, String(1).padStart(parseInt(settings.seq_padding) || 4, '0'));
+      p = p.replace(/\{UNIV\}|\{\{UNIV\}\}|\{\{UNIVERSITE\}\}/gi, 'UK')
+           .replace(/\{FACULTY\}|\{\{FACULTY\}\}|\{\{FACULTE\}\}/gi, hierarchy?.facultyCode || 'FS')
+           .replace(/\{DEPT\}|\{\{DEPT\}\}|\{\{DEPARTEMENT\}\}/gi, hierarchy?.deptCode || 'INFO')
+           .replace(/\{SERVICE\}|\{\{SERVICE\}\}/gi, hierarchy?.serviceCode || 'INFO')
+           .replace(/\{TYPE\}|\{\{TYPE\}\}/gi, 'LET')
+           .replace(/\{YEAR\}|\{\{YEAR\}\}|\{\{ANNEE\}\}/gi, '2026')
+           .replace(/\{MONTH\}|\{\{MONTH\}\}|\{\{MOIS\}\}/gi, '08')
+           .replace(/\{SEQ\}|\{\{SEQ\}\}|\{\{NUMERO_SEQUENTIEL\}\}/gi, String(1).padStart(parseInt(settings.seq_padding) || 4, '0'));
+      
+      for (const [key, val] of Object.entries(sampleCustomValues)) {
+        const regex = new RegExp(`\\{${key}\\}|\\{\\{${key}\\}\\}`, 'gi');
+        p = p.replace(regex, val || key);
+      }
       setPreviewRef(p);
     }
   };
@@ -88,6 +129,16 @@ export default function ServiceDocumentSettings({ serviceId = null, onSettingsSa
   const insertPatternToken = (token) => {
     const current = settings?.ref_pattern || '';
     setSettings({ ...settings, ref_pattern: current + token });
+  };
+
+  const insertHeaderToken = (token) => {
+    const current = settings?.header_custom_text || '';
+    setSettings({ ...settings, header_custom_text: current + ' ' + token });
+  };
+
+  const insertFooterToken = (token) => {
+    const current = settings?.footer_custom_text || '';
+    setSettings({ ...settings, footer_custom_text: current + ' ' + token });
   };
 
   const handleTypeCodeChange = (typeKey, val) => {
@@ -101,7 +152,7 @@ export default function ServiceDocumentSettings({ serviceId = null, onSettingsSa
   };
 
   const handleSave = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     try {
       setSaving(true);
       setError('');
@@ -109,6 +160,7 @@ export default function ServiceDocumentSettings({ serviceId = null, onSettingsSa
 
       const payload = {
         ...settings,
+        service_id: serviceId,
         change_summary: changeSummary || `Mise à jour des paramètres par le responsable de service`
       };
 
@@ -127,6 +179,130 @@ export default function ServiceDocumentSettings({ serviceId = null, onSettingsSa
       setError(err.message || 'Erreur lors de l’enregistrement des paramètres.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Open Add / Edit Custom Field Modal (Rule 2 & 5)
+  const openFieldModal = (field = null) => {
+    if (field) {
+      setEditingField(field);
+      setFieldName(field.name);
+      setFieldVarCode(field.variable_code);
+      setFieldLabel(field.label || field.name);
+      setFieldType(field.field_type || 'TEXT');
+      setFieldDefaultVal(field.default_value || '');
+      setFieldOptions(Array.isArray(field.options) ? field.options.join(', ') : '');
+      setFieldDesc(field.description || '');
+      setFieldAppliesRef(field.applies_to_reference !== 0);
+      setFieldAppliesHeader(field.applies_to_header !== 0);
+      setFieldAppliesFooter(field.applies_to_footer !== 0);
+      setFieldAppliesDoc(field.applies_to_document !== 0);
+    } else {
+      setEditingField(null);
+      setFieldName('');
+      setFieldVarCode('');
+      setFieldLabel('');
+      setFieldType('TEXT');
+      setFieldDefaultVal('');
+      setFieldOptions('');
+      setFieldDesc('');
+      setFieldAppliesRef(true);
+      setFieldAppliesHeader(true);
+      setFieldAppliesFooter(true);
+      setFieldAppliesDoc(true);
+    }
+    setShowFieldModal(true);
+  };
+
+  // Save Custom Field (Add or Edit)
+  const handleSaveCustomField = async (e) => {
+    e.preventDefault();
+    if (!fieldName.trim()) return;
+
+    try {
+      setFieldSaving(true);
+      setError('');
+
+      const parsedOptions = fieldType === 'SELECT'
+        ? fieldOptions.split(',').map(s => s.trim()).filter(Boolean)
+        : [];
+
+      const payload = {
+        service_id: serviceId,
+        name: fieldName.trim(),
+        variable_code: fieldVarCode.trim() || undefined,
+        label: fieldLabel.trim() || fieldName.trim(),
+        field_type: fieldType,
+        options: parsedOptions,
+        default_value: fieldDefaultVal.trim(),
+        description: fieldDesc.trim(),
+        applies_to_reference: fieldAppliesRef,
+        applies_to_header: fieldAppliesHeader,
+        applies_to_footer: fieldAppliesFooter,
+        applies_to_document: fieldAppliesDoc
+      };
+
+      if (editingField) {
+        await api.updateServiceCustomField(editingField.id, payload);
+        setMessage(`Champ dynamique [${fieldName}] mis à jour avec succès.`);
+      } else {
+        await api.createServiceCustomField(payload);
+        setMessage(`Champ dynamique [${fieldName}] créé avec succès.`);
+      }
+
+      // Reload fields list
+      const updatedFieldsRes = await api.getServiceCustomFields(serviceId);
+      setCustomFields(updatedFieldsRes.custom_fields || []);
+      
+      // Update sample values map
+      setSampleCustomValues(prev => ({
+        ...prev,
+        [(editingField ? editingField.variable_code : payload.variable_code) || fieldName.toUpperCase()]: fieldDefaultVal || 'VAL_EXEMPLE'
+      }));
+
+      setShowFieldModal(false);
+    } catch (err) {
+      console.error('Save custom field error:', err);
+      setError(err.message || 'Erreur lors de l’enregistrement du champ dynamique.');
+    } finally {
+      setFieldSaving(false);
+    }
+  };
+
+  // Handle Delete Custom Field with Impact Check (Rule 6)
+  const handleDeleteFieldClick = async (field) => {
+    try {
+      const usageRes = await api.checkServiceCustomFieldUsage(field.id);
+      setDeleteImpactModal({
+        field,
+        usageInfo: usageRes
+      });
+    } catch (err) {
+      console.error('Check usage error:', err);
+      // fallback modal
+      setDeleteImpactModal({
+        field,
+        usageInfo: { is_used: false, total_occurrences: 0, usages: [] }
+      });
+    }
+  };
+
+  const handleConfirmDeleteField = async () => {
+    if (!deleteImpactModal?.field) return;
+
+    try {
+      setDeletingField(true);
+      await api.deleteServiceCustomField(deleteImpactModal.field.id);
+      setMessage(`Champ [${deleteImpactModal.field.name}] supprimé avec succès.`);
+      
+      const updatedFieldsRes = await api.getServiceCustomFields(serviceId);
+      setCustomFields(updatedFieldsRes.custom_fields || []);
+      setDeleteImpactModal(null);
+    } catch (err) {
+      console.error('Delete field error:', err);
+      setError(err.message || 'Erreur lors de la suppression du champ.');
+    } finally {
+      setDeletingField(false);
     }
   };
 
@@ -166,7 +342,7 @@ export default function ServiceDocumentSettings({ serviceId = null, onSettingsSa
               Paramètres des Documents — {hierarchy?.service?.name || 'Mon Service'}
             </h2>
             <p className="text-xs text-slate-300 mt-0.5">
-              Personnalisation des références séquentielles, en-têtes officiels et pieds de page pour votre unité administrative.
+              Personnalisation des références, en-têtes, pieds de page et champs dynamiques pour votre structure.
             </p>
           </div>
         </div>
@@ -216,6 +392,19 @@ export default function ServiceDocumentSettings({ serviceId = null, onSettingsSa
           >
             <Hash className="w-4 h-4" />
             <span>Numérotation & Références</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('custom_fields')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${
+              activeTab === 'custom_fields'
+                ? 'bg-kindia-blue text-white shadow-md'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <Tag className="w-4 h-4 text-kindia-gold" />
+            <span>Champs dynamiques ({customFields.length + systemFields.length})</span>
           </button>
 
           <button
@@ -273,7 +462,7 @@ export default function ServiceDocumentSettings({ serviceId = null, onSettingsSa
       </div>
 
       {/* ------------------------------------------------------------- */}
-      {/* TAB 1 : NUMÉROTATION & RÉFÉRENCES */}
+      {/* TAB 1 : NUMÉROTATION & RÉFÉRENCES (RULES 3, 4, 12, 13, 20)     */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'reference' && (
         <div className="space-y-6">
@@ -297,17 +486,53 @@ export default function ServiceDocumentSettings({ serviceId = null, onSettingsSa
               <span className="font-mono text-xl sm:text-2xl font-black tracking-wider text-kindia-gold">
                 {previewRef || 'UK/FS/INFO/LET/2026/0001'}
               </span>
-              <span className="text-xs text-slate-300 font-medium">
-                (Exemple : Lettre N°1 en 2026)
+              <span className="text-xs text-slate-300 font-medium hidden sm:inline">
+                (Exemple en temps réel)
               </span>
             </div>
+
+            {/* Live Custom Values Test Inputs for Reference Preview (Rule 20) */}
+            {customFields.filter(f => f.applies_to_reference !== 0).length > 0 && (
+              <div className="pt-2 border-t border-white/10">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 block mb-1.5">
+                  🧪 Tester les valeurs de vos champs personnalisés pour l'aperçu :
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                  {customFields.filter(f => f.applies_to_reference !== 0).map(cf => (
+                    <div key={cf.id} className="flex items-center space-x-1.5 bg-white/10 p-1.5 rounded-lg text-xs">
+                      <span className="font-mono text-[10px] text-kindia-gold font-bold">{cf.variable_code}:</span>
+                      <input
+                        type="text"
+                        value={sampleCustomValues[cf.variable_code] || ''}
+                        onChange={(e) => setSampleCustomValues({
+                          ...sampleCustomValues,
+                          [cf.variable_code]: e.target.value
+                        })}
+                        placeholder={cf.default_value || 'Valeur test'}
+                        className="bg-black/30 border border-white/20 rounded px-2 py-0.5 text-xs text-white outline-hidden w-full"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Form Settings */}
           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6">
-            <h3 className="font-heading font-extrabold text-base text-slate-900 border-b pb-3">
-              Structure et Modèle de la Référence
-            </h3>
+            <div className="flex items-center justify-between border-b pb-3">
+              <h3 className="font-heading font-extrabold text-base text-slate-900">
+                Structure et Modèle de la Référence
+              </h3>
+              <button
+                type="button"
+                onClick={() => setActiveTab('custom_fields')}
+                className="text-xs text-kindia-blue font-bold hover:underline flex items-center space-x-1"
+              >
+                <Plus className="w-3.5 h-3.5 text-kindia-gold" />
+                <span>Gérer les champs dynamiques</span>
+              </button>
+            </div>
 
             {/* Pattern Input & Dynamic Tags */}
             <div className="space-y-2">
@@ -322,360 +547,304 @@ export default function ServiceDocumentSettings({ serviceId = null, onSettingsSa
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono text-sm font-bold text-slate-900 focus:ring-2 focus:ring-kindia-blue focus:bg-white outline-hidden"
               />
 
-              <div className="pt-2 space-y-1.5">
-                <span className="text-[11px] font-bold text-slate-500 block">
-                  Cliquez sur un élément dynamique pour l'ajouter à votre motif :
+              {/* Dynamic Tokens Palette (System + Custom) (Rules 4, 16) */}
+              <div className="pt-2 space-y-2">
+                <span className="text-[11px] font-bold text-slate-600 block">
+                  Cliquez sur un champ dynamique pour l'insérer dans votre modèle de référence :
                 </span>
+                
+                {/* System fields */}
                 <div className="flex flex-wrap gap-1.5">
+                  <span className="text-[10px] font-black uppercase text-slate-400 self-center mr-1">Système :</span>
                   {[
-                    { token: '{UNIV}', label: 'Code Université (UK)' },
-                    { token: '{FACULTY}', label: 'Faculté' },
-                    { token: '{DEPT}', label: 'Département' },
-                    { token: '{SERVICE}', label: 'Service' },
-                    { token: '{TYPE}', label: 'Type d’acte' },
-                    { token: '{YEAR}', label: 'Année (2026)' },
-                    { token: '{MONTH}', label: 'Mois (08)' },
-                    { token: '{SEQ}', label: 'Numéro séquentiel' }
+                    { token: '{{UNIVERSITE}}', label: 'Université' },
+                    { token: '{{FACULTE}}', label: 'Faculté' },
+                    { token: '{{DEPARTEMENT}}', label: 'Département' },
+                    { token: '{{SERVICE}}', label: 'Service' },
+                    { token: '{{TYPE}}', label: 'Type acte' },
+                    { token: '{{ANNEE}}', label: 'Année' },
+                    { token: '{{MOIS}}', label: 'Mois' },
+                    { token: '{{NUMERO_SEQUENTIEL}}', label: 'Séquence' }
                   ].map((item) => (
                     <button
                       key={item.token}
                       type="button"
                       onClick={() => insertPatternToken(item.token)}
-                      className="px-2.5 py-1 bg-slate-100 hover:bg-kindia-blue hover:text-white text-slate-700 border border-slate-200 rounded-lg text-xs font-mono font-bold transition flex items-center space-x-1 shadow-2xs"
+                      className="px-2 py-1 bg-slate-100 hover:bg-kindia-blue hover:text-white text-slate-700 border border-slate-200 rounded-lg text-xs font-mono font-bold transition flex items-center space-x-1 shadow-2xs"
                     >
                       <span>+ {item.token}</span>
-                      <span className="text-[10px] opacity-75 font-sans">({item.label})</span>
+                      <span className="text-[10px] opacity-70 font-sans">({item.label})</span>
                     </button>
                   ))}
                 </div>
+
+                {/* Custom service fields */}
+                {customFields.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    <span className="text-[10px] font-black uppercase text-amber-600 self-center mr-1">Propres au service :</span>
+                    {customFields.map((cf) => (
+                      <button
+                        key={cf.id}
+                        type="button"
+                        onClick={() => insertPatternToken(`{{${cf.variable_code}}}`)}
+                        className="px-2.5 py-1 bg-amber-50 hover:bg-kindia-gold hover:text-kindia-blue text-amber-900 border border-amber-300 rounded-lg text-xs font-mono font-bold transition flex items-center space-x-1 shadow-2xs"
+                      >
+                        <span>+ {`{{${cf.variable_code}}}`}</span>
+                        <span className="text-[10px] opacity-80 font-sans">({cf.name})</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Sequence Padding & Reset Rules */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100">
-              <div className="space-y-2">
-                <label className="block text-xs font-bold text-slate-700">
-                  Nombre de chiffres du compteur séquentiel :
+            {/* Padding & Counter Rules (Rule 12) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Nombre de chiffres du numéro séquentiel :
                 </label>
                 <select
                   value={settings?.seq_padding || 4}
                   onChange={(e) => setSettings({ ...settings, seq_padding: parseInt(e.target.value) })}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-800 focus:ring-2 focus:ring-kindia-blue outline-hidden"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
                 >
-                  <option value={3}>3 chiffres (ex: 001, 002, 003...)</option>
-                  <option value={4}>4 chiffres (ex: 0001, 0002, 0003...)</option>
-                  <option value={5}>5 chiffres (ex: 00001, 00002, 00003...)</option>
+                  <option value={3}>3 chiffres (ex: 001, 002...)</option>
+                  <option value={4}>4 chiffres (ex: 0001, 0002...)</option>
+                  <option value={5}>5 chiffres (ex: 00001...)</option>
                 </select>
               </div>
 
-              <div className="space-y-2">
-                <label className="block text-xs font-bold text-slate-700">
-                  Règle de réinitialisation de la numérotation :
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Réinitialisation du compteur séquentiel :
                 </label>
-                <div className="space-y-2">
-                  <label className="flex items-center space-x-2 text-xs font-medium text-slate-700 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="reset_annually"
-                      checked={settings?.reset_annually === 1 || settings?.reset_annually === true}
-                      onChange={() => setSettings({ ...settings, reset_annually: 1 })}
-                      className="text-kindia-blue focus:ring-kindia-blue"
-                    />
-                    <span><strong>Réinitialisation annuelle</strong> (repart à 0001 chaque 1er janvier)</span>
-                  </label>
-
-                  <label className="flex items-center space-x-2 text-xs font-medium text-slate-700 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="reset_annually"
-                      checked={settings?.reset_annually === 0 || settings?.reset_annually === false}
-                      onChange={() => setSettings({ ...settings, reset_annually: 0 })}
-                      className="text-kindia-blue focus:ring-kindia-blue"
-                    />
-                    <span><strong>Numérotation continue</strong> (conserve l'incrément d'une année sur l'autre)</span>
-                  </label>
-                </div>
+                <select
+                  value={settings?.reset_annually !== 0 ? 1 : 0}
+                  onChange={(e) => setSettings({ ...settings, reset_annually: parseInt(e.target.value) })}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800"
+                >
+                  <option value={1}>Annuelle (Recommence à 0001 chaque 1er janvier)</option>
+                  <option value={0}>Continue (Incrément permanent sans remise à zéro)</option>
+                </select>
               </div>
-            </div>
-
-            {/* Type-specific codes mapping table */}
-            <div className="pt-4 border-t border-slate-100 space-y-3">
-              <h4 className="font-heading font-extrabold text-sm text-slate-900">
-                Codes Sigles par Type de Document
-              </h4>
-              <p className="text-xs text-slate-500">
-                Définissez le sigle à injecter dans la balise <code className="font-mono bg-slate-100 px-1 py-0.5 rounded">{'{TYPE}'}</code> selon la nature de l'acte :
-              </p>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                {[
-                  { key: 'LETTRE', label: 'Lettre' },
-                  { key: 'DEMANDE', label: 'Demande' },
-                  { key: 'SOIT_TRANSMIS', label: 'Soit-Transmis' },
-                  { key: 'NOTE_SERVICE', label: 'Note de service' },
-                  { key: 'RAPPORT', label: 'Rapport' },
-                  { key: 'PROCES_VERBAL', label: 'Procès-Verbal' },
-                  { key: 'DECISION', label: 'Décision' },
-                  { key: 'ARRETE', label: 'Arrêté' },
-                  { key: 'DECRET', label: 'Décret' },
-                  { key: 'CIRCULAIRE', label: 'Circulaire' },
-                  { key: 'MISSION_ORDER', label: 'Ordre de mission' },
-                  { key: 'AUTRE', label: 'Autres actes' }
-                ].map((item) => (
-                  <div key={item.key} className="p-2.5 bg-slate-50 rounded-xl border border-slate-200">
-                    <span className="text-[11px] font-bold text-slate-700 block truncate">{item.label}</span>
-                    <input
-                      type="text"
-                      value={settings?.type_codes?.[item.key] || ''}
-                      onChange={(e) => handleTypeCodeChange(item.key, e.target.value)}
-                      placeholder={item.key.slice(0, 3)}
-                      className="w-full mt-1 px-2.5 py-1 bg-white border border-slate-300 rounded-lg text-xs font-mono font-bold text-kindia-blue uppercase outline-hidden"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Change summary */}
-            <div className="pt-4 border-t border-slate-100">
-              <label className="block text-xs font-bold text-slate-700">
-                Motif ou résumé de cette modification (facultatif) :
-              </label>
-              <input
-                type="text"
-                value={changeSummary}
-                onChange={(e) => setChangeSummary(e.target.value)}
-                placeholder="Ex: Harmonisation des références du département pour 2026"
-                className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium outline-hidden"
-              />
             </div>
           </div>
         </div>
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* TAB 2 : EN-TÊTE OFFICIEL */}
+      {/* TAB 2 : BIBLIOTHÈQUE DE CHAMPS DYNAMIQUES DU SERVICE (RULES 1-21) */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === 'custom_fields' && (
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white p-5 rounded-3xl border border-slate-200 shadow-xs">
+            <div>
+              <h3 className="font-heading font-black text-base text-slate-900 flex items-center space-x-2">
+                <Tag className="w-5 h-5 text-kindia-gold" />
+                <span>Champs Dynamiques de {hierarchy?.service?.name || 'votre service'}</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Créez vos propres variables personnalisées (Code projet, N° de convention, Direction...) utilisables dans les références, en-têtes et modèles.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => openFieldModal(null)}
+              className="px-4 py-2.5 bg-kindia-blue hover:bg-blue-800 text-white rounded-xl text-xs font-black transition flex items-center space-x-2 shadow-md shrink-0"
+            >
+              <Plus className="w-4 h-4 text-kindia-gold" />
+              <span>+ Ajouter un champ dynamique</span>
+            </button>
+          </div>
+
+          {/* Custom Fields Table (Rule 18) */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <span className="text-xs font-black uppercase tracking-wider text-slate-700">
+                Champs personnalisés créés par le service ({customFields.length})
+              </span>
+              <span className="text-[11px] font-bold text-slate-500">
+                Isolation stricte : invisibles pour les autres services
+              </span>
+            </div>
+
+            {customFields.length === 0 ? (
+              <div className="p-10 text-center space-y-3">
+                <Tag className="w-10 h-10 text-slate-300 mx-auto" />
+                <h5 className="font-heading font-bold text-sm text-slate-700">Aucun champ personnalisé créé</h5>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                  Votre service utilise actuellement les champs système par défaut. Vous pouvez créer vos propres champs dynamiques selon vos besoins administratifs.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => openFieldModal(null)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-kindia-blue hover:text-white text-slate-700 rounded-xl text-xs font-bold transition"
+                >
+                  + Créer un champ personnalisé
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100/70 border-b border-slate-200 text-[11px] font-black uppercase text-slate-600">
+                      <th className="py-3 px-4">Champ</th>
+                      <th className="py-3 px-4">Variable / Balise</th>
+                      <th className="py-3 px-4">Type</th>
+                      <th className="py-3 px-4">Emplacements</th>
+                      <th className="py-3 px-4">Description</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {customFields.map((f) => (
+                      <tr key={f.id} className="hover:bg-slate-50/80 transition">
+                        <td className="py-3.5 px-4 font-bold text-slate-900">
+                          {f.name}
+                          {f.label && f.label !== f.name && (
+                            <span className="block text-[10px] text-slate-400 font-normal">{f.label}</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 font-mono font-bold text-kindia-blue">
+                          <span className="bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                            {`{{${f.variable_code}}}`}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
+                            {f.field_type === 'TEXT' ? 'Texte' :
+                             f.field_type === 'NUMBER' ? 'Nombre' :
+                             f.field_type === 'DATE' ? 'Date' :
+                             f.field_type === 'SELECT' ? 'Liste déroulante' :
+                             f.field_type === 'AUTO' ? 'Automatique' : f.field_type}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div className="flex flex-wrap gap-1">
+                            {f.applies_to_reference !== 0 && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">Réf</span>
+                            )}
+                            {f.applies_to_header !== 0 && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-800 border border-blue-200">En-tête</span>
+                            )}
+                            {f.applies_to_footer !== 0 && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-50 text-purple-800 border border-purple-200">Pied</span>
+                            )}
+                            {f.applies_to_document !== 0 && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-800 border border-amber-200">Docs</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-500 max-w-xs truncate">
+                          {f.description || '—'}
+                        </td>
+                        <td className="py-3.5 px-4 text-right space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => openFieldModal(f)}
+                            className="p-1.5 text-slate-600 hover:text-kindia-blue hover:bg-slate-100 rounded-lg transition"
+                            title="Modifier ce champ"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteFieldClick(f)}
+                            className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-lg transition"
+                            title="Supprimer ce champ"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* System Protected Fields Section (Rule 16) */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5 space-y-4">
+            <div className="flex items-center space-x-2 border-b pb-3">
+              <ShieldCheck className="w-5 h-5 text-emerald-600" />
+              <div>
+                <h4 className="font-heading font-black text-sm text-slate-900">
+                  Champs Système Standards (Fournis & Protégés)
+                </h4>
+                <p className="text-xs text-slate-500">
+                  Ces champs sont universellement disponibles et résolus automatiquement par UK-GED.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {systemFields.map(sf => (
+                <div key={sf.field_key} className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex items-start justify-between">
+                  <div>
+                    <span className="font-bold text-xs text-slate-900 block">{sf.name}</span>
+                    <span className="font-mono text-[10px] text-slate-500 font-bold">{`{{${sf.variable_code}}}`}</span>
+                    <span className="text-[10px] text-slate-400 block mt-0.5">{sf.label}</span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-slate-200 text-slate-700">
+                    Système
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 3 : EN-TÊTE OFFICIEL (RULE 7)                             */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'header' && (
         <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6">
           <h3 className="font-heading font-extrabold text-base text-slate-900 border-b pb-3">
-            Configuration de l'En-tête Officiel des Documents
-          </h3>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700">
-                  En-tête institutionnel supérieur :
-                </label>
-                <textarea
-                  rows={3}
-                  value={settings?.header_institution_name || ''}
-                  onChange={(e) => setSettings({ ...settings, header_institution_name: e.target.value })}
-                  className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium outline-hidden"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700">
-                  Nom de la Faculté :
-                </label>
-                <input
-                  type="text"
-                  value={settings?.header_faculty_name || ''}
-                  onChange={(e) => setSettings({ ...settings, header_faculty_name: e.target.value })}
-                  placeholder="FACULTÉ DES SCIENCES"
-                  className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold uppercase outline-hidden"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700">
-                  Nom du Département :
-                </label>
-                <input
-                  type="text"
-                  value={settings?.header_dept_name || ''}
-                  onChange={(e) => setSettings({ ...settings, header_dept_name: e.target.value })}
-                  placeholder="DÉPARTEMENT D'INFORMATIQUE"
-                  className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold uppercase outline-hidden"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700">
-                  Nom du Service / Division :
-                </label>
-                <input
-                  type="text"
-                  value={settings?.header_service_name || ''}
-                  onChange={(e) => setSettings({ ...settings, header_service_name: e.target.value })}
-                  placeholder="SERVICE DES RESSOURCES HUMAINES"
-                  className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold uppercase outline-hidden"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-700">
-                  Adresse postale / BP :
-                </label>
-                <input
-                  type="text"
-                  value={settings?.header_address || ''}
-                  onChange={(e) => setSettings({ ...settings, header_address: e.target.value })}
-                  className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium outline-hidden"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700">Téléphone :</label>
-                  <input
-                    type="text"
-                    value={settings?.header_phone || ''}
-                    onChange={(e) => setSettings({ ...settings, header_phone: e.target.value })}
-                    className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium outline-hidden"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700">Email :</label>
-                  <input
-                    type="email"
-                    value={settings?.header_email || ''}
-                    onChange={(e) => setSettings({ ...settings, header_email: e.target.value })}
-                    className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium outline-hidden"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700">Site Web officiel :</label>
-                <input
-                  type="text"
-                  value={settings?.header_website || ''}
-                  onChange={(e) => setSettings({ ...settings, header_website: e.target.value })}
-                  className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium outline-hidden"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700">Alignement de l'en-tête :</label>
-                <div className="flex space-x-3 mt-1">
-                  {[
-                    { id: 'CENTER', label: 'Centré officiel', icon: AlignCenter },
-                    { id: 'LEFT', label: 'Gauche', icon: AlignLeft },
-                    { id: 'SPLIT', label: 'Scindé (Gauche / Droite)', icon: AlignRight }
-                  ].map((align) => {
-                    const Icon = align.icon;
-                    return (
-                      <button
-                        key={align.id}
-                        type="button"
-                        onClick={() => setSettings({ ...settings, header_alignment: align.id })}
-                        className={`flex-1 p-2.5 rounded-xl border text-xs font-bold transition flex items-center justify-center space-x-1.5 ${
-                          settings?.header_alignment === align.id
-                            ? 'bg-kindia-blue text-white border-kindia-blue shadow-xs'
-                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        <Icon className="w-3.5 h-3.5" />
-                        <span>{align.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ------------------------------------------------------------- */}
-      {/* TAB 3 : PIED DE PAGE & PAGINATION */}
-      {/* ------------------------------------------------------------- */}
-      {activeTab === 'footer' && (
-        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6">
-          <h3 className="font-heading font-extrabold text-base text-slate-900 border-b pb-3">
-            Configuration du Pied de page et de la Pagination
+            En-tête Officiel du Service
           </h3>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-slate-700">
-                Texte principal du pied de page :
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Titre institutionnel / République :
               </label>
-              <input
-                type="text"
-                value={settings?.footer_custom_text || ''}
-                onChange={(e) => setSettings({ ...settings, footer_custom_text: e.target.value })}
-                placeholder="Université de Kindia — Faculté des Sciences — Département d'Informatique"
-                className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium outline-hidden"
+              <textarea
+                rows={3}
+                value={settings?.header_institution_name || ''}
+                onChange={(e) => setSettings({ ...settings, header_institution_name: e.target.value })}
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold font-mono outline-hidden"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700">
-                Mention de confidentialité / Avertissement légal :
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Texte personnalisé ou variables spécifiques d'en-tête :
               </label>
-              <input
-                type="text"
-                value={settings?.footer_confidentiality_note || ''}
-                onChange={(e) => setSettings({ ...settings, footer_confidentiality_note: e.target.value })}
-                placeholder="Document officiel — Ne pas reproduire sans autorisation"
-                className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium outline-hidden"
+              <textarea
+                rows={3}
+                value={settings?.header_custom_text || ''}
+                onChange={(e) => setSettings({ ...settings, header_custom_text: e.target.value })}
+                placeholder="Ex: {{UNIVERSITE}} - {{FACULTE}} - {{SERVICE}}"
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono outline-hidden"
               />
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
-                <label className="flex items-center space-x-2 text-xs font-bold text-slate-800 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settings?.footer_enable_pagination === 1 || settings?.footer_enable_pagination === true}
-                    onChange={(e) => setSettings({ ...settings, footer_enable_pagination: e.target.checked ? 1 : 0 })}
-                    className="rounded text-kindia-blue focus:ring-kindia-blue"
-                  />
-                  <span>Activer la pagination automatique</span>
-                </label>
-
-                <div className="space-y-1">
-                  <span className="text-[11px] text-slate-500 block">Format de la pagination :</span>
-                  <input
-                    type="text"
-                    value={settings?.footer_pagination_format || 'Page {PAGE} / {TOTAL_PAGES}'}
-                    onChange={(e) => setSettings({ ...settings, footer_pagination_format: e.target.value })}
-                    className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-xs outline-hidden"
-                  />
-                  <span className="text-[10px] text-slate-400">Balises disponibles : {'{PAGE}'}, {'{TOTAL_PAGES}'}</span>
-                </div>
-              </div>
-
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
-                <label className="flex items-center space-x-2 text-xs font-bold text-slate-800 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settings?.footer_show_separator === 1 || settings?.footer_show_separator === true}
-                    onChange={(e) => setSettings({ ...settings, footer_show_separator: e.target.checked ? 1 : 0 })}
-                    className="rounded text-kindia-blue focus:ring-kindia-blue"
-                  />
-                  <span>Afficher la ligne séparatrice au-dessus du pied de page</span>
-                </label>
-
-                <div>
-                  <span className="text-[11px] text-slate-500 block">Alignement du pied de page :</span>
-                  <select
-                    value={settings?.footer_alignment || 'SPLIT'}
-                    onChange={(e) => setSettings({ ...settings, footer_alignment: e.target.value })}
-                    className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold outline-hidden"
+              {/* Insertion tags for Header */}
+              <div className="flex flex-wrap gap-1.5 pt-2">
+                <span className="text-[10px] font-bold text-slate-500 self-center">Insérer dans l'en-tête :</span>
+                {['{{UNIVERSITE}}', '{{FACULTE}}', '{{DEPARTEMENT}}', '{{SERVICE}}', ...customFields.map(f => `{{${f.variable_code}}}`)].map(tag => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => insertHeaderToken(tag)}
+                    className="px-2 py-0.5 bg-slate-100 hover:bg-kindia-blue hover:text-white border border-slate-200 rounded text-[10px] font-mono font-bold transition"
                   >
-                    <option value="SPLIT">Scindé (Texte à gauche, Pagination à droite)</option>
-                    <option value="CENTER">Centré</option>
-                    <option value="LEFT">Aligné à gauche</option>
-                    <option value="RIGHT">Aligné à droite</option>
-                  </select>
-                </div>
+                    + {tag}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
@@ -683,133 +852,342 @@ export default function ServiceDocumentSettings({ serviceId = null, onSettingsSa
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* TAB 4 : APERÇU COMPLET DOCUMENT OFFICIEL */}
+      {/* TAB 4 : PIED DE PAGE (RULE 8)                                 */}
+      {/* ------------------------------------------------------------- */}
+      {activeTab === 'footer' && (
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+          <h3 className="font-heading font-extrabold text-base text-slate-900 border-b pb-3">
+            Pied de page Officiel & Confidentialité
+          </h3>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Texte du pied de page :
+              </label>
+              <textarea
+                rows={3}
+                value={settings?.footer_custom_text || ''}
+                onChange={(e) => setSettings({ ...settings, footer_custom_text: e.target.value })}
+                placeholder="Ex: {{SERVICE}} | {{ANNEE}} | Page {PAGE} / {TOTAL_PAGES}"
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono outline-hidden"
+              />
+
+              {/* Insertion tags for Footer */}
+              <div className="flex flex-wrap gap-1.5 pt-2">
+                <span className="text-[10px] font-bold text-slate-500 self-center">Insérer dans le pied de page :</span>
+                {['{{SERVICE}}', '{{ANNEE}}', 'Page {PAGE} / {TOTAL_PAGES}', ...customFields.map(f => `{{${f.variable_code}}}`)].map(tag => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => insertFooterToken(tag)}
+                    className="px-2 py-0.5 bg-slate-100 hover:bg-kindia-blue hover:text-white border border-slate-200 rounded text-[10px] font-mono font-bold transition"
+                  >
+                    + {tag}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------- */}
+      {/* TAB 5 : APERÇU COMPLET                                        */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'preview' && (
-        <div className="space-y-4">
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl text-xs text-blue-900 flex items-center justify-between">
-            <span className="font-medium">
-              Aperçu en rendu réel de la mise en page d'un acte officiel rédigé par votre service.
-            </span>
-            <span className="font-bold text-kindia-blue">Format A4 Officiel</span>
+        <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6 max-w-3xl mx-auto">
+          <div className="text-center border-b pb-6 space-y-1">
+            <h4 className="font-heading font-black text-sm text-kindia-blue uppercase">
+              {settings?.header_institution_name || 'RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA'}
+            </h4>
+            <p className="text-xs font-bold text-slate-700">
+              {hierarchy?.faculty?.name || ''} {hierarchy?.dept ? `— ${hierarchy.dept.name}` : ''}
+            </p>
+            <p className="text-xs font-mono text-kindia-gold font-bold">
+              Réf : {previewRef}
+            </p>
           </div>
 
-          {/* Realistic A4 Page Simulator */}
-          <div className="bg-white p-8 sm:p-12 rounded-3xl border border-slate-300 shadow-2xl max-w-3xl mx-auto space-y-8 font-serif text-slate-900">
-            
-            {/* Header section */}
-            <div className={`space-y-1 pb-4 ${settings?.header_alignment === 'CENTER' ? 'text-center' : 'text-left'}`}>
-              <div className="font-bold text-xs uppercase tracking-wider text-slate-800 whitespace-pre-line leading-snug">
-                {settings?.header_institution_name || 'RÉPUBLIQUE DE GUINÉE\nTravail – Justice – Solidarité\n\nUNIVERSITÉ DE KINDIA'}
-              </div>
-              {settings?.header_faculty_name && (
-                <div className="font-extrabold text-sm uppercase text-slate-900 mt-1">
-                  {settings.header_faculty_name}
-                </div>
-              )}
-              {settings?.header_dept_name && (
-                <div className="font-bold text-xs uppercase text-slate-800">
-                  {settings.header_dept_name}
-                </div>
-              )}
-              {settings?.header_service_name && (
-                <div className="font-bold text-xs uppercase text-slate-700">
-                  {settings.header_service_name}
-                </div>
-              )}
-              <div className="text-[10px] text-slate-500 font-sans mt-1">
-                {settings?.header_address} • Tél : {settings?.header_phone} • Email : {settings?.header_email}
-              </div>
-              <div className="w-24 h-0.5 bg-slate-900 mx-auto mt-2" />
-            </div>
+          <div className="py-12 px-6 border-2 border-dashed border-slate-100 rounded-2xl text-center text-slate-400 text-xs">
+            [ Corps du document officiel avec application automatique des variables dynamiques ]
+          </div>
 
-            {/* Reference & Date bar */}
-            <div className="flex items-center justify-between font-sans text-xs pt-2">
-              <div className="font-bold">
-                Réf : <span className="font-mono text-kindia-blue">{previewRef || 'UK/FS/INFO/LET/2026/0001'}</span>
-              </div>
-              <div className="text-slate-600">
-                Kindia, le {new Date().toLocaleDateString('fr-FR')}
-              </div>
-            </div>
-
-            {/* Sample Body Content */}
-            <div className="space-y-4 text-xs leading-relaxed font-sans text-slate-800 pt-4">
-              <div className="font-bold text-sm text-slate-900 uppercase">
-                Objet : Transmission du rapport d'activités et bilan académique
-              </div>
-              <p>
-                Monsieur le Doyen / Monsieur le Recteur,
-              </p>
-              <p>
-                J'ai l'honneur de vous transmettre par la présente le rapport d'activités ainsi que le bilan administratif de notre service pour la période académique en cours.
-              </p>
-              <p>
-                L'ensemble des données et pièces jointes annexées ont été vérifiées et certifiées conformes aux dispositions statutaires de l'Université de Kindia.
-              </p>
-              <p className="pt-4 font-bold">
-                Le Responsable de Service,
-              </p>
-            </div>
-
-            {/* Footer section */}
-            <div className="pt-12 mt-8">
-              {settings?.footer_show_separator === 1 && (
-                <div className="border-t border-slate-300 mb-2" />
-              )}
-              <div className={`text-[10px] text-slate-500 font-sans flex items-center justify-between ${
-                settings?.footer_alignment === 'CENTER' ? 'justify-center' : ''
-              }`}>
-                <span>{settings?.footer_custom_text}</span>
-                {settings?.footer_enable_pagination === 1 && (
-                  <span className="font-bold text-slate-700">Page 1 / 1</span>
-                )}
-              </div>
-              {settings?.footer_confidentiality_note && (
-                <div className="text-[9px] text-slate-400 italic text-center mt-1">
-                  {settings.footer_confidentiality_note}
-                </div>
-              )}
-            </div>
-
+          <div className="text-center border-t pt-4 text-[10px] text-slate-500 font-mono">
+            {settings?.footer_custom_text || 'UNIVERSITÉ DE KINDIA • BP 164 Kindia, Guinée'}
           </div>
         </div>
       )}
 
       {/* ------------------------------------------------------------- */}
-      {/* TAB 5 : HISTORIQUE DES VERSIONS */}
+      {/* TAB 6 : HISTORIQUE                                            */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'history' && (
         <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
           <h3 className="font-heading font-extrabold text-base text-slate-900 border-b pb-3">
-            Journal des Versions des Paramètres
+            Historique des Modifications
           </h3>
-
-          {history.length === 0 ? (
-            <div className="p-8 text-center text-slate-400 text-xs">
-              Aucune modification antérieure enregistrée pour ce service.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {history.map((h) => (
-                <div key={h.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-start justify-between">
-                  <div className="space-y-1">
-                    <div className="flex items-center space-x-2">
-                      <span className="px-2 py-0.5 bg-kindia-blue text-white rounded text-xs font-mono font-black">
-                        Version {h.version}
-                      </span>
-                      <span className="text-xs font-bold text-slate-800">
-                        {h.change_summary}
-                      </span>
-                    </div>
-                    <span className="text-[11px] text-slate-400 block">
-                      Modifié par {h.first_name} {h.last_name} ({h.email}) le {new Date(h.changed_at).toLocaleString('fr-FR')}
-                    </span>
-                  </div>
+          <div className="space-y-2">
+            {history.map((h, i) => (
+              <div key={i} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+                <div>
+                  <span className="font-bold text-slate-900">Version {h.version}</span>
+                  <span className="text-slate-500 ml-2">{h.change_summary}</span>
                 </div>
-              ))}
+                <span className="text-slate-400 text-[10px]">{new Date(h.changed_at).toLocaleString('fr-FR')}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* MODAL : CRÉER / MODIFIER UN CHAMP DYNAMIQUE (RULES 2, 5, 17, 19)*/}
+      {/* ============================================================= */}
+      {showFieldModal && (
+        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200 animate-scale-up">
+            
+            <div className="px-6 py-4 bg-kindia-blue text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Tag className="w-5 h-5 text-kindia-gold" />
+                <h4 className="font-heading font-black text-base">
+                  {editingField ? 'Modifier le champ dynamique' : 'Ajouter un champ dynamique'}
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFieldModal(false)}
+                className="p-1 text-white/80 hover:text-white rounded-full transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
-          )}
+
+            <form onSubmit={handleSaveCustomField} className="p-6 overflow-y-auto flex-1 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Nom du champ <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={fieldName}
+                  onChange={(e) => {
+                    setFieldName(e.target.value);
+                    if (!editingField && !fieldVarCode) {
+                      setFieldVarCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_'));
+                    }
+                  }}
+                  placeholder="Ex: Code projet"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 outline-hidden"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Variable / Balise :
+                  </label>
+                  <input
+                    type="text"
+                    disabled={!!editingField}
+                    value={fieldVarCode}
+                    onChange={(e) => setFieldVarCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_'))}
+                    placeholder="Ex: CODE_PROJET"
+                    className={`w-full px-3 py-2 border rounded-xl text-xs font-mono font-bold outline-hidden ${
+                      editingField ? 'bg-slate-100 text-slate-500 border-slate-200' : 'bg-slate-50 text-kindia-blue border-slate-200'
+                    }`}
+                  />
+                  <span className="text-[10px] text-slate-400 block mt-0.5">Balise : {`{{${fieldVarCode || 'VAR'}}}`}</span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Type de valeur :
+                  </label>
+                  <select
+                    value={fieldType}
+                    onChange={(e) => setFieldType(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-hidden"
+                  >
+                    <option value="TEXT">Texte libre</option>
+                    <option value="NUMBER">Nombre</option>
+                    <option value="DATE">Date</option>
+                    <option value="SELECT">Liste déroulante (Choix multiples)</option>
+                    <option value="AUTO">Valeur automatique</option>
+                    <option value="SEQUENCE">Numéro séquentiel</option>
+                    <option value="SERVICE_INFO">Information du service</option>
+                    <option value="DOC_INFO">Information du document</option>
+                  </select>
+                </div>
+              </div>
+
+              {fieldType === 'SELECT' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Options de la liste (séparées par des virgules) :
+                  </label>
+                  <input
+                    type="text"
+                    value={fieldOptions}
+                    onChange={(e) => setFieldOptions(e.target.value)}
+                    placeholder="Ex: PRJ-ALPHA, PRJ-BETA, PRJ-GAMMA"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-hidden"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Valeur par défaut (optionnel) :
+                </label>
+                <input
+                  type="text"
+                  value={fieldDefaultVal}
+                  onChange={(e) => setFieldDefaultVal(e.target.value)}
+                  placeholder="Ex: PRJ-2026-001"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-hidden"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Description & Usage :
+                </label>
+                <input
+                  type="text"
+                  value={fieldDesc}
+                  onChange={(e) => setFieldDesc(e.target.value)}
+                  placeholder="Ex: Identifiant interne du projet concerné par le document"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-hidden"
+                />
+              </div>
+
+              {/* Applications checkboxes */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                  Emplacements où le champ est utilisable :
+                </label>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <label className="flex items-center space-x-2 p-2 bg-slate-50 rounded-lg border border-slate-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={fieldAppliesRef}
+                      onChange={(e) => setFieldAppliesRef(e.target.checked)}
+                      className="rounded text-kindia-blue"
+                    />
+                    <span>Références</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2 p-2 bg-slate-50 rounded-lg border border-slate-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={fieldAppliesHeader}
+                      onChange={(e) => setFieldAppliesHeader(e.target.checked)}
+                      className="rounded text-kindia-blue"
+                    />
+                    <span>En-têtes</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2 p-2 bg-slate-50 rounded-lg border border-slate-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={fieldAppliesFooter}
+                      onChange={(e) => setFieldAppliesFooter(e.target.checked)}
+                      className="rounded text-kindia-blue"
+                    />
+                    <span>Pieds de page</span>
+                  </label>
+
+                  <label className="flex items-center space-x-2 p-2 bg-slate-50 rounded-lg border border-slate-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={fieldAppliesDoc}
+                      onChange={(e) => setFieldAppliesDoc(e.target.checked)}
+                      className="rounded text-kindia-blue"
+                    />
+                    <span>Modèles & Docs</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t flex items-center justify-end space-x-2">
+                <button
+                  type="button"
+                  onClick={() => setShowFieldModal(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={fieldSaving || !fieldName.trim()}
+                  className="px-5 py-2 bg-kindia-blue hover:bg-blue-800 text-white rounded-xl text-xs font-black transition shadow-md disabled:opacity-50"
+                >
+                  {fieldSaving ? 'Enregistrement...' : 'Enregistrer le champ'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================= */}
+      {/* MODAL : AVERTISSEMENT DE SUPPRESSION AVEC IMPACT (RULE 6)       */}
+      {/* ============================================================= */}
+      {deleteImpactModal && (
+        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-200 animate-scale-up">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+
+            <div className="text-center space-y-2">
+              <h4 className="font-heading font-black text-base text-slate-900">
+                Supprimer le champ [{deleteImpactModal.field.name}] ?
+              </h4>
+              
+              {deleteImpactModal.usageInfo?.is_used ? (
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-left text-xs space-y-1.5">
+                  <span className="font-bold text-amber-900 block">
+                    ⚠️ Ce champ dynamique est actuellement utilisé dans {deleteImpactModal.usageInfo.total_occurrences} configuration(s) :
+                  </span>
+                  <ul className="list-disc list-inside text-amber-800 text-[11px] space-y-0.5">
+                    {deleteImpactModal.usageInfo.usages.map((u, idx) => (
+                      <li key={idx}>{u.label}</li>
+                    ))}
+                  </ul>
+                  <p className="text-[10px] text-amber-700 pt-1">
+                    Voulez-vous vraiment le supprimer ? Les documents existants ne seront pas altérés.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">
+                  Ce champ n'est actuellement utilisé dans aucun modèle ni référence. Sa suppression est sans risque.
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t">
+              <button
+                type="button"
+                onClick={() => setDeleteImpactModal(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition"
+              >
+                Annuler
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmDeleteField}
+                disabled={deletingField}
+                className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black transition shadow-md disabled:opacity-50"
+              >
+                {deletingField ? 'Suppression...' : 'Confirmer la suppression'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

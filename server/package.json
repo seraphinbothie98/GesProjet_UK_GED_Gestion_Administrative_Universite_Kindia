@@ -6,7 +6,16 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "seed": "node src/database/seed.js"
+    "seed": "node src/database/seed.js",
+    "migrate:up": "node -e \"require('./src/database/migrator').up()\"",
+    "migrate:down": "node src/scripts/rollback.js",
+    "migrate:status": "node -e \"require('./src/database/migrator').status().then(s => console.log(JSON.stringify(s, null, 2)))\"",
+    "migrate:create": "node -e \"require('./src/database/migrator').create(process.argv[1] || 'migration')\"",
+    "backup": "node src/scripts/backup.js",
+    "restore": "node src/scripts/restore.js",
+    "verify-backup": "node src/scripts/verify-backup.js",
+    "deploy": "node src/scripts/deploy.js",
+    "test": "node src/tests/test_migration_system.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

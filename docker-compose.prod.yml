@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  uk_ged_backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: uk_ged_backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - APP_URL=https://ged.universite.edu
+      - DATABASE_PATH=/var/uk_ged/data/uk_ged_production.db
+      - STORAGE_PATH=/var/uk_ged/storage/prod
+      - BACKUP_DIR=/var/uk_ged/backups/prod
+      - ONLYOFFICE_DOCUMENT_SERVER_URL=https://office.ged.universite.edu
+      - ONLYOFFICE_INTERNAL_SERVER_URL=http://uk_ged_onlyoffice:80
+      - ONLYOFFICE_JWT_SECRET=uk_ged_onlyoffice_prod_secret_2026
+      - ONLYOFFICE_CALLBACK_URL=https://ged.universite.edu
+    volumes:
+      - uk_ged_prod_data:/var/uk_ged/data
+      - uk_ged_prod_storage:/var/uk_ged/storage/prod
+      - uk_ged_prod_backups:/var/uk_ged/backups/prod
+    ports:
+      - "127.0.0.1:5000:5000"
+    networks:
+      - uk_ged_internal_network
+    depends_on:
+      - onlyoffice
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5000/api/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); });"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  onlyoffice:
+    image: onlyoffice/documentserver:8.2.2
+    container_name: uk_ged_onlyoffice
+    restart: unless-stopped
+    environment:
+      - JWT_ENABLED=true
+      - JWT_SECRET=uk_ged_onlyoffice_prod_secret_2026
+      - JWT_HEADER=Authorization
+      - JWT_IN_BODY=true
+      - USE_UNAUTHORIZED_STORAGE=true
+    volumes:
+      - uk_ged_onlyoffice_data:/var/www/onlyoffice/Data
+      - uk_ged_onlyoffice_log:/var/log/onlyoffice
+    ports:
+      - "127.0.0.1:8080:80"
+    networks:
+      - uk_ged_internal_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/healthcheck || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  uk_ged_prod_data:
+  uk_ged_prod_storage:
+  uk_ged_prod_backups:
+  uk_ged_onlyoffice_data:
+  uk_ged_onlyoffice_log:
+
+networks:
+  uk_ged_internal_network:
+    driver: bridge
+

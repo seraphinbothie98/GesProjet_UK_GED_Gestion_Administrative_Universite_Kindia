@@ -291,6 +291,33 @@ CREATE TABLE IF NOT EXISTS service_document_settings_history (
 );
 CREATE INDEX IF NOT EXISTS idx_serv_doc_settings_hist_srv ON service_document_settings_history(service_id);
 
+-- 6g. Service Custom Dynamic Fields Table (Champs dynamiques personnalisés par service)
+CREATE TABLE IF NOT EXISTS service_custom_fields (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    field_key VARCHAR(100) NOT NULL,
+    service_id INTEGER NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    variable_code VARCHAR(100) NOT NULL,
+    label VARCHAR(200),
+    field_type VARCHAR(50) NOT NULL DEFAULT 'TEXT',
+    options_json TEXT,
+    default_value TEXT,
+    description TEXT,
+    is_required INTEGER DEFAULT 0,
+    is_system INTEGER DEFAULT 0,
+    applies_to_reference INTEGER DEFAULT 1,
+    applies_to_header INTEGER DEFAULT 1,
+    applies_to_footer INTEGER DEFAULT 1,
+    applies_to_document INTEGER DEFAULT 1,
+    order_index INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+    UNIQUE(service_id, variable_code)
+);
+CREATE INDEX IF NOT EXISTS idx_serv_custom_fields_srv ON service_custom_fields(service_id);
+
 -- 6c. Document Versions History Table (Révisions & Corrections)
 CREATE TABLE IF NOT EXISTS document_versions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

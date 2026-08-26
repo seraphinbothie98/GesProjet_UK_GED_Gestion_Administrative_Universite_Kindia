@@ -16,12 +16,42 @@ client/dist
 dist-ssr
 *.local
 
-# Environment variables
+# Environment variables & Secrets (CRITICAL)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.development
+!.env.staging
+!.env.production.example
 server/.env
-server/.env.local
+server/.env.production
+server/.env.*.local
+client/.env.production
+client/.env.*.local
+
+# Databases & Backups (CRITICAL ZERO-LEAK)
+server/data/prod/
+server/data/staging/
+server/data/dev/
+server/data/*.db
+server/data/*.db-journal
+server/data/*.db-wal
+server/data/*.db-shm
+*.db
+*.sqlite
+*.sqlite3
+backups/prod/
+backups/staging/
+backups/dev/
+backups/*.zip
+backups/*.sql
+
+# Uploads & generated test artifacts
+server/uploads/*.pdf
+server/uploads/instance_*
+server/uploads/receipts/
+server/uploads/dev/
+server/uploads/mission_requests/*
+uploads/
 
 # Editor directories and files
 .vscode/*
@@ -37,3 +67,4 @@ Thumbs.db
 
 # Temp files
 Installation
+scratch/

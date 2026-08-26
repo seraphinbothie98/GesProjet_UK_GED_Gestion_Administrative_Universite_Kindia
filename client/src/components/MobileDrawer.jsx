@@ -2,7 +2,7 @@ import React from 'react';
 import { useAuth } from '../context/AuthContext';
 import { 
   LayoutDashboard, Inbox, Send, FileCheck, Archive, 
-  Search, ShieldAlert, Building2, Users, Lock, Award, QrCode, Calendar, X, LogOut, ChevronRight
+  Search, ShieldAlert, Building2, Users, Lock, Award, QrCode, Calendar, X, LogOut, ChevronRight, FileText
 } from 'lucide-react';
 
 export default function MobileDrawer({ isOpen, onClose, currentPage, setCurrentPage }) {
@@ -40,8 +40,10 @@ export default function MobileDrawer({ isOpen, onClose, currentPage, setCurrentP
     { id: 'staff', label: '👥 Personnel', icon: Users, show: user?.service_code === 'SC' || hasPermission('personnel.view') || user?.role_code === 'ADMINISTRATEUR' },
     { id: 'institution', label: '🏛️ Identité Visuelle', icon: Building2, show: hasPermission('institution.manage') || user?.role_code === 'ADMINISTRATEUR' },
     { id: 'templates', label: '📄 Modèles de documents', icon: FileCheck, show: hasPermission('templates.manage') || user?.role_code === 'ADMINISTRATEUR' },
+    { id: 'document-types', label: '⚖️ Types de documents', icon: FileText, show: hasPermission('settings.manage') || user?.role_code === 'ADMINISTRATEUR' },
     { id: 'signatures', label: '✍️ Signatures électroniques', icon: Lock, show: hasPermission('signatures.manage') || user?.role_code === 'ADMINISTRATEUR' },
-    { id: 'maintenance', label: '🛠️ Corbeille & Maintenance', icon: ShieldAlert, show: user?.role_code === 'ADMINISTRATEUR' }
+    { id: 'maintenance', label: '🛠️ Corbeille & Maintenance', icon: ShieldAlert, show: user?.role_code === 'ADMINISTRATEUR' },
+    { id: 'account-settings', label: '👤 Mon Compte & Sécurité', icon: Users, show: true }
   ];
 
   return (

@@ -110,10 +110,10 @@ export default function MissionOrders({ onSelectDocument }) {
       const staffPromise = isSC ? api.getStaff({ status: 'ACTIF' }).catch(() => []) : Promise.resolve([]);
       const driversPromise = isSC ? api.getStaff({ status: 'ACTIF', is_driver: true }).catch(() => []) : Promise.resolve([]);
       
-      // 6. Templates for Mission Order
-      const templatesPromise = isSC ? api.getTemplates().catch(() => []) : Promise.resolve([]);
+      // 6. Template for Mission Order (Strictly Active Default for ORDRE_DE_MISSION)
+      const templatesPromise = isSC ? api.getDocumentTemplates().catch(() => []) : Promise.resolve([]);
 
-      const [mList, toSignList, reqList, myReqList, staffList, driverList, tplsList] = await Promise.all([
+      const [mList, toSignList, reqList, myReqList, sList, dList, tplsList] = await Promise.all([
         listPromise,
         toSignPromise,
         reqsPromise,
@@ -127,16 +127,35 @@ export default function MissionOrders({ onSelectDocument }) {
       setToSignMissions(Array.isArray(toSignList) ? toSignList : []);
       setRequests(Array.isArray(reqList) ? reqList : []);
       setMyRequests(Array.isArray(myReqList) ? myReqList : []);
-      setStaffDirectory(Array.isArray(staffList) ? staffList : []);
-      setDriversList(Array.isArray(driverList) ? driverList : []);
+      setStaffDirectory(Array.isArray(sList) ? sList : []);
+      setDriversList(Array.isArray(dList) ? dList : []);
 
-      const validTpls = Array.isArray(tplsList) 
-        ? tplsList.filter(t => t.code === 'ORDRE_MISSION' || t.document_type_code === 'ORDRE_MISSION' || t.category === 'OFFICIAL' || t.code?.includes('MISSION'))
-        : [];
+      // Filter strictly: active default template for mission order
+      const defaultMissionTpl = Array.isArray(tplsList)
+        ? tplsList.find(t => 
+            (
+              t.document_type_code === 'ORDRE_DE_MISSION' || 
+              t.document_type_code === 'ORDRE_MISSION' || 
+              t.code === 'ORDRE_MISSION' || 
+              t.code === 'ORDRE_001' || 
+              t.code === 'ODRE_001' || 
+              t.code === 'OM' ||
+              t.document_category === 'ORDRE_DE_MISSION' ||
+              (t.document_type_code && t.document_type_code.toUpperCase().includes('MISSION')) ||
+              (t.code && t.code.toUpperCase().includes('MISSION')) ||
+              (t.name && t.name.toLowerCase().includes('mission'))
+            )
+            && t.is_active === 1 
+            && t.is_default === 1
+          ) || tplsList.find(t => t.is_active === 1 && t.is_default === 1)
+        : null;
+
+      const validTpls = defaultMissionTpl ? [defaultMissionTpl] : [];
       setAvailableTemplates(validTpls);
-      if (validTpls.length > 0 && !selectedTemplateId) {
-        const def = validTpls.find(t => t.is_default) || validTpls[0];
-        setSelectedTemplateId(def.id);
+      if (defaultMissionTpl) {
+        setSelectedTemplateId(defaultMissionTpl.id);
+      } else {
+        setSelectedTemplateId('');
       }
     } catch (err) {
       console.error('Failed to load mission orders data:', err);
@@ -1151,12 +1170,12 @@ export default function MissionOrders({ onSelectDocument }) {
               {createModalError && <div className="p-3 bg-red-50 text-red-700 font-bold rounded-xl border border-red-200">{createModalError}</div>}
 
               {/* 0. MODÈLE DE DOCUMENT OFFICIEL */}
-              {availableTemplates.length > 0 && (
+              {availableTemplates.length > 0 ? (
                 <div className="bg-blue-50/80 p-4 rounded-xl border border-blue-200 space-y-3">
                   <div className="flex justify-between items-center">
                     <h4 className="font-bold text-xs text-kindia-blue flex items-center">
                       <FileCheck className="w-4 h-4 mr-1.5 text-kindia-blue" />
-                      MODÈLE DE DOCUMENT OFFICIEL (Base Documentaire)
+                      MODÈLE DE DOCUMENT OFFICIEL (Par Défaut)
                     </h4>
                     {availableTemplates.find(t => t.id === parseInt(selectedTemplateId)) && (
                       <button
@@ -1189,7 +1208,7 @@ export default function MissionOrders({ onSelectDocument }) {
                       >
                         {availableTemplates.map(t => (
                           <option key={t.id} value={t.id}>
-                            {t.name} (v{t.version || 1}) {t.is_default ? '★ Modèle actif' : ''}
+                            {t.name} (v{t.version || 1}) ★ Modèle officiel actif
                           </option>
                         ))}
                       </select>
@@ -1207,11 +1226,20 @@ export default function MissionOrders({ onSelectDocument }) {
                         </div>
                         <div className="flex justify-between">
                           <span className="text-slate-500">Statut :</span>
-                          <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">Modèle actif</span>
+                          <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">Modèle actif par défaut</span>
                         </div>
                       </div>
                     )}
                   </div>
+                </div>
+              ) : (
+                <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-center space-y-1">
+                  <span className="font-bold text-xs text-amber-800 block">
+                    « Aucun modèle par défaut n'est configuré pour ce type de document. »
+                  </span>
+                  <span className="text-[11px] text-amber-700/80 block">
+                    Veuillez définir un modèle officiel par défaut dans l'espace Administration des Modèles.
+                  </span>
                 </div>
               )}
 

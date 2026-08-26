@@ -27,6 +27,7 @@ export default function StaffManagement() {
   const [telephone, setTelephone] = useState('');
   const [email, setEmail] = useState('');
   const [status, setStatus] = useState('ACTIF');
+  const [serviceFilter, setServiceFilter] = useState('');
   const [isDriver, setIsDriver] = useState(false);
   const [vehicleReg, setVehicleReg] = useState('');
   const [vehicleBrand, setVehicleBrand] = useState('');
@@ -34,12 +35,12 @@ export default function StaffManagement() {
 
   useEffect(() => {
     loadData();
-  }, [statusFilter, searchQuery]);
+  }, [statusFilter, searchQuery, serviceFilter]);
 
   const loadData = async () => {
     try {
       const [staffData, servicesData] = await Promise.all([
-        api.getStaff({ status: statusFilter, query: searchQuery }),
+        api.getStaff({ status: statusFilter, query: searchQuery, service_id: serviceFilter || undefined }),
         api.getServices()
       ]);
       setStaffList(staffData);
@@ -64,9 +65,9 @@ export default function StaffManagement() {
     // Duplicate Check (Rule 18)
     if (!forceCreate && !editingStaffId) {
       try {
-        const dupRes = await api.checkDuplicateStaff({ matricule, nom, prenoms });
-        if (dupRes.duplicate && dupRes.staff) {
-          setDuplicateWarning(dupRes.staff);
+        const dupRes = await api.checkDuplicateStaff({ matricule, nom, prenoms, email });
+        if (dupRes.duplicate && (dupRes.staff || dupRes.user)) {
+          setDuplicateWarning(dupRes.staff || dupRes.user);
           return;
         }
       } catch (err) {
@@ -174,7 +175,7 @@ export default function StaffManagement() {
             <Users className="w-5 h-5 text-kindia-gold" />
           </div>
           <div>
-            <span className="text-[10px] font-bold text-kindia-gold uppercase tracking-wider block">RÉPERTOIRE OFFICIEL • UK</span>
+            <span className="text-[10px] font-bold text-kindia-gold uppercase tracking-wider block">RÉPERTOIRE OFFICIEL DU PERSONNEL • UK</span>
             <h2 className="font-heading font-bold text-lg text-slate-800">Gestion du Personnel de l'Université</h2>
           </div>
         </div>
@@ -196,8 +197,8 @@ export default function StaffManagement() {
       )}
 
       {/* Filter Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-4 items-center justify-between">
-        <div className="relative w-full sm:w-80">
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-3 items-center justify-between">
+        <div className="relative w-full md:w-72">
           <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
           <input
             type="text"
@@ -208,15 +209,27 @@ export default function StaffManagement() {
           />
         </div>
 
-        <div className="flex items-center space-x-3 w-full sm:w-auto">
+        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto">
+          {/* Service Selector */}
+          <select
+            value={serviceFilter}
+            onChange={(e) => setServiceFilter(e.target.value)}
+            className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-hidden"
+          >
+            <option value="">-- Toutes les structures ({services.length}) --</option>
+            {services.map(s => (
+              <option key={s.id} value={s.id}>{s.name} ({s.code})</option>
+            ))}
+          </select>
+
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="bg-slate-50 border border-slate-200 rounded-xl p-2 text-xs font-semibold text-slate-700"
+            className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 outline-hidden"
           >
             <option value="">-- Tous les statuts --</option>
-            <option value="ACTIF">ACTIFS UNIQUEMENT</option>
-            <option value="INACTIF">INACTIFS UNIQUEMENT</option>
+            <option value="ACTIF">Actifs uniquement</option>
+            <option value="INACTIF">Inactifs uniquement</option>
           </select>
         </div>
       </div>
@@ -230,7 +243,8 @@ export default function StaffManagement() {
                 <th className="p-3.5">Matricule</th>
                 <th className="p-3.5">Nom & Prénoms</th>
                 <th className="p-3.5">Fonction</th>
-                <th className="p-3.5">Service</th>
+                <th className="p-3.5">Service / Structure</th>
+                <th className="p-3.5">Origine & Compte</th>
                 <th className="p-3.5">Téléphone / Contact</th>
                 <th className="p-3.5">Chauffeur ?</th>
                 <th className="p-3.5">Statut</th>
@@ -240,20 +254,40 @@ export default function StaffManagement() {
             <tbody className="divide-y divide-slate-100 font-medium">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-slate-400">Chargement du répertoire du personnel...</td>
+                  <td colSpan={9} className="p-8 text-center text-slate-400">Chargement du répertoire du personnel...</td>
                 </tr>
               ) : staffList.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-slate-400">Aucun membre du personnel enregistré.</td>
+                  <td colSpan={9} className="p-8 text-center text-slate-400">Aucun membre du personnel correspondant aux critères.</td>
                 </tr>
               ) : (
                 staffList.map(s => (
                   <tr key={s.id} className="hover:bg-slate-50/80 transition">
                     <td className="p-3.5 font-mono font-bold text-kindia-blue">{s.matricule || 'N/A'}</td>
-                    <td className="p-3.5 font-bold text-slate-800">{s.nom} {s.prenoms}</td>
+                    <td className="p-3.5 font-bold text-slate-800">
+                      <div>
+                        <span>{s.nom} {s.prenoms}</span>
+                        {s.email && <span className="block text-[10px] text-slate-400 font-normal">{s.email}</span>}
+                      </div>
+                    </td>
                     <td className="p-3.5 text-slate-600">{s.fonction}</td>
-                    <td className="p-3.5 text-slate-600 font-semibold">{s.service_name || 'Non affecté'}</td>
-                    <td className="p-3.5 text-slate-500">{s.telephone || s.email || 'N/A'}</td>
+                    <td className="p-3.5 text-slate-600 font-semibold">
+                      <span className="bg-slate-100 px-2 py-0.5 rounded text-[11px] text-slate-700">
+                        {s.service_name || 'Non affecté'}
+                      </span>
+                    </td>
+                    <td className="p-3.5">
+                      {s.linked_user_id ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-blue-50 text-blue-800 border border-blue-200">
+                          Utilisateur Système
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-medium bg-slate-100 text-slate-600">
+                          Fiche Personnel
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3.5 text-slate-500">{s.telephone || 'N/A'}</td>
                     <td className="p-3.5">
                       {s.is_driver === 1 ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
@@ -514,31 +548,36 @@ export default function StaffManagement() {
             </div>
 
             <div className="bg-amber-50 p-4 rounded-xl border border-amber-200 text-xs space-y-1">
-              <p className="font-bold text-amber-900">{duplicateWarning.nom} {duplicateWarning.prenoms}</p>
+              <p className="font-bold text-amber-900">{duplicateWarning.nom || `${duplicateWarning.last_name || ''} ${duplicateWarning.first_name || ''}`} {duplicateWarning.prenoms || ''}</p>
               <p className="text-amber-800 font-mono">Matricule : {duplicateWarning.matricule || 'N/A'}</p>
-              <p className="text-amber-800">Fonction : {duplicateWarning.fonction}</p>
+              <p className="text-amber-800">Fonction : {duplicateWarning.fonction || duplicateWarning.function_title || 'Personnel'}</p>
+              {duplicateWarning.email && <p className="text-amber-800">Email : {duplicateWarning.email}</p>}
             </div>
 
             <p className="text-xs text-slate-600">
-              Une personne possédant des identifiants identiques est déjà enregistrée dans le répertoire. Souhaitez-vous réutiliser la fiche existante ou créer un nouvel enregistrement ?
+              Une personne possédant des identifiants identiques (matricule, email ou nom) est déjà enregistrée dans la base. Souhaitez-vous réutiliser cette fiche ou modifier le compte existant ?
             </p>
 
             <div className="flex justify-end space-x-3 pt-2">
               <button
-                onClick={() => {
-                  setDuplicateWarning(null);
-                  handleEdit(duplicateWarning);
-                }}
-                className="px-4 py-2 bg-kindia-blue text-white font-bold rounded-xl text-xs shadow hover:bg-kindia-lightBlue transition"
+                type="button"
+                onClick={() => setDuplicateWarning(null)}
+                className="px-3 py-2 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs hover:bg-slate-200 transition"
               >
-                [UTILISER CETTE FICHE]
+                Annuler
               </button>
 
               <button
-                onClick={(e) => handleCreateSubmit(e, true)}
-                className="px-4 py-2 bg-amber-500 text-white font-bold rounded-xl text-xs hover:bg-amber-600 transition"
+                type="button"
+                onClick={() => {
+                  setDuplicateWarning(null);
+                  if (duplicateWarning.id) {
+                    handleEdit(duplicateWarning);
+                  }
+                }}
+                className="px-4 py-2 bg-kindia-blue text-white font-bold rounded-xl text-xs shadow hover:bg-kindia-lightBlue transition"
               >
-                [CRÉER QUAND MÊME]
+                Consulter / Modifier la fiche existante
               </button>
             </div>
           </div>

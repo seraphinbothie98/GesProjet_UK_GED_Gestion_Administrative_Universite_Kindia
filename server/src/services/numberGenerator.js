@@ -149,21 +149,33 @@ async function getReferenceSettings() {
 }
 
 /**
- * Format a reference pattern with actual values
+ * Format a reference pattern with actual values and custom fields
+ * Supports both {TOKEN} and {{TOKEN}} syntax (case-insensitive)
  */
-function buildReferenceString(pattern, values) {
+function buildReferenceString(pattern, values = {}, customFields = {}) {
   let ref = pattern || '{UNIV}/{FACULTY}/{DEPT}/{TYPE}/{YEAR}/{SEQ}';
 
-  // Standard token replacements (Case insensitive)
+  // Helper replacing both {TOKEN} and {{TOKEN}}
   const replaceToken = (str, token, val) => {
-    const regex = new RegExp(`\\{${token}\\}`, 'gi');
-    return str.replace(regex, val !== undefined && val !== null ? val : '');
+    if (!token) return str;
+    const cleanToken = token.replace(/[{}]/g, '').trim();
+    const regex1 = new RegExp(`\\{\\{${cleanToken}\\}\\}`, 'gi');
+    const regex2 = new RegExp(`\\{${cleanToken}\\}`, 'gi');
+    const replacement = val !== undefined && val !== null ? String(val) : '';
+    return str.replace(regex1, replacement).replace(regex2, replacement);
   };
 
+  // 1. Standard System tokens
   ref = replaceToken(ref, 'UNIV', values.univ || values.institution_code || 'UK');
+  ref = replaceToken(ref, 'UNIVERSITE', values.univ || values.institution_code || 'UK');
   ref = replaceToken(ref, 'INSTITUTION_CODE', values.institution_code || 'UK');
+  
   ref = replaceToken(ref, 'FACULTY', values.faculty || '');
+  ref = replaceToken(ref, 'FACULTE', values.faculty || '');
+  
   ref = replaceToken(ref, 'DEPT', values.dept || '');
+  ref = replaceToken(ref, 'DEPARTEMENT', values.dept || '');
+  
   ref = replaceToken(ref, 'SERVICE', values.service || values.service_code || '');
   ref = replaceToken(ref, 'SERVICE_CODE', values.service_code || '');
   ref = replaceToken(ref, 'SERVICE_REF', values.service_ref || values.service_code || '');
@@ -174,17 +186,80 @@ function buildReferenceString(pattern, values) {
   ref = replaceToken(ref, 'TYPE', values.type || values.type_code || '');
   ref = replaceToken(ref, 'TYPE_CODE', values.type_code || '');
 
-  ref = replaceToken(ref, 'YEAR', values.year);
-  ref = replaceToken(ref, 'MONTH', values.month || '');
+  ref = replaceToken(ref, 'YEAR', values.year || new Date().getFullYear());
+  ref = replaceToken(ref, 'ANNEE', values.year || new Date().getFullYear());
+  
+  ref = replaceToken(ref, 'MONTH', values.month || String(new Date().getMonth() + 1).padStart(2, '0'));
+  ref = replaceToken(ref, 'MOIS', values.month || String(new Date().getMonth() + 1).padStart(2, '0'));
+  
   ref = replaceToken(ref, 'SEQ', values.sequence);
   ref = replaceToken(ref, 'SEQUENCE', values.sequence);
+  ref = replaceToken(ref, 'NUMERO_SEQUENTIEL', values.sequence);
+  
   ref = replaceToken(ref, 'PREFIX', values.prefix || '');
   ref = replaceToken(ref, 'SUFFIX', values.suffix || '');
 
-  // Clean up double slashes, double dashes or trailing/leading separators caused by empty tokens
+  // 2. Custom service dynamic tokens (Rule 3, 10, 13)
+  const allCustom = { ...(customFields || {}), ...(values.custom_values || {}), ...(values.customValues || {}) };
+  for (const [key, val] of Object.entries(allCustom)) {
+    ref = replaceToken(ref, key, val);
+  }
+
+  // Clean up multiple slashes, dashes, or trailing separators caused by empty tokens
   ref = ref.replace(/\/+/g, '/').replace(/-+/g, '-').replace(/^\/|\/$/g, '').replace(/^-|-$/g, '');
 
   return ref;
+}
+
+/**
+ * Universal dynamic variables resolver for documents, headers, footers, and templates
+ */
+function resolveAllDynamicVariables(templateText, context = {}, customFields = {}) {
+  if (!templateText) return '';
+  const now = new Date();
+  const months = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+  const formattedDate = `${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear()}`;
+
+  const standardValues = {
+    'REFERENCE': context.reference || context.preview_reference || '[RÉFÉRENCE OFFICIELLE]',
+    'DATE': context.date || formattedDate,
+    'ANNEE': context.year || String(now.getFullYear()),
+    'MOIS': context.month || String(now.getMonth() + 1).padStart(2, '0'),
+    'UNIVERSITE': context.univ || context.institution_name || 'UNIVERSITÉ DE KINDIA',
+    'UNIV': context.univ || 'UK',
+    'FACULTE': context.faculty_name || context.faculty || '',
+    'FACULTY': context.faculty || '',
+    'DEPARTEMENT': context.department_name || context.dept || '',
+    'DEPT': context.dept || '',
+    'SERVICE': context.service_name || context.service || '',
+    'DESTINATAIRE': context.recipient_name || context.target_recipient_name || '',
+    'OBJET': context.object || context.title || context.object_title || '',
+    'RESPONSABLE': context.head_name || '',
+    'FONCTION_RESPONSABLE': context.head_title || '',
+    'NUMERO_SEQUENTIEL': context.sequence || '001',
+    'SEQ': context.sequence || '001'
+  };
+
+  let result = templateText;
+
+  // Replace standard tokens
+  for (const [key, val] of Object.entries(standardValues)) {
+    const regex1 = new RegExp(`\\{\\{${key}\\}\\}`, 'gi');
+    const regex2 = new RegExp(`\\{${key}\\}`, 'gi');
+    result = result.replace(regex1, val || '').replace(regex2, val || '');
+  }
+
+  // Replace custom dynamic fields
+  const allCustom = { ...(customFields || {}), ...(context.custom_values || {}), ...(context.customValues || {}) };
+  for (const [key, val] of Object.entries(allCustom)) {
+    const cleanKey = key.replace(/[{}]/g, '').trim();
+    const regex1 = new RegExp(`\\{\\{${cleanKey}\\}\\}`, 'gi');
+    const regex2 = new RegExp(`\\{${cleanKey}\\}`, 'gi');
+    result = result.replace(regex1, val !== undefined && val !== null ? String(val) : '')
+                   .replace(regex2, val !== undefined && val !== null ? String(val) : '');
+  }
+
+  return result;
 }
 
 /**
@@ -283,6 +358,27 @@ async function generateReferenceWithMeta(type = 'DOC_ADMIN', options = {}) {
     const counter = row ? row.current_val : 1;
     const formattedCounter = String(counter).padStart(padding, '0');
 
+    // Fetch active custom fields for service if available
+    let serviceCustomFieldsMap = {};
+    if (serviceId) {
+      try {
+        const customFieldRows = await db.all(
+          'SELECT variable_code, default_value FROM service_custom_fields WHERE service_id = ? AND is_active = 1',
+          [serviceId]
+        );
+        for (const cf of customFieldRows || []) {
+          if (cf.variable_code) {
+            serviceCustomFieldsMap[cf.variable_code] = cf.default_value || '';
+          }
+        }
+      } catch (e) {
+        // table might not exist in old runs
+      }
+    }
+
+    const providedCustom = options.custom_values || options.customValues || {};
+    const finalCustomValues = { ...serviceCustomFieldsMap, ...providedCustom };
+
     const values = {
       univ: hierarchy?.univCode || instSettings.institution_code || 'UK',
       faculty: hierarchy?.facultyCode || '',
@@ -299,10 +395,11 @@ async function generateReferenceWithMeta(type = 'DOC_ADMIN', options = {}) {
       ministry_code: instSettings.ministry_code,
       institution_code: instSettings.institution_code,
       structure_code: hierarchy?.serviceCode || instSettings.structure_code,
-      authority_code: instSettings.authority_code
+      authority_code: instSettings.authority_code,
+      custom_values: finalCustomValues
     };
 
-    const reference = buildReferenceString(pattern, values);
+    const reference = buildReferenceString(pattern, values, finalCustomValues);
 
     const metaSnapshot = {
       year: currentYear,
@@ -314,6 +411,7 @@ async function generateReferenceWithMeta(type = 'DOC_ADMIN', options = {}) {
       service_ref: hierarchy?.referenceCode || null,
       pattern,
       settings_version: serviceSettings?.version || 1,
+      custom_values: finalCustomValues,
       generated_at: new Date().toISOString()
     };
 
@@ -335,6 +433,8 @@ function previewReference(customSettings = {}) {
   const padding = parseInt(customSettings.seq_padding || customSettings.sequence_padding) || 4;
   const sampleSequence = String(1).padStart(padding, '0');
 
+  const customValues = customSettings.custom_values || customSettings.customValues || {};
+
   const values = {
     univ: (customSettings.univ || 'UK').trim(),
     faculty: (customSettings.faculty || 'FS').trim(),
@@ -351,11 +451,12 @@ function previewReference(customSettings = {}) {
     ministry_code: (customSettings.ministry_code || 'MESRS').trim(),
     institution_code: (customSettings.institution_code || 'UK').trim(),
     structure_code: (customSettings.structure_code || 'INFO').trim(),
-    authority_code: (customSettings.authority_code || 'CHEF').trim()
+    authority_code: (customSettings.authority_code || 'CHEF').trim(),
+    custom_values: customValues
   };
 
   const pattern = customSettings.ref_pattern || customSettings.reference_pattern || '{UNIV}/{FACULTY}/{DEPT}/{TYPE}/{YEAR}/{SEQ}';
-  return buildReferenceString(pattern, values);
+  return buildReferenceString(pattern, values, customValues);
 }
 
 module.exports = {
@@ -366,5 +467,6 @@ module.exports = {
   getServiceHierarchy,
   getServiceDocumentSettings,
   previewReference,
-  buildReferenceString
+  buildReferenceString,
+  resolveAllDynamicVariables
 };

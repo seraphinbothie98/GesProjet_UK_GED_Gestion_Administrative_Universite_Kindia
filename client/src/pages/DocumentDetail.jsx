@@ -12,10 +12,11 @@ import MissionSignatureModal from '../components/MissionSignatureModal';
 import SGOrientationModal from '../components/SGOrientationModal';
 import ReturnForCorrectionModal from '../components/ReturnForCorrectionModal';
 import TransmitToCentralArchiveModal from '../components/TransmitToCentralArchiveModal';
+import OnlyOfficeEditorModal from '../components/OnlyOfficeEditorModal';
 import { 
   ArrowLeft, Send, CornerUpLeft, ArrowRight, CheckCircle2, XCircle,
   Archive, FileText, Download, ShieldCheck, Lock, Award, Eye, QrCode,
-  ShieldAlert, Building2, UserCheck
+  ShieldAlert, Building2, UserCheck, Edit3
 } from 'lucide-react';
 
 export default function DocumentDetail({ documentId, onBack }) {
@@ -34,6 +35,7 @@ export default function DocumentDetail({ documentId, onBack }) {
   const [showSGOrientModal, setShowSGOrientModal] = useState(false);
   const [showReturnForCorrectionModal, setShowReturnForCorrectionModal] = useState(false);
   const [showTransmitCentralModal, setShowTransmitCentralModal] = useState(false);
+  const [showOnlyOfficeModal, setShowOnlyOfficeModal] = useState(false);
 
   const handleArchiveInService = async () => {
     if (!window.confirm('Voulez-vous classer ce document dans les archives privées de votre service ?')) return;
@@ -232,6 +234,31 @@ export default function DocumentDetail({ documentId, onBack }) {
                   >
                     <CornerUpLeft className="w-3.5 h-3.5 text-amber-700" />
                     <span>↩ RETOURNER AU SECRÉTARIAT CENTRAL</span>
+                  </button>
+                )}
+
+                {/* ONLYOFFICE Document Server Action (Edit vs View) */}
+                {doc.file_path && (
+                  <button
+                    onClick={() => setShowOnlyOfficeModal(true)}
+                    className={`px-3.5 py-2 text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5 ${
+                      (isCurrentHolder || user?.role_code === 'ADMINISTRATEUR') && doc.status !== 'ARCHIVED' && doc.status !== 'SIGNÉ' && !doc.is_locked
+                        ? 'bg-emerald-600 hover:bg-emerald-700'
+                        : 'bg-indigo-600 hover:bg-indigo-700'
+                    }`}
+                    title="Ouvrir le document dans ONLYOFFICE Document Server"
+                  >
+                    {(isCurrentHolder || user?.role_code === 'ADMINISTRATEUR') && doc.status !== 'ARCHIVED' && doc.status !== 'SIGNÉ' && !doc.is_locked ? (
+                      <>
+                        <Edit3 className="w-3.5 h-3.5 text-emerald-200" />
+                        <span>✏️ MODIFIER AVEC ONLYOFFICE</span>
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-3.5 h-3.5 text-indigo-200" />
+                        <span>👁️ OUVRIR DANS ONLYOFFICE</span>
+                      </>
+                    )}
                   </button>
                 )}
 
@@ -783,6 +810,18 @@ export default function DocumentDetail({ documentId, onBack }) {
           onClose={() => setShowMissionSignatureModal(false)}
           onSuccess={() => {
             setShowMissionSignatureModal(false);
+            loadDocument();
+          }}
+        />
+      )}
+
+      {/* Modal: ONLYOFFICE Document Server Online Editor */}
+      {showOnlyOfficeModal && (
+        <OnlyOfficeEditorModal
+          isOpen={showOnlyOfficeModal}
+          documentId={doc.id}
+          onClose={() => setShowOnlyOfficeModal(false)}
+          onSaveSuccess={() => {
             loadDocument();
           }}
         />

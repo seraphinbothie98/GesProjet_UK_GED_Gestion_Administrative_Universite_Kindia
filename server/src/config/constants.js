@@ -1,11 +1,16 @@
 const path = require('path');
+const env = require('./env');
 
 module.exports = {
-  PORT: process.env.PORT || 5000,
-  JWT_SECRET: process.env.JWT_SECRET || 'uk_ged_kindia_secret_key_2026_super_secure',
-  JWT_EXPIRES_IN: '24h',
-  UPLOAD_DIR: path.join(__dirname, '../../uploads'),
-  DB_PATH: path.join(__dirname, '../../data/uk_ged.db'),
+  NODE_ENV: env.NODE_ENV,
+  PORT: env.PORT,
+  APP_URL: env.APP_URL,
+  APP_VERSION: env.APP_VERSION,
+  JWT_SECRET: env.JWT_SECRET,
+  JWT_EXPIRES_IN: env.JWT_EXPIRES_IN,
+  UPLOAD_DIR: env.STORAGE_DIR,
+  DB_PATH: env.DB_PATH,
+  BACKUP_DIR: env.BACKUP_DIR,
 
   // Predefined Roles
   ROLES: {

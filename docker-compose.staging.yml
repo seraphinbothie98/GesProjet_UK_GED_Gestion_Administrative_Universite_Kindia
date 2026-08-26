@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  uk_ged_backend_staging:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: uk_ged_backend_staging
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=staging
+      - PORT=5001
+      - APP_URL=https://staging-ged.universite.edu
+      - DATABASE_PATH=/var/uk_ged/data/uk_ged_staging.db
+      - STORAGE_PATH=/var/uk_ged/storage/staging
+      - BACKUP_DIR=/var/uk_ged/backups/staging
+      - ONLYOFFICE_DOCUMENT_SERVER_URL=https://staging-office.ged.universite.edu
+      - ONLYOFFICE_INTERNAL_SERVER_URL=http://uk_ged_onlyoffice_staging:80
+      - ONLYOFFICE_JWT_SECRET=uk_ged_onlyoffice_staging_secret_2026
+      - ONLYOFFICE_CALLBACK_URL=https://staging-ged.universite.edu
+    volumes:
+      - uk_ged_staging_data:/var/uk_ged/data
+      - uk_ged_staging_storage:/var/uk_ged/storage/staging
+      - uk_ged_staging_backups:/var/uk_ged/backups/staging
+    ports:
+      - "127.0.0.1:5001:5001"
+    networks:
+      - uk_ged_staging_internal_network
+    depends_on:
+      - onlyoffice_staging
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:5001/api/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1); });"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  onlyoffice_staging:
+    image: onlyoffice/documentserver:8.2.2
+    container_name: uk_ged_onlyoffice_staging
+    restart: unless-stopped
+    environment:
+      - JWT_ENABLED=true
+      - JWT_SECRET=uk_ged_onlyoffice_staging_secret_2026
+      - JWT_HEADER=Authorization
+      - JWT_IN_BODY=true
+      - USE_UNAUTHORIZED_STORAGE=true
+    volumes:
+      - uk_ged_onlyoffice_staging_data:/var/www/onlyoffice/Data
+      - uk_ged_onlyoffice_staging_log:/var/log/onlyoffice
+    ports:
+      - "127.0.0.1:8081:80"
+    networks:
+      - uk_ged_staging_internal_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/healthcheck || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  uk_ged_staging_data:
+  uk_ged_staging_storage:
+  uk_ged_staging_backups:
+  uk_ged_onlyoffice_staging_data:
+  uk_ged_onlyoffice_staging_log:
+
+networks:
+  uk_ged_staging_internal_network:
+    driver: bridge

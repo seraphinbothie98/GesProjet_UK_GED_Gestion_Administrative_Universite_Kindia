@@ -2,7 +2,7 @@ import React from 'react';
 import { useAuth } from '../context/AuthContext';
 import { 
   LayoutDashboard, Inbox, Send, FileCheck, Archive, 
-  Search, ShieldAlert, Building2, Users, Lock, Award, QrCode, Calendar
+  Search, ShieldAlert, Building2, Users, Lock, Award, QrCode, Calendar, FileText
 } from 'lucide-react';
 
 export default function Sidebar({ currentPage, setCurrentPage }) {
@@ -18,6 +18,7 @@ export default function Sidebar({ currentPage, setCurrentPage }) {
 
   const navItems = [
     { id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, show: true },
+    { id: 'transmissions', label: '🔄 Transmissions Inter-Services', icon: Send, show: true },
     { id: 'service-workspace', label: '📂 Espace de mon Service', icon: Building2, show: true },
     { id: 'dispatching', label: '📢 Dispatching & Diffusions', icon: Send, show: true },
     { id: 'appointments', label: '📅 Rendez-vous', icon: Calendar, show: true },
@@ -41,8 +42,10 @@ export default function Sidebar({ currentPage, setCurrentPage }) {
     { id: 'staff', label: '👥 Personnel', icon: Users, show: user?.service_code === 'SC' || hasPermission('personnel.view') || user?.role_code === 'ADMINISTRATEUR' },
     { id: 'institution', label: '🏛️ Identité Visuelle', icon: Building2, show: hasPermission('institution.manage') || user?.role_code === 'ADMINISTRATEUR' },
     { id: 'templates', label: '📄 Modèles de documents', icon: FileCheck, show: hasPermission('templates.manage') || user?.role_code === 'ADMINISTRATEUR' },
+    { id: 'document-types', label: '⚖️ Types de documents', icon: FileText, show: hasPermission('settings.manage') || user?.role_code === 'ADMINISTRATEUR' },
     { id: 'signatures', label: '✍️ Signatures électroniques', icon: Lock, show: hasPermission('signatures.manage') || user?.role_code === 'ADMINISTRATEUR' },
-    { id: 'maintenance', label: '🛠️ Corbeille & Maintenance', icon: ShieldAlert, show: user?.role_code === 'ADMINISTRATEUR' }
+    { id: 'maintenance', label: '🛠️ Corbeille & Maintenance', icon: ShieldAlert, show: user?.role_code === 'ADMINISTRATEUR' },
+    { id: 'account-settings', label: '👤 Mon Compte & Sécurité', icon: Users, show: true }
   ];
 
   return (

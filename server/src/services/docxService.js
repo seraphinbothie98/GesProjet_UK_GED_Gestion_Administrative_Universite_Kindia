@@ -587,9 +587,238 @@ async function generateDocxFromHtml(htmlContent, baseDocxBuffer = null) {
   return await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
+/**
+ * Builds a 100% generic standard official Word (.DOCX) document for any administrative template
+ */
+async function buildGenericOfficialDocx({
+  templateName = 'Document Administratif',
+  documentTypeCode = 'DOCUMENT_ADMINISTRATIF',
+  institutionName = 'UNIVERSITÉ DE KINDIA',
+  serviceName = '',
+  contentHtml = null
+} = {}) {
+  const zip = new JSZip();
+
+  const contentTypesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+</Types>`;
+
+  const relsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`;
+
+  const docRelsXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`;
+
+  const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:docDefaults>
+    <w:rPrDefault>
+      <w:rPr>
+        <w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>
+        <w:sz w:val="22"/>
+        <w:color w:val="0F172A"/>
+      </w:rPr>
+    </w:rPrDefault>
+  </w:docDefaults>
+</w:styles>`;
+
+  const cleanTitle = xmlEscape(templateName.toUpperCase());
+  const cleanInst = xmlEscape(institutionName.toUpperCase());
+  const cleanSrv = xmlEscape(serviceName ? serviceName.toUpperCase() : 'SERVICE ADMINISTRATIF');
+
+  let bodyParagraphsXml = '';
+
+  if (contentHtml && contentHtml.trim().length > 0) {
+    const rawBlocks = contentHtml.split(/<\/(?:p|h1|h2|h3|tr|div)>/i).filter(b => b.trim().length > 0);
+    for (const block of rawBlocks) {
+      const isHeading = /<(?:h1|h2|h3)/i.test(block);
+      let align = 'left';
+      if (/text-align:\s*center/i.test(block) || /align="center"/i.test(block)) align = 'center';
+      else if (/text-align:\s*right/i.test(block) || /align="right"/i.test(block)) align = 'right';
+      else if (/text-align:\s*justify/i.test(block)) align = 'both';
+
+      const rawText = block.replace(/<[^>]+>/g, '').trim();
+      if (!rawText) continue;
+
+      const isBold = /<(?:strong|b)\b/i.test(block) || isHeading;
+      const isItalic = /<(?:em|i)\b/i.test(block);
+
+      bodyParagraphsXml += `
+      <w:p>
+        <w:pPr><w:jc w:val="${align}"/><w:spacing w:before="60" w:after="80"/><w:line w:line="300" w:lineRule="auto"/></w:pPr>
+        <w:r>
+          <w:rPr>
+            <w:rFonts w:ascii="Times New Roman"/>
+            ${isBold ? '<w:b/>' : ''}
+            ${isItalic ? '<w:i/>' : ''}
+            <w:sz w:val="${isHeading ? '26' : '22'}"/>
+            <w:color w:val="${isHeading ? '0B2545' : '0F172A'}"/>
+          </w:rPr>
+          <w:t xml:space="preserve">${xmlEscape(rawText)}</w:t>
+        </w:r>
+      </w:p>`;
+    }
+  } else {
+    bodyParagraphsXml = `
+    <w:p>
+      <w:pPr><w:jc w:val="both"/><w:spacing w:before="120" w:after="80"/><w:line w:line="320" w:lineRule="auto"/></w:pPr>
+      <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:b/><w:sz w:val="22"/><w:color w:val="0B2545"/></w:rPr><w:t xml:space="preserve">Objet : </w:t></w:r>
+      <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:sz w:val="22"/><w:color w:val="0F172A"/></w:rPr><w:t>{{OBJET}}</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:pPr><w:jc w:val="both"/><w:spacing w:before="40" w:after="120"/><w:line w:line="320" w:lineRule="auto"/></w:pPr>
+      <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:b/><w:sz w:val="22"/><w:color w:val="0B2545"/></w:rPr><w:t xml:space="preserve">Destinataire : </w:t></w:r>
+      <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:sz w:val="22"/><w:color w:val="0F172A"/></w:rPr><w:t>{{DESTINATAIRE}}</w:t></w:r>
+    </w:p>
+    <w:p>
+      <w:pPr><w:jc w:val="both"/><w:spacing w:before="80" w:after="120"/><w:line w:line="340" w:lineRule="auto"/></w:pPr>
+      <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:sz w:val="22"/><w:color w:val="0F172A"/></w:rPr><w:t>{{CORPS_TEXTE}}</w:t></w:r>
+    </w:p>`;
+  }
+
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <!-- Institutional Header: Two-Column Table -->
+    <w:tbl>
+      <w:tblPr>
+        <w:tblW w:w="9700" w:type="dxa"/>
+        <w:tblBorders>
+          <w:top w:val="none"/>
+          <w:left w:val="none"/>
+          <w:bottom w:val="single" w:sz="12" w:space="4" w:color="0B2545"/>
+          <w:right w:val="none"/>
+          <w:insideH w:val="none"/>
+          <w:insideV w:val="none"/>
+        </w:tblBorders>
+      </w:tblPr>
+      <w:tr>
+        <w:tc>
+          <w:tcPr><w:tcW w:w="5500" w:type="dxa"/><w:vAlign w:val="top"/></w:tcPr>
+          <w:p>
+            <w:pPr><w:jc w:val="center"/><w:spacing w:after="10"/></w:pPr>
+            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:b/><w:sz w:val="20"/><w:color w:val="0B2545"/></w:rPr><w:t>RÉPUBLIQUE DE GUINÉE</w:t></w:r>
+          </w:p>
+          <w:p>
+            <w:pPr><w:jc w:val="center"/><w:spacing w:after="10"/></w:pPr>
+            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:i/><w:sz w:val="16"/><w:color w:val="DC2626"/></w:rPr><w:t>Travail - </w:t></w:r>
+            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:i/><w:sz w:val="16"/><w:color w:val="CA8A04"/></w:rPr><w:t>Justice</w:t></w:r>
+            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:i/><w:sz w:val="16"/><w:color w:val="16A34A"/></w:rPr><w:t> - Solidarité</w:t></w:r>
+          </w:p>
+          <w:p>
+            <w:pPr><w:jc w:val="center"/><w:spacing w:after="10"/></w:pPr>
+            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:sz w:val="16"/><w:color w:val="475569"/></w:rPr><w:t>MINISTÈRE DE L'ENSEIGNEMENT SUPÉRIEUR ET DE LA RECHERCHE SCIENTIFIQUE</w:t></w:r>
+          </w:p>
+          <w:p>
+            <w:pPr><w:jc w:val="center"/><w:spacing w:after="10"/></w:pPr>
+            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:b/><w:sz w:val="20"/><w:color w:val="0B2545"/></w:rPr><w:t>${cleanInst}</w:t></w:r>
+          </w:p>
+          <w:p>
+            <w:pPr><w:jc w:val="center"/><w:spacing w:after="20"/></w:pPr>
+            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:b/><w:sz w:val="18"/><w:color w:val="1E3A8A"/></w:rPr><w:t>{{SERVICE}}</w:t></w:r>
+          </w:p>
+        </w:tc>
+        <w:tc>
+          <w:tcPr><w:tcW w:w="4200" w:type="dxa"/><w:vAlign w:val="top"/></w:tcPr>
+          <w:p>
+            <w:pPr><w:jc w:val="right"/><w:spacing w:after="30"/></w:pPr>
+            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:sz w:val="20"/><w:color w:val="0F172A"/></w:rPr><w:t>Kindia, le {{DATE}}</w:t></w:r>
+          </w:p>
+          <w:p>
+            <w:pPr><w:jc w:val="right"/><w:spacing w:after="20"/></w:pPr>
+            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:b/><w:sz w:val="20"/><w:color w:val="0B2545"/></w:rPr><w:t>N° : </w:t></w:r>
+            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:b/><w:sz w:val="20"/><w:color w:val="B45309"/></w:rPr><w:t>{{REFERENCE}}</w:t></w:r>
+          </w:p>
+        </w:tc>
+      </w:tr>
+    </w:tbl>
+
+    <!-- Document Title Block -->
+    <w:p>
+      <w:pPr>
+        <w:jc w:val="center"/>
+        <w:spacing w:before="240" w:after="160"/>
+      </w:pPr>
+      <w:r>
+        <w:rPr>
+          <w:rFonts w:ascii="Times New Roman"/>
+          <w:b/>
+          <w:u w:val="single"/>
+          <w:sz w:val="28"/>
+          <w:color w:val="0B2545"/>
+        </w:rPr>
+        <w:t>${cleanTitle}</w:t>
+      </w:r>
+    </w:p>
+
+    <!-- Main Content Paragraphs -->
+    ${bodyParagraphsXml}
+
+    <!-- Signature Block -->
+    <w:tbl>
+      <w:tblPr>
+        <w:tblW w:w="9700" w:type="dxa"/>
+        <w:tblBorders>
+          <w:top w:val="none"/><w:left w:val="none"/><w:bottom w:val="none"/><w:right w:val="none"/>
+          <w:insideH w:val="none"/><w:insideV w:val="none"/>
+        </w:tblBorders>
+      </w:tblPr>
+      <w:tr>
+        <w:tc>
+          <w:tcPr><w:tcW w:w="4850" w:type="dxa"/><w:vAlign w:bottom"/></w:tcPr>
+          <w:p>
+            <w:pPr><w:jc w:val="left"/><w:spacing w:after="0"/></w:pPr>
+            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:sz w:val="16"/><w:color w:val="64748B"/></w:rPr><w:t>[ Sceau / QR Code : {{QR_CODE}} ]</w:t></w:r>
+          </w:p>
+        </w:tc>
+        <w:tc>
+          <w:tcPr><w:tcW w:w="4850" w:type="dxa"/><w:vAlign w:top"/></w:tcPr>
+          <w:p>
+            <w:pPr><w:jc w:val="right"/><w:spacing w:after="20"/></w:pPr>
+            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:b/><w:sz w:val="22"/><w:color w:val="0B2545"/></w:rPr><w:t>{{FONCTION_SIGNATAIRE}}</w:t></w:r>
+          </w:p>
+          <w:p>
+            <w:pPr><w:jc w:val="right"/><w:spacing w:after="60"/></w:pPr>
+            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:i/><w:sz w:val="18"/><w:color w:val="475569"/></w:rPr><w:t>{{SIGNATURE}}</w:t></w:r>
+          </w:p>
+          <w:p>
+            <w:pPr><w:jc w:val="right"/><w:spacing w:after="0"/></w:pPr>
+            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:b/><w:u w:val="single"/><w:sz w:val="22"/><w:color w:val="0F172A"/></w:rPr><w:t>{{SIGNATAIRE}}</w:t></w:r>
+          </w:p>
+        </w:tc>
+      </w:tr>
+    </w:tbl>
+
+    <!-- Section Properties: A4 Margins -->
+    <w:sectPr>
+      <w:pgSz w:w="11906" w:h="16838" w:orient="portrait"/>
+      <w:pgMar w:top="1080" w:right="1080" w:bottom="1080" w:left="1080" w:header="540" w:footer="540" w:gutter="0"/>
+    </w:sectPr>
+  </w:body>
+</w:document>`;
+
+  zip.file('[Content_Types].xml', contentTypesXml);
+  zip.file('_rels/.rels', relsXml);
+  zip.file('word/_rels/document.xml.rels', docRelsXml);
+  zip.file('word/styles.xml', stylesXml);
+  zip.file('word/document.xml', documentXml);
+
+  return await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
 module.exports = {
   docxToHtml,
   fillDocxTemplate,
   buildOfficialKindiaMissionDocx,
+  buildGenericOfficialDocx,
   generateDocxFromHtml
 };
+

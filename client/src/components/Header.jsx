@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { Bell, User, LogOut, RefreshCw, Shield, CheckCircle, Menu, FileText } from 'lucide-react';
 
-export default function Header({ onOpenMobileDrawer, onRequestMission }) {
+export default function Header({ onOpenMobileDrawer, onRequestMission, onNavigate }) {
   const { user, login, logout, institution, getLogoUrl } = useAuth();
   const logoUrl = getLogoUrl();
   const showLogo = institution?.show_logo_header !== 0 && logoUrl;
@@ -199,13 +199,19 @@ export default function Header({ onOpenMobileDrawer, onRequestMission }) {
 
         {/* User Badge */}
         <div className="flex items-center space-x-3 pl-2 border-l border-slate-200">
-          <div className="w-8 h-8 rounded-full bg-kindia-blue text-white font-bold text-xs flex items-center justify-center shadow">
-            {user?.first_name ? user.first_name[0] : 'U'}
-          </div>
-          <div className="hidden md:flex flex-col text-left">
-            <span className="text-xs font-bold text-slate-800">{user?.first_name} {user?.last_name}</span>
-            <span className="text-[11px] font-medium text-kindia-gold">{user?.service_name} ({user?.role_name})</span>
-          </div>
+          <button
+            onClick={() => onNavigate && onNavigate('account-settings')}
+            className="flex items-center space-x-2 text-left hover:opacity-80 transition group"
+            title="Accéder aux paramètres de mon compte"
+          >
+            <div className="w-8 h-8 rounded-full bg-kindia-blue text-white font-bold text-xs flex items-center justify-center shadow group-hover:ring-2 group-hover:ring-kindia-gold transition">
+              {user?.first_name ? user.first_name[0] : 'U'}
+            </div>
+            <div className="hidden md:flex flex-col text-left">
+              <span className="text-xs font-bold text-slate-800 group-hover:text-kindia-blue transition">{user?.first_name} {user?.last_name}</span>
+              <span className="text-[11px] font-medium text-kindia-gold">{user?.service_name} ({user?.role_name})</span>
+            </div>
+          </button>
 
           <button 
             onClick={logout}

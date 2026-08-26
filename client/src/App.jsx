@@ -17,6 +17,7 @@ import RoleAdmin from './pages/RoleAdmin';
 import Appointments from './pages/Appointments';
 import InstitutionAdmin from './pages/InstitutionAdmin';
 import TemplateAdmin from './pages/TemplateAdmin';
+import DocumentTypeAdmin from './pages/DocumentTypeAdmin';
 import SignatureAdmin from './pages/SignatureAdmin';
 import StaffManagement from './pages/StaffManagement';
 import AdminMaintenance from './pages/AdminMaintenance';
@@ -29,11 +30,15 @@ import { ShieldAlert } from 'lucide-react';
 import DocumentTracking from './pages/DocumentTracking';
 import Dispatching from './pages/Dispatching';
 import ServiceWorkspace from './pages/ServiceWorkspace';
+import ServiceTransmissionWorkspace from './components/ServiceTransmissionWorkspace';
 import PublicVerification from './pages/PublicVerification';
 import PublicAppointmentModal from './components/PublicAppointmentModal';
+import AccountSettings from './pages/AccountSettings';
+import ForcedPasswordChangeModal from './components/ForcedPasswordChangeModal';
 import MobileNavBar from './components/MobileNavBar';
 import MobileDrawer from './components/MobileDrawer';
 import MobileResponsableSpace from './pages/MobileResponsableSpace';
+import ErrorBoundary from './components/ErrorBoundary';
 import { api } from './services/api';
 
 function MainApp() {
@@ -209,6 +214,8 @@ function MainApp() {
         return <MissionOrders onSelectDocument={handleSelectDocument} />;
       case 'external-missionaries':
         return <ExternalMissionaries />;
+      case 'transmissions':
+        return <ServiceTransmissionWorkspace user={user} />;
       case 'service-workspace':
         return <ServiceWorkspace onSelectDocument={handleSelectDocument} />;
       case 'archives':
@@ -227,6 +234,8 @@ function MainApp() {
         return <InstitutionAdmin />;
       case 'templates':
         return <TemplateAdmin />;
+      case 'document-types':
+        return <DocumentTypeAdmin />;
       case 'signatures':
         return <SignatureAdmin />;
       case 'staff':
@@ -235,6 +244,8 @@ function MainApp() {
         return <AdminMaintenance onSelectDocument={handleSelectDocument} />;
       case 'admin-service-archives':
         return <AdminServiceArchives />;
+      case 'account-settings':
+        return <AccountSettings />;
       case 'mobile-signatures':
       case 'mobile-responsable':
         return <MobileResponsableSpace onSelectDocument={handleSelectDocument} onNavigate={(p) => setCurrentPage(p)} />;
@@ -257,11 +268,21 @@ function MainApp() {
         <Header 
           onOpenMobileDrawer={() => setMobileDrawerOpen(true)} 
           onRequestMission={() => setShowConnectedMissionModal(true)}
+          onNavigate={(p) => setCurrentPage(p)}
         />
         <main className="p-3 md:p-6 flex-1 max-w-7xl w-full mx-auto overflow-x-hidden">
           {renderContent()}
         </main>
       </div>
+
+      {/* Forced Password Change Modal for users with temporary password */}
+      {user?.must_change_password && (
+        <ForcedPasswordChangeModal
+          isOpen={true}
+          user={user}
+          onSuccess={() => window.location.reload()}
+        />
+      )}
 
       <PublicMissionRequestModal 
         isOpen={showConnectedMissionModal} 
@@ -293,8 +314,10 @@ function MainApp() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <MainApp />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <MainApp />
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

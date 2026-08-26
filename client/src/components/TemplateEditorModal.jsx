@@ -37,44 +37,44 @@ export default function TemplateEditorModal({ template, version, onClose, onSave
   const editorRef = useRef(null);
   const savedSelectionRef = useRef(null);
 
-  // Dynamic Fields Directory
+  // Universal Dynamic Fields Directory for ANY administrative document
   const dynamicFieldCategories = [
     {
-      category: 'RÉFÉRENCE & IDENTIFICATION',
+      category: 'RÉFÉRENCE & DATE',
       fields: [
-        { key: '{{reference}}', label: 'Référence Officielle (ex: OM-2026-000125)' },
-        { key: '{{date_document}}', label: 'Date d’Établissement du document' },
+        { key: '{{reference}}', label: 'Référence Officielle du document' },
+        { key: '{{date_document}}', label: 'Date d’Établissement officielle' },
+        { key: '{{lieu}}', label: 'Lieu d’Établissement (Kindia)' },
         { key: '{{annee_universitaire}}', label: 'Année Universitaire (ex: 2025-2026)' }
       ]
     },
     {
-      category: 'BÉNÉFICIAIRE / MISSIONNAIRE',
+      category: 'OBJET & DESTINATAIRE',
       fields: [
-        { key: '{{missionnaire_nom}}', label: 'Nom du Missionnaire' },
-        { key: '{{missionnaire_prenoms}}', label: 'Prénoms du Missionnaire' },
-        { key: '{{missionnaire_fonction}}', label: 'Fonction / Grade' },
-        { key: '{{missionnaire_service}}', label: 'Faculté / Département' },
-        { key: '{{matricule}}', label: 'Numéro Matricule' }
+        { key: '{{objet}}', label: 'Objet du document' },
+        { key: '{{destinataire}}', label: 'Destinataire officiel / Qualité' },
+        { key: '{{service_emetteur}}', label: 'Service / Direction émettrice' },
+        { key: '{{faculte}}', label: 'Faculté de rattachement' },
+        { key: '{{departement}}', label: 'Département académique' }
       ]
     },
     {
-      category: 'DÉTAILS DE LA MISSION',
+      category: 'BÉNÉFICIAIRE / CONCERNÉ',
       fields: [
-        { key: '{{destination}}', label: 'Lieu de Destination' },
-        { key: '{{objet_mission}}', label: 'Objet de la Mission' },
-        { key: '{{date_depart}}', label: 'Date de Départ' },
-        { key: '{{date_retour}}', label: 'Date de Retour' },
-        { key: '{{moyen_transport}}', label: 'Moyen de Transport' },
-        { key: '{{conduit_par}}', label: 'Chauffeur / Véhicule' }
+        { key: '{{beneficiaire_nom}}', label: 'Nom complet du bénéficiaire' },
+        { key: '{{matricule}}', label: 'Numéro Matricule' },
+        { key: '{{fonction}}', label: 'Fonction / Grade' },
+        { key: '{{missionnaire_nom}}', label: 'Nom du Missionnaire (si mission)' },
+        { key: '{{destination}}', label: 'Destination (si mission)' }
       ]
     },
     {
       category: 'SIGNATURES & SÉCURITÉ',
       fields: [
-        { key: '{{signature_secretaire_general}}', label: 'Emplacement Signature Secrétaire Général' },
-        { key: '{{signature_recteur}}', label: 'Emplacement Signature Recteur' },
         { key: '{{signataire_nom}}', label: 'Nom de l’Autorité Signataire' },
-        { key: '{{qr_code}}', label: 'Sceau QR Code Officiel' }
+        { key: '{{signataire_fonction}}', label: 'Fonction de l’Autorité Signataire' },
+        { key: '{{signature}}', label: 'Emplacement Signature Numérique' },
+        { key: '{{qr_code}}', label: 'Sceau QR Code Officiel de vérification' }
       ]
     }
   ];

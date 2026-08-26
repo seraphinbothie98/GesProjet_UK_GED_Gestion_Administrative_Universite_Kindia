@@ -247,16 +247,17 @@ router.get('/suggest-category', authenticateToken, async (req, res) => {
 router.get('/', authenticateToken, async (req, res) => {
   const user = req.user;
   const isAdmin = user.role_code === 'ADMINISTRATEUR';
-  const targetServiceId = (isAdmin && req.query.service_id)
-    ? Number(req.query.service_id)
-    : Number(user.service_id) || -1;
+  const rawServiceId = req.query.service_id || req.query.serviceId;
+  const targetServiceId = rawServiceId 
+    ? Number(rawServiceId) 
+    : (isAdmin ? (Number(user.service_id) || 5) : (Number(user.service_id) || -1));
 
   try {
     if (targetServiceId > 0) {
       await ensureServiceDefaultCategories(targetServiceId, user.id);
     }
 
-    // 1. Fetch system standard categories
+    // 1. Fetch system standard categories (for reference/institutional scope)
     const standardCategories = await db.all(
       `SELECT code, label as name, description, icon, display_order, is_active, 
               'STANDARD' as source_type, NULL as service_id, NULL as id
@@ -265,7 +266,7 @@ router.get('/', authenticateToken, async (req, res) => {
        ORDER BY label ASC`
     );
 
-    // 2. Fetch service custom categories with real document counts
+    // 2. Fetch service custom categories with real document counts strictly isolated to this service
     let customQuery = `
       SELECT acc.id, acc.service_id, acc.code, acc.name, acc.description, 
              acc.icon, acc.color, acc.display_order, acc.associated_types_json, acc.is_default_for_types_json,
@@ -275,20 +276,21 @@ router.get('/', authenticateToken, async (req, res) => {
              u.first_name as creator_first, u.last_name as creator_last,
              acc.created_at, acc.updated_at,
              (SELECT COUNT(*) FROM documents d 
-              WHERE (d.custom_category_id = acc.id OR d.document_type = acc.code OR d.archive_category = acc.name)
-                AND (d.owner_service_id = acc.service_id OR d.originating_service_id = acc.service_id OR d.current_service_id = acc.service_id)) as document_count
+              WHERE (d.custom_category_id = acc.id OR d.archive_category = acc.name)
+                AND (d.owner_service_id = acc.service_id OR d.originating_service_id = acc.service_id OR d.current_service_id = acc.service_id)
+                AND d.status IN ('ARCHIVED', 'ARCHIVÉ')) as document_count
       FROM archive_custom_categories acc
       LEFT JOIN services s ON acc.service_id = s.id
       LEFT JOIN users u ON acc.created_by = u.id
     `;
     const customParams = [];
 
-    if (!isAdmin || targetServiceId > 0) {
+    if (targetServiceId > 0) {
       customQuery += ` WHERE acc.service_id = ?`;
       customParams.push(targetServiceId);
     }
 
-    customQuery += ` ORDER BY acc.name COLLATE NOCASE ASC`;
+    customQuery += ` ORDER BY acc.display_order ASC, acc.name COLLATE NOCASE ASC`;
     const rawCustomCategories = await db.all(customQuery, customParams);
 
     const customCategories = rawCustomCategories.map(cc => {
@@ -325,9 +327,10 @@ router.get('/', authenticateToken, async (req, res) => {
     const sortedStandardCategories = sortFrenchAlphabetical(standardCategories, 'name');
 
     res.json({
+      service_id: targetServiceId,
       standards: sortedStandardCategories,
       customs: sortedCustomCategories,
-      all: sortedCustomCategories.length > 0 ? sortedCustomCategories : sortedStandardCategories
+      all: sortedCustomCategories
     });
   } catch (err) {
     console.error('Fetch archive categories error:', err);

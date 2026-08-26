@@ -12,6 +12,15 @@ function buildABACDocumentFilter(user) {
   const userRole = user.role_code;
   const userSId = Number(user.service_id) || -1;
   const userId = Number(user.id) || -1;
+
+  // 0. ADMINISTRATOR FULL AUDIT & SUPERVISION ACCESS (Rule 16: No arbitrary service locking)
+  if (userRole === 'ADMINISTRATEUR') {
+    return {
+      sql: '1=1',
+      params: []
+    };
+  }
+
   const isSC = userRole === 'AGENT_SC' || userRole === 'AGENT_SECRÉTARIAT_CENTRAL' || user.service_code === 'SC';
   const isExecutiveSigner = userRole === 'SECRÉTAIRE_GÉNÉRAL' || userRole === 'RECTEUR' || (user.permissions && user.permissions.includes('mission.sign'));
   const isFacultyHead = user.function_title && (user.function_title.toLowerCase().includes('doyen') || user.function_title.toLowerCase().includes('vice-doyen'));
@@ -89,7 +98,22 @@ function buildABACDocumentFilter(user) {
     )`;
   }
 
-  const combinedSql = `(${activeCircuitClause} OR ${archiveClause})`;
+  // 0. INTER-SERVICE CONFIDENTIAL TRANSMISSIONS (Strict Closed Circuit)
+  const interServiceClause = `(
+    d.is_inter_service_transmission = 1 AND EXISTS (
+      SELECT 1 FROM service_transmissions st 
+      WHERE st.document_id = d.id 
+      AND (st.from_service_id = ${userSId} OR st.to_service_id = ${userSId})
+    )
+  )`;
+
+  const combinedSql = `(
+    ${interServiceClause} 
+    OR (
+      COALESCE(d.is_inter_service_transmission, 0) = 0 
+      AND (${activeCircuitClause} OR ${archiveClause})
+    )
+  )`;
 
   return {
     sql: combinedSql,

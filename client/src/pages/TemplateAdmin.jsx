@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import TemplateEditorModal from '../components/TemplateEditorModal';
 import TemplatePreviewModal from '../components/TemplatePreviewModal';
-import OnlyOfficeEditorModal from '../components/OnlyOfficeEditorModal';
+import OnlyOfficeTemplateEditorModal from '../components/OnlyOfficeTemplateEditorModal';
 import ErrorBoundary from '../components/ErrorBoundary';
 
 export default function TemplateAdmin() {
@@ -760,25 +760,7 @@ export default function TemplateAdmin() {
             handleOpenPreview(t, v);
           }}
         >
-          {((editingTemplateModal.template?.editor_type === 'MS_WORD') || 
-            (editingTemplateModal.template?.format === 'DOCX') || 
-            (editingTemplateModal.template?.editor_type !== 'UK_GED_EDITOR')) ? (
-            <OnlyOfficeEditorModal
-              template={editingTemplateModal.template || editingTemplateModal}
-              version={editingTemplateModal.version || null}
-              onClose={() => setEditingTemplateModal(null)}
-              onSaved={() => {
-                loadTemplates();
-                if (selectedTemplateCode) loadTemplateDetail(selectedTemplateCode);
-              }}
-              onPreviewFallback={() => {
-                const t = editingTemplateModal.template || editingTemplateModal;
-                const v = editingTemplateModal.version || null;
-                setEditingTemplateModal(null);
-                handleOpenPreview(t, v);
-              }}
-            />
-          ) : (
+          {editingTemplateModal.useVisualEditor ? (
             <TemplateEditorModal
               template={editingTemplateModal.template || editingTemplateModal}
               version={editingTemplateModal.version || null}
@@ -786,6 +768,20 @@ export default function TemplateAdmin() {
               onSaved={() => {
                 loadTemplates();
                 if (selectedTemplateCode) loadTemplateDetail(selectedTemplateCode);
+              }}
+            />
+          ) : (
+            <OnlyOfficeTemplateEditorModal
+              isOpen={true}
+              template={editingTemplateModal.template || editingTemplateModal}
+              version={editingTemplateModal.version || null}
+              onClose={() => setEditingTemplateModal(null)}
+              onSaved={() => {
+                loadTemplates();
+                if (selectedTemplateCode) loadTemplateDetail(selectedTemplateCode);
+              }}
+              onFallbackToVisualEditor={() => {
+                setEditingTemplateModal(prev => ({ ...prev, useVisualEditor: true }));
               }}
             />
           )}
