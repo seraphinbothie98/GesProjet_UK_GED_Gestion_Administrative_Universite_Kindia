@@ -449,7 +449,7 @@ export default function MobileResponsableSpace({ onSelectDocument, onNavigate })
             </div>
             <div className="p-2 bg-slate-100 flex-1 min-h-[400px]">
               <iframe
-                src={`/api/external-missionaries/${previewExtDoc.id}/document/original`}
+                src={`/api/external-missionaries/${previewExtDoc.id}/document/original?token=${localStorage.getItem('token')}`}
                 className="w-full h-full min-h-[380px] rounded-xl border border-slate-300 bg-white"
                 title="Document Preview"
               />
