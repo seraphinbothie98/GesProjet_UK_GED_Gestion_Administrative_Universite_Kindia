@@ -2808,5 +2808,130 @@ export const api = {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Erreur désactivation type de document');
     return data;
+  },
+
+  // ==========================================
+  // ORDRES DE MISSION EXTERNES (UK-GED WORKFLOW)
+  // ==========================================
+  async getExternalMissionaries(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_BASE}/external-missionaries${query ? '?' + query : ''}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur récupération des missionnaires externes');
+    return data;
+  },
+
+  async getExternalMissionariesToSign() {
+    const res = await fetch(`${API_BASE}/external-missionaries/to-sign`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur récupération des ordres à signer');
+    return data;
+  },
+
+  async getExternalMissionaryById(id) {
+    const res = await fetch(`${API_BASE}/external-missionaries/${id}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur chargement fiche missionnaire externe');
+    return data;
+  },
+
+  async getExternalMissionaryHistory(id) {
+    const res = await fetch(`${API_BASE}/external-missionaries/${id}/history`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur chargement historique missionnaire');
+    return data;
+  },
+
+  async createExternalMissionary(formData) {
+    const res = await fetch(`${API_BASE}/external-missionaries`, {
+      method: 'POST',
+      headers: getAuthHeader(), // Content-Type is auto set by browser for FormData
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur enregistrement ordre de mission externe');
+    return data;
+  },
+
+  async recordExternalMissionaryArrival(id, arrivalData) {
+    const res = await fetch(`${API_BASE}/external-missionaries/${id}/arrival`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(arrivalData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur enregistrement de l’arrivée');
+    return data;
+  },
+
+  async signExternalMissionaryArrival(id) {
+    const res = await fetch(`${API_BASE}/external-missionaries/${id}/sign-arrival`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur signature électronique de l’arrivée');
+    return data;
+  },
+
+  async recordExternalMissionaryDeparture(id, departureData) {
+    const res = await fetch(`${API_BASE}/external-missionaries/${id}/departure`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(departureData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur enregistrement du départ');
+    return data;
+  },
+
+  async signExternalMissionaryDeparture(id) {
+    const res = await fetch(`${API_BASE}/external-missionaries/${id}/sign-departure`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur signature électronique du départ');
+    return data;
+  },
+
+  async rejectExternalMissionary(id, rejection_reason) {
+    const res = await fetch(`${API_BASE}/external-missionaries/${id}/reject`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rejection_reason })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du retour/rejet du dossier');
+    return data;
+  },
+
+  async archiveExternalMissionary(id) {
+    const res = await fetch(`${API_BASE}/external-missionaries/${id}/archive`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’archivage de l’ordre de mission');
+    return data;
+  },
+
+  async deleteExternalMissionary(id) {
+    const res = await fetch(`${API_BASE}/external-missionaries/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression');
+    return data;
   }
 };
+
