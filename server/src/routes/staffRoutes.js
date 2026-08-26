@@ -363,6 +363,10 @@ router.put('/:id/toggle-status', authenticateToken, requirePermission('personnel
     });
   } catch (err) {
     console.error('Toggle staff status error:', err);
+    res.status(500).json({ error: 'Erreur lors du changement de statut.' });
+  }
+});
+
 // DELETE /api/staff/:id - Delete staff member from directory (Admin / Authorized)
 router.delete('/:id', authenticateToken, async (req, res) => {
   const staffId = parseInt(req.params.id);

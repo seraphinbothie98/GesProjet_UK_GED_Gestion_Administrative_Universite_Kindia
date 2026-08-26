@@ -1518,7 +1518,14 @@ export const api = {
       headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    const data = await res.json();
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      if (!res.ok) throw new Error(`Erreur serveur (${res.status}) : Impossible de supprimer ce membre du personnel.`);
+      return { success: true };
+    }
     if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression.');
     return data;
   },
