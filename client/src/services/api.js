@@ -1512,6 +1512,17 @@ export const api = {
     return data;
   },
 
+  async deleteStaff(id, payload = {}) {
+    const res = await fetch(`${API_BASE}/staff/${id}`, {
+      method: 'DELETE',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression.');
+    return data;
+  },
+
   // Mission Delivery & Rejection Workflow
   async rejectMissionOrder(id, reason) {
     const res = await fetch(`${API_BASE}/missions/${id}/reject`, {

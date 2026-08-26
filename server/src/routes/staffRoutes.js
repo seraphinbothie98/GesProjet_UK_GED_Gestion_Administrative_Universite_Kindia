@@ -363,9 +363,58 @@ router.put('/:id/toggle-status', authenticateToken, requirePermission('personnel
     });
   } catch (err) {
     console.error('Toggle staff status error:', err);
-    res.status(500).json({ error: 'Erreur lors du changement de statut.' });
+// DELETE /api/staff/:id - Delete staff member from directory (Admin / Authorized)
+router.delete('/:id', authenticateToken, async (req, res) => {
+  const staffId = parseInt(req.params.id);
+
+  const canDelete = req.user.role_code === 'ADMINISTRATEUR' || 
+                    req.user.permissions?.includes('personnel.delete') || 
+                    req.user.permissions?.includes('users.delete');
+
+  if (!canDelete) {
+    return res.status(403).json({ error: 'Permission refusée pour la suppression d’un membre du personnel.' });
+  }
+
+  try {
+    const existing = await db.get('SELECT * FROM staff WHERE id = ?', [staffId]);
+    if (!existing) {
+      return res.status(404).json({ error: 'Membre du personnel introuvable.' });
+    }
+
+    // Unassign vehicles
+    await db.run('UPDATE vehicles SET assigned_staff_id = NULL WHERE assigned_staff_id = ?', [staffId]).catch(() => {});
+
+    // Nullify missionary_id in mission orders
+    await db.run('UPDATE mission_orders SET missionary_id = NULL WHERE missionary_id = ?', [staffId]).catch(() => {});
+    await db.run('UPDATE mission_orders SET driver_id = NULL WHERE driver_id = ?', [staffId]).catch(() => {});
+
+    // If user asked to also delete linked user account
+    const { delete_linked_user } = req.body || {};
+    if (delete_linked_user && existing.user_id) {
+      if (existing.user_id !== 1 && existing.user_id !== Number(req.user.id)) {
+        await db.run('DELETE FROM users WHERE id = ?', [existing.user_id]).catch(() => {});
+      }
+    }
+
+    // Delete staff record
+    await db.run('DELETE FROM staff WHERE id = ?', [staffId]);
+
+    await logAuditAction(req.user.id, 'DELETE_STAFF', 'STAFF', staffId, req, {
+      deleted_matricule: existing.matricule,
+      deleted_name: `${existing.nom} ${existing.prenoms}`,
+      user_id: existing.user_id
+    });
+
+    res.json({
+      success: true,
+      message: `Membre du personnel ${existing.nom} ${existing.prenoms} supprimé avec succès.`
+    });
+  } catch (err) {
+    console.error('Delete staff error:', err);
+    res.status(500).json({ error: 'Erreur lors de la suppression du membre du personnel.' });
   }
 });
 
 module.exports = router;
+
 

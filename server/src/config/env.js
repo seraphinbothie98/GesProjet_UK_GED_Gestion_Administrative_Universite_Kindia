@@ -43,7 +43,11 @@ function resolveStorageDir() {
 
 function resolveDbPath() {
   if (process.env.DATABASE_PATH || process.env.DATABASE_URL) {
-    return process.env.DATABASE_PATH || process.env.DATABASE_URL;
+    const raw = process.env.DATABASE_PATH || process.env.DATABASE_URL;
+    if (raw.startsWith('./') || raw.startsWith('../')) {
+      return path.resolve(serverRoot, raw);
+    }
+    return raw;
   }
   const subFolder = NODE_ENV === 'production' ? 'prod' : (NODE_ENV === 'staging' ? 'staging' : 'dev');
   const dbName = `uk_ged_${subFolder}.db`;
