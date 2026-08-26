@@ -1014,7 +1014,7 @@ export default function ExternalMissionaries() {
                 </button>
 
                 <a
-                  href={`/api/external-missionaries/${selectedRecord.id}/document/${docModalVersion}?token=${localStorage.getItem('token')}`}
+                  href={`/api/external-missionaries/${selectedRecord.id}/document/${docModalVersion}?token=${encodeURIComponent(localStorage.getItem('uk_ged_token') || '')}`}
                   target="_blank"
                   rel="noreferrer"
                   className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 hover:text-white"
@@ -1061,7 +1061,7 @@ export default function ExternalMissionaries() {
                 className="max-w-full max-h-full flex items-center justify-center"
               >
                 <iframe
-                  src={`/api/external-missionaries/${selectedRecord.id}/document/${docModalVersion}?token=${localStorage.getItem('token')}`}
+                  src={`/api/external-missionaries/${selectedRecord.id}/document/${docModalVersion}?token=${encodeURIComponent(localStorage.getItem('uk_ged_token') || '')}`}
                   title="Aperçu Document"
                   className="w-[800px] h-[75vh] bg-white rounded-lg shadow-2xl border border-slate-700"
                 />

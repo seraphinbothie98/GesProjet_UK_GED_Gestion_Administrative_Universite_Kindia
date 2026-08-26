@@ -80,6 +80,51 @@ export default function MobileResponsableSpace({ onSelectDocument, onNavigate })
     loadData();
   };
 
+  const handleSignExternalMission = async (id) => {
+    const mission = extMissions.find(m => m.id === id);
+    const isDeparture = mission?.status === 'DÉPART ENREGISTRÉ – EN ATTENTE DE SIGNATURE DU SG';
+    const actionLabel = isDeparture ? 'le DÉPART (Fin de mission)' : 'l’ARRIVÉE';
+
+    if (!window.confirm(`Confirmez-vous l’apposition du visa et de la signature électronique du Secrétaire Général pour ${actionLabel} de ce missionnaire ?`)) {
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      if (isDeparture) {
+        await api.signExternalMissionaryDeparture(id);
+      } else {
+        await api.signExternalMissionaryArrival(id);
+      }
+      await loadData();
+    } catch (err) {
+      console.error('Sign external mission error:', err);
+      setError(err.message || 'Erreur lors de la signature électronique.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRejectExternalMission = async (e) => {
+    e.preventDefault();
+    if (!rejectExtModal || !rejectionReason.trim()) return;
+
+    setLoading(true);
+    setError('');
+    try {
+      await api.rejectExternalMissionary(rejectExtModal.id, rejectionReason.trim());
+      setRejectExtModal(null);
+      setRejectionReason('');
+      await loadData();
+    } catch (err) {
+      console.error('Reject external mission error:', err);
+      setError(err.message || 'Erreur lors du rejet.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-4 pb-20 w-full max-w-full">
       {/* Mobile Profile Header Card */}
@@ -449,7 +494,7 @@ export default function MobileResponsableSpace({ onSelectDocument, onNavigate })
             </div>
             <div className="p-2 bg-slate-100 flex-1 min-h-[400px]">
               <iframe
-                src={`/api/external-missionaries/${previewExtDoc.id}/document/original?token=${localStorage.getItem('token')}`}
+                src={`/api/external-missionaries/${previewExtDoc.id}/document/final?token=${encodeURIComponent(localStorage.getItem('uk_ged_token') || '')}`}
                 className="w-full h-full min-h-[380px] rounded-xl border border-slate-300 bg-white"
                 title="Document Preview"
               />
