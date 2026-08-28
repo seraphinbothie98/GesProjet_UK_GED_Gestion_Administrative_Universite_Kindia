@@ -22,7 +22,7 @@ function buildABACDocumentFilter(user) {
   }
 
   const isSC = userRole === 'AGENT_SC' || userRole === 'AGENT_SECRÉTARIAT_CENTRAL' || user.service_code === 'SC';
-  const isExecutiveSigner = userRole === 'SECRÉTAIRE_GÉNÉRAL' || userRole === 'RECTEUR' || (user.permissions && user.permissions.includes('mission.sign'));
+  const isSG = userRole === 'SECRÉTAIRE_GÉNÉRAL' || user.service_code === 'SG';
   const isFacultyHead = user.function_title && (user.function_title.toLowerCase().includes('doyen') || user.function_title.toLowerCase().includes('vice-doyen'));
 
   // 1. ACTIVE / CIRCUIT DOCUMENTS ACCESS (When not archived)
@@ -32,7 +32,8 @@ function buildABACDocumentFilter(user) {
       OR d.current_service_id = ${userSId}
       OR d.current_user_id = ${userId}
       OR d.originating_service_id = ${userSId}
-      ${isExecutiveSigner ? "OR d.document_type = 'MISSION_ORDER'" : ""}
+      ${isSG ? "OR d.document_type = 'MISSION_ORDER'" : ""}
+      OR (d.authorized_signatory_role = '${userRole}')
       OR EXISTS (
         SELECT 1 FROM document_transfers dt 
         WHERE dt.document_id = d.id 

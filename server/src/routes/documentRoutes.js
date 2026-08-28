@@ -770,7 +770,80 @@ router.get('/archives', authenticateToken, async (req, res) => {
 
     baseQuery += ` ORDER BY COALESCE(d.archived_at, d.created_at) DESC`;
 
-    const allAccessibleDocs = await db.all(baseQuery, baseParams);
+    let allAccessibleDocs = await db.all(baseQuery, baseParams);
+
+    // 2b. Query archived external missionaries if user is SC, Admin, SG, or Host Service
+    const canAccessExtMiss = isAdmin || isSC || user.role_code === 'SECRÉTAIRE_GÉNÉRAL' || (targetServiceId && Number(targetServiceId) === Number(user.service_id));
+    if (canAccessExtMiss && (scope === 'ALL' || scope === 'CENTRAL' || scope === 'INSTITUTIONNEL' || !scope)) {
+      let extWhere = `m.status IN ('ARCHIVED', 'ARCHIVÉ')`;
+      let extParams = [];
+      if (targetServiceId && !isAdmin && !isSC) {
+        extWhere += ` AND m.host_service_id = ?`;
+        extParams.push(targetServiceId);
+      }
+      if (year) {
+        extWhere += ` AND (strftime('%Y', m.created_at) = ? OR strftime('%Y', m.archived_at) = ?)`;
+        extParams.push(year.toString(), year.toString());
+      }
+
+      const rawExtMiss = await db.all(
+        `SELECT m.id, m.reference, m.last_name, m.first_names, m.origin_institution, m.object_of_mission,
+                m.location_of_mission, m.function_title, m.status, m.host_service_id, m.current_service_id,
+                m.created_at, m.updated_at, m.archived_at, m.archived_by_user_id,
+                m.original_document_path, m.arrival_document_path, m.final_document_path, m.signed_document_path,
+                s.name as host_service_name, s.code as host_service_code,
+                ab.first_name as archiver_first, ab.last_name as archiver_last
+         FROM external_missionaries m
+         LEFT JOIN services s ON m.host_service_id = s.id
+         LEFT JOIN users ab ON m.archived_by_user_id = ab.id
+         WHERE ${extWhere}
+         ORDER BY COALESCE(m.archived_at, m.updated_at, m.created_at) DESC`,
+        extParams
+      );
+
+      const extMissDocs = (rawExtMiss || []).map(m => ({
+        id: `ext_${m.id}`,
+        raw_id: m.id,
+        reference: m.reference,
+        title: `Ordre de mission externe — ${m.first_names} ${m.last_name} (${m.object_of_mission})`,
+        document_type: 'ORDRE_MISSION_EXTERNE',
+        document_category: 'ORDRE_MISSION_EXTERNE',
+        archive_category: 'Ordres de mission externe',
+        status: 'ARCHIVÉ',
+        priority: 'NORMAL',
+        created_at: m.created_at,
+        updated_at: m.updated_at,
+        archived_at: m.archived_at || m.updated_at,
+        sender_name: `${m.first_names} ${m.last_name}`,
+        sender_organization: m.origin_institution,
+        owner_service_id: m.host_service_id || 5,
+        owner_service_name: m.host_service_name || 'Secrétariat Central',
+        originating_service_name: m.origin_institution,
+        archiver_first: m.archiver_first || 'Secrétariat',
+        archiver_last: m.archiver_last || 'Central',
+        is_central_archived: 1,
+        archive_scope: 'CENTRAL',
+        file_path: m.signed_document_path || m.final_document_path || m.original_document_path || m.arrival_document_path,
+        source_table: 'external_missionaries'
+      }));
+
+      allAccessibleDocs = [...allAccessibleDocs, ...extMissDocs];
+    }
+
+    // Ensure category ORDRE_MISSION_EXTERNE exists in mergedCategories
+    if (!mergedCategories.some(c => c.code === 'ORDRE_MISSION_EXTERNE' || c.code === 'ORDRES_DE_MISSION_EXTERNE' || (c.label && c.label.toLowerCase().includes('mission externe')))) {
+      mergedCategories.push({
+        code: 'ORDRE_MISSION_EXTERNE',
+        label: 'Ordres de mission externe',
+        category: 'OFFICIAL',
+        description: 'Ordres de mission des missionnaires externes à Kindia',
+        icon: 'Globe',
+        display_order: 15,
+        is_active: 1,
+        is_custom: 0,
+        id: null
+      });
+    }
 
     // 3. Helper to determine category of a document within mergedCategories
     const getDocCategoryCode = (d) => {
@@ -793,6 +866,12 @@ router.get('/archives', authenticateToken, async (req, res) => {
         if (exactLabel) return exactLabel.code;
         const exactCodeFromArchCat = mergedCategories.find(c => c.code && c.code.toLowerCase() === archCat);
         if (exactCodeFromArchCat) return exactCodeFromArchCat.code;
+      }
+
+      // External mission order match
+      if (t === 'ORDRE_MISSION_EXTERNE' || t === 'ORDRES_DE_MISSION_EXTERNE' || t === 'EXTERNAL_MISSION_ORDER' || archCat.includes('mission externe') || docTitle.includes('mission externe')) {
+        const matched = mergedCategories.find(c => c.code === 'ORDRE_MISSION_EXTERNE' || c.code === 'ORDRES_DE_MISSION_EXTERNE' || (c.label && c.label.toLowerCase().includes('mission externe')));
+        if (matched) return matched.code;
       }
 
       // 3. Robust Semantic Match into mergedCategories
@@ -1464,12 +1543,9 @@ router.post(['/incoming', '/'], authenticateToken, requirePermission('incoming_m
       targetServiceId = scService.id;
       docStatus = 'ARCHIVED';
     } else {
-      // Path A: Normal workflow auto-routed to Secrétaire Général (SG)
-      const sgService = await db.get('SELECT id, name FROM services WHERE code = "SG"');
-      if (!sgService) {
-        return res.status(500).json({ error: 'Service Secrétaire Général introuvable.' });
-      }
-      targetServiceId = sgService.id;
+      // Normal incoming mail received at Secrétariat Central transmitted to Secrétaire Général for analysis & orientation
+      const sgService = await db.get('SELECT id FROM services WHERE code = "SG"');
+      targetServiceId = sgService ? sgService.id : scService.id;
       docStatus = 'IN_PROGRESS';
     }
 
@@ -1527,19 +1603,19 @@ router.post(['/incoming', '/'], authenticateToken, requirePermission('incoming_m
       await db.run(
         `INSERT INTO document_history (document_id, user_id, service_id, action, details)
          VALUES (?, ?, ?, 'CREATE', ?)`,
-        [docId, user.id, user.service_id, `Courrier entrant enregistré au Secrétariat Central avec référence : ${reference}. Destinataire initial : Secrétaire Général`]
+        [docId, user.id, user.service_id, `Courrier entrant enregistré au Secrétariat Central avec référence : ${reference}.`]
       );
 
       await db.run(
         `INSERT INTO document_transfers (document_id, from_service_id, from_user_id, to_service_id, to_user_id, action, instruction, status)
          VALUES (?, ?, ?, ?, NULL, 'TRANSMIT', ?, 'PENDING')`,
-        [docId, user.service_id, user.id, targetServiceId, instruction || 'Transmission automatique au Secrétaire Général']
+        [docId, user.service_id, user.id, targetServiceId, instruction || 'Transmis au Secrétaire Général pour analyse et orientation']
       );
 
       await db.run(
         `INSERT INTO document_history (document_id, user_id, service_id, action, details)
          VALUES (?, ?, ?, 'TRANSMIT', ?)`,
-        [docId, user.id, user.service_id, `Transmis au Secrétaire Général`]
+        [docId, user.id, user.service_id, `Transmis au Secrétaire Général pour analyse et orientation`]
       );
     }
 

@@ -21,7 +21,12 @@ class WorkflowEngine {
       throw new Error('Impossible d’orienter un document verrouillé ou signé.');
     }
 
-    if (Number(doc.current_service_id) !== Number(fromServiceId)) {
+    const isSuperAdminOrSC = req?.user?.role_code === 'ADMINISTRATEUR' || 
+                             req?.user?.role_code === 'AGENT_SECRÉTARIAT_CENTRAL' || 
+                             req?.user?.role_code === 'AGENT_SC' ||
+                             req?.user?.service_code === 'SC';
+
+    if (Number(doc.current_service_id) !== Number(fromServiceId) && !isSuperAdminOrSC) {
       const currService = await db.get('SELECT name FROM services WHERE id = ?', [doc.current_service_id]);
       throw new Error(`Action impossible : Le document est actuellement sous le contrôle du service [${currService ? currService.name : 'destinataire'}] et ne peut pas être orienté par votre service.`);
     }
@@ -38,7 +43,7 @@ class WorkflowEngine {
     const newPriority = priority || doc.priority;
     await db.run(
       `UPDATE documents 
-       SET current_service_id = ?, current_user_id = ?, priority = ?, status = 'IN_PROGRESS', deadline_date = ?, updated_at = CURRENT_TIMESTAMP
+       SET current_service_id = ?, current_user_id = ?, priority = ?, status = 'ORIENTÉ', deadline_date = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [toServiceId, toUserId || null, newPriority, deadline || doc.deadline_date, documentId]
     );
