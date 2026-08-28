@@ -137,10 +137,47 @@ router.get('/document/:reference', async (req, res) => {
   const cleanRef = decodeURIComponent(rawRef.trim().toUpperCase());
 
   try {
-    const doc = await db.get(
+    let doc = await db.get(
       'SELECT * FROM documents WHERE (UPPER(reference) = ? OR tracking_token = ?) AND status != "TRASHED"',
       [cleanRef, cleanRef]
     );
+
+    if (!doc) {
+      const reqRow = await db.get('SELECT * FROM mission_order_requests WHERE UPPER(reference) = ?', [cleanRef]);
+      if (reqRow && reqRow.official_document_id) {
+        doc = await db.get('SELECT * FROM documents WHERE id = ? AND status != "TRASHED"', [reqRow.official_document_id]);
+      } else if (reqRow) {
+        return res.json({
+          reference: reqRow.reference,
+          title: `Demande d'ordre de mission : ${reqRow.applicant_last_name} ${reqRow.applicant_first_names}`,
+          description: reqRow.object_of_mission,
+          type: 'Ordre de mission',
+          status: 'REGISTERED',
+          status_label: 'Demande enregistrée - En attente d’examen au Secrétariat Central',
+          status_color: '#f59e0b',
+          current_service: 'Secrétariat Central',
+          submission_date: reqRow.created_at,
+          last_update: reqRow.updated_at || reqRow.created_at,
+          progression: [
+            {
+              step: 1,
+              label: 'Demande enregistrée',
+              service: reqRow.applicant_service_name || 'Personnel UK',
+              is_completed: true,
+              is_current: reqRow.status === 'EN_ATTENTE_SC' || reqRow.status === 'DEMANDE ENREGISTRÉE'
+            },
+            {
+              step: 2,
+              label: 'Prise en charge par le Secrétariat Central',
+              service: 'Secrétariat Central',
+              is_completed: reqRow.status === 'DEMANDE ACCEPTÉE' || reqRow.status === 'ORDRE DE MISSION EN PRÉPARATION',
+              is_current: reqRow.status === 'DEMANDE ACCEPTÉE' || reqRow.status === 'ORDRE DE MISSION EN PRÉPARATION'
+            }
+          ],
+          is_rejected: reqRow.status === 'REJETÉ'
+        });
+      }
+    }
 
     if (!doc) {
       return res.status(404).json({

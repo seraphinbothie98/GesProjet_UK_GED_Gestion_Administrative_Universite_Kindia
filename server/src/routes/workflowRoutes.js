@@ -65,9 +65,32 @@ router.post('/orient', authenticateToken, requirePermission('documents.orient'),
   }
 });
 
+// POST /api/workflow/in-progress - Mark document as currently in progress by holding service
+router.post('/in-progress', authenticateToken, async (req, res) => {
+  const { document_id, remarks } = req.body;
+
+  if (!document_id) {
+    return res.status(400).json({ error: 'ID du document obligatoire.' });
+  }
+
+  try {
+    const result = await WorkflowEngine.markInProgress({
+      documentId: document_id,
+      userId: req.user.id,
+      userSvcId: req.user.service_id,
+      remarks,
+      req
+    });
+
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Erreur lors de la mise en cours de traitement.' });
+  }
+});
+
 // POST /api/workflow/transmit - Transmit document
 router.post('/transmit', authenticateToken, requirePermission('documents.transmit'), async (req, res) => {
-  const { document_id, to_service_id, to_user_id, instruction } = req.body;
+  const { document_id, to_service_id, to_user_id, instruction, priority, deadline } = req.body;
 
   if (!document_id || !to_service_id) {
     return res.status(400).json({ error: 'ID du document et service destinataire obligatoires.' });
@@ -81,12 +104,37 @@ router.post('/transmit', authenticateToken, requirePermission('documents.transmi
       toServiceId: to_service_id,
       toUserId: to_user_id,
       instruction,
+      priority,
+      deadline,
       req
     });
 
     res.json({ success: true, message: 'Document transmis avec succès.', transferId: result.transferId });
   } catch (err) {
     res.status(400).json({ error: err.message || 'Erreur lors de la transmission du document.' });
+  }
+});
+
+// POST /api/workflow/return-sc-archive - Return document specifically to Secrétariat Central for central archiving
+router.post('/return-sc-archive', authenticateToken, async (req, res) => {
+  const { document_id, motive } = req.body;
+
+  if (!document_id) {
+    return res.status(400).json({ error: 'ID du document obligatoire.' });
+  }
+
+  try {
+    const result = await WorkflowEngine.returnToCentralArchive({
+      documentId: document_id,
+      fromUserId: req.user.id,
+      fromServiceId: req.user.service_id,
+      motive: motive || 'Versement aux archives centrales',
+      req
+    });
+
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Erreur lors du retour pour archivage central.' });
   }
 });
 

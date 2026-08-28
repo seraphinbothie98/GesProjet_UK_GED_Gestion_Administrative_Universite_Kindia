@@ -1543,10 +1543,10 @@ router.post(['/incoming', '/'], authenticateToken, requirePermission('incoming_m
       targetServiceId = scService.id;
       docStatus = 'ARCHIVED';
     } else {
-      // Normal incoming mail received at Secrétariat Central transmitted to Secrétaire Général for analysis & orientation
-      const sgService = await db.get('SELECT id FROM services WHERE code = "SG"');
-      targetServiceId = sgService ? sgService.id : scService.id;
-      docStatus = 'IN_PROGRESS';
+      // Rule: Tout courrier entrant enregistré par le Secrétariat Central doit être automatiquement transmis au Secrétaire Général comme premier et unique récepteur direct
+      const sgService = await db.get('SELECT id, name FROM services WHERE code = "SG"') || { id: 4, name: 'Secrétariat Général' };
+      targetServiceId = sgService.id;
+      docStatus = 'TRANSMIS';
     }
 
     const docRes = await db.run(
@@ -1599,7 +1599,9 @@ router.post(['/incoming', '/'], authenticateToken, requirePermission('incoming_m
         status: 'ARCHIVED'
       });
     } else {
-      // Path A History & Transmission Trace to SG
+      const sgService = await db.get('SELECT id, name FROM services WHERE code = "SG"') || { id: 4, name: 'Secrétariat Général' };
+
+      // Path A History & Transmission Trace: SC -> SG
       await db.run(
         `INSERT INTO document_history (document_id, user_id, service_id, action, details)
          VALUES (?, ?, ?, 'CREATE', ?)`,
@@ -1608,15 +1610,25 @@ router.post(['/incoming', '/'], authenticateToken, requirePermission('incoming_m
 
       await db.run(
         `INSERT INTO document_transfers (document_id, from_service_id, from_user_id, to_service_id, to_user_id, action, instruction, status)
-         VALUES (?, ?, ?, ?, NULL, 'TRANSMIT', ?, 'PENDING')`,
-        [docId, user.service_id, user.id, targetServiceId, instruction || 'Transmis au Secrétaire Général pour analyse et orientation']
+         VALUES (?, ?, ?, ?, NULL, 'TRANSMIT', 'Transmission automatique au Secrétaire Général pour analyse et orientation', 'PENDING')`,
+        [docId, user.service_id, user.id, targetServiceId]
       );
 
       await db.run(
         `INSERT INTO document_history (document_id, user_id, service_id, action, details)
          VALUES (?, ?, ?, 'TRANSMIT', ?)`,
-        [docId, user.id, user.service_id, `Transmis au Secrétaire Général pour analyse et orientation`]
+        [docId, user.id, user.service_id, `Transmission automatique : Secrétariat Central → Secrétaire Général pour analyse et orientation.`]
       );
+
+      // Notify SG users
+      const sgUsers = await db.all('SELECT id FROM users WHERE service_id = ? AND status = "ACTIVE"', [targetServiceId]);
+      for (const u of sgUsers) {
+        await db.run(
+          `INSERT INTO notifications (user_id, document_id, title, message, type)
+           VALUES (?, ?, 'Nouveau courrier entrant à traiter', ?, 'ACTION_REQUIRED')`,
+          [u.id, docId, `Le courrier Réf ${reference} a été enregistré par le Secrétariat Central et vous a été transmis pour analyse et orientation.`]
+        );
+      }
     }
 
     // Attachments
@@ -2181,17 +2193,25 @@ router.put('/:id/archive', authenticateToken, requirePermission('documents.archi
     }
 
     // Check 3: Workflow/Treatment/Signatures must be completed or returned
-    const validArchiveStatuses = ['RETURNED', 'RETOURNÉ AU SECRÉTARIAT CENTRAL', 'PRÊT POUR ARCHIVAGE', 'SIGNED', 'SIGNÉ', 'ACCEPTED', 'COMPLETED', 'REMIS AU DEMANDEUR'];
+    const validArchiveStatuses = [
+      'RETURNED', 
+      'RETOURNÉ AU SECRÉTARIAT CENTRAL',
+      'RETOURNÉ_AU_SECRÉTARIAT_CENTRAL',
+      'SIGNÉ – RETOUR AU SECRÉTARIAT CENTRAL',
+      'SIGNÉ - RETOUR AU SECRÉTARIAT CENTRAL',
+      'SIGNÉ – RETOUR',
+      'PRÊT POUR ARCHIVAGE', 
+      'SIGNED', 
+      'SIGNÉ', 
+      'ACCEPTED', 
+      'COMPLETED', 
+      'REMIS AU DEMANDEUR',
+      'EN_ATTENTE_ARCHIVAGE_CENTRAL',
+      'TRANSMIS_POUR_ARCHIVAGE'
+    ];
     if (!validArchiveStatuses.includes(doc.status)) {
       return res.status(400).json({
         error: "ARCHIVAGE IMPOSSIBLE : Le document n'a pas encore terminé son traitement obligatoire."
-      });
-    }
-
-    // Rule 26: Mandatory Action Ordering for Mission Orders - MUST be delivered to recipient before archiving
-    if (doc.document_type === 'MISSION_ORDER' && doc.status !== 'REMIS AU DEMANDEUR') {
-      return res.status(400).json({
-        error: "⚠️ ACTION IMPOSSIBLE : L'ordre de mission doit d'abord être imprimé et remis au demandeur."
       });
     }
 
@@ -2243,10 +2263,10 @@ router.put('/:id/archive', authenticateToken, requirePermission('documents.archi
       [req.user.id, req.user.service_id, catId, catName, docId]
     );
 
-    // Also sync status in mission_orders table if applicable
+    // Also sync status in mission_order_requests if applicable
     if (doc.document_type === 'MISSION_ORDER') {
       await db.run(
-        `UPDATE mission_orders SET status = 'ARCHIVED', updated_at = CURRENT_TIMESTAMP WHERE document_id = ?`,
+        `UPDATE mission_order_requests SET status = 'ARCHIVÉ', updated_at = CURRENT_TIMESTAMP WHERE official_document_id = ?`,
         [docId]
       );
     }
@@ -2460,6 +2480,54 @@ router.delete('/:id/permanent', authenticateToken, requireSystemAdminRole, async
   }
 });
 
+// PUT /api/documents/:id/in-progress - Mark document as in-progress by holding service
+router.put('/:id/in-progress', authenticateToken, verifyDocumentAccess, async (req, res) => {
+  const docId = req.params.id;
+  const { remarks } = req.body;
+  const user = req.user;
+
+  try {
+    const doc = req.document || await db.get('SELECT * FROM documents WHERE id = ?', [docId]);
+    if (!doc) return res.status(404).json({ error: 'Document introuvable.' });
+
+    if (doc.status === 'ARCHIVED' || doc.status === 'ARCHIVÉ') {
+      return res.status(400).json({ error: 'Impossible de modifier le statut d’un document déjà archivé.' });
+    }
+
+    const isSuperAdmin = user.role_code === 'ADMINISTRATEUR';
+    if (Number(doc.current_service_id) !== Number(user.service_id) && !isSuperAdmin) {
+      const currService = await db.get('SELECT name FROM services WHERE id = ?', [doc.current_service_id]);
+      return res.status(403).json({
+        error: `Action impossible : Le document est actuellement sous la responsabilité du service [${currService ? currService.name : 'destinataire'}].`
+      });
+    }
+
+    await db.run(
+      `UPDATE documents SET status = 'IN_PROGRESS', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      [docId]
+    );
+
+    const userObj = await db.get('SELECT u.first_name, u.last_name, u.function_title, s.name as service_name FROM users u JOIN services s ON u.service_id = s.id WHERE u.id = ?', [user.id]);
+    const detailsMsg = `Dossier pris en charge et mis En cours de traitement par [${userObj?.service_name || 'Service'}] (${userObj?.first_name} ${userObj?.last_name}${userObj?.function_title ? ' - ' + userObj.function_title : ''}).${remarks ? ' Observations : ' + remarks : ''}`;
+
+    await db.run(
+      `INSERT INTO document_history (document_id, user_id, service_id, action, details)
+       VALUES (?, ?, ?, 'IN_PROGRESS', ?)`,
+      [docId, user.id, user.service_id, detailsMsg]
+    );
+
+    await logAuditAction(user.id, 'IN_PROGRESS', 'DOCUMENT', docId, req, {
+      reference: doc.reference,
+      remarks
+    });
+
+    res.json({ success: true, message: 'Document mis en cours de traitement avec succès.' });
+  } catch (err) {
+    console.error('Mark in-progress error:', err);
+    res.status(500).json({ error: 'Erreur lors de la mise en cours de traitement.' });
+  }
+});
+
 // POST /api/documents/:id/archive-service - Archive document in local private service archive
 router.post('/:id/archive-service', authenticateToken, verifyDocumentAccess, async (req, res) => {
   const docId = req.params.id;
@@ -2470,7 +2538,7 @@ router.post('/:id/archive-service', authenticateToken, verifyDocumentAccess, asy
     const doc = req.document || await db.get('SELECT * FROM documents WHERE id = ?', [docId]);
     if (!doc) return res.status(404).json({ error: 'Document introuvable.' });
 
-    const ownerServiceId = doc.originating_service_id || user.service_id || 1;
+    const ownerServiceId = user.service_id || doc.originating_service_id || 1;
     const finalScope = archive_scope || 'PRIVE_SERVICE';
 
     let customCatId = custom_category_id ? Number(custom_category_id) : (doc.custom_category_id || null);
@@ -2489,6 +2557,7 @@ router.post('/:id/archive-service', authenticateToken, verifyDocumentAccess, asy
       `UPDATE documents 
        SET status = 'ARCHIVED', 
            owner_service_id = ?, 
+           current_service_id = ?,
            archive_scope = ?, 
            archive_category = ?, 
            custom_category_id = ?,
@@ -2498,7 +2567,7 @@ router.post('/:id/archive-service', authenticateToken, verifyDocumentAccess, asy
            is_locked = 1, 
            updated_at = CURRENT_TIMESTAMP 
        WHERE id = ?`,
-      [ownerServiceId, finalScope, finalCatLabel || null, customCatId, finalDocType, user.id, docId]
+      [ownerServiceId, ownerServiceId, finalScope, finalCatLabel || null, customCatId, finalDocType, user.id, docId]
     );
 
     const serviceObj = await db.get('SELECT name FROM services WHERE id = ?', [ownerServiceId]);
@@ -2506,7 +2575,7 @@ router.post('/:id/archive-service', authenticateToken, verifyDocumentAccess, asy
     await db.run(
       `INSERT INTO document_history (document_id, user_id, service_id, action, details)
        VALUES (?, ?, ?, 'ARCHIVE_SERVICE', ?)`,
-      [docId, user.id, user.service_id, `Document classé dans les archives privées du service [${serviceObj ? serviceObj.name : 'Service'}]. Catégorie: ${finalCatLabel || finalDocType}, Portée: ${finalScope}`]
+      [docId, user.id, user.service_id, `Document classé dans les archives du service [${serviceObj ? serviceObj.name : 'Service'}]. Catégorie: ${finalCatLabel || finalDocType}, Portée: ${finalScope}`]
     );
 
     await logAuditAction(user.id, 'ARCHIVE_SERVICE', 'DOCUMENT', docId, req, {
@@ -2539,18 +2608,21 @@ router.post('/:id/transmit-to-central-archive', authenticateToken, verifyDocumen
     const doc = req.document || await db.get('SELECT * FROM documents WHERE id = ?', [docId]);
     if (!doc) return res.status(404).json({ error: 'Document introuvable.' });
 
-    const scService = await db.get('SELECT id FROM services WHERE code = "SC"');
-    const scId = scService ? scService.id : 5;
+    const scService = await db.get('SELECT id, name FROM services WHERE code = "SC"') || { id: 5, name: 'Secrétariat Central' };
+    const scId = scService.id;
 
     await db.run(
       `UPDATE documents 
-       SET transmitted_to_sc_for_archive = 1,
+       SET current_service_id = ?,
+           current_user_id = NULL,
+           status = 'EN_ATTENTE_ARCHIVAGE_CENTRAL',
+           transmitted_to_sc_for_archive = 1,
            transmitted_to_sc_at = CURRENT_TIMESTAMP,
            transmitted_to_sc_by = ?,
            transmission_to_sc_motive = ?,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [user.id, motive.trim(), docId]
+      [scId, user.id, motive.trim(), docId]
     );
 
     // Add to transfers history
@@ -2561,10 +2633,12 @@ router.post('/:id/transmit-to-central-archive', authenticateToken, verifyDocumen
       [docId, user.service_id, user.id, scId, motive.trim()]
     );
 
+    const fromService = await db.get('SELECT name FROM services WHERE id = ?', [user.service_id]);
+
     await db.run(
       `INSERT INTO document_history (document_id, user_id, service_id, action, details)
        VALUES (?, ?, ?, 'TRANSMIT_TO_CENTRAL_ARCHIVE', ?)`,
-      [docId, user.id, user.service_id, `Transmis officiellement au Secrétariat Central pour versement aux archives centrales. Motif: ${motive.trim()}`]
+      [docId, user.id, user.service_id, `Transmis officiellement au [${scService.name}] pour versement aux archives centrales par [${fromService?.name || 'Service'}]. Motif: ${motive.trim()}`]
     );
 
     // Notify SC Agents
@@ -2573,7 +2647,7 @@ router.post('/:id/transmit-to-central-archive', authenticateToken, verifyDocumen
       await db.run(
         `INSERT INTO notifications (user_id, document_id, title, message, type)
          VALUES (?, ?, 'Document transmis pour Archivage Central', ?, 'ACTION_REQUIRED')`,
-        [u.id, docId, `Le document Réf ${doc.reference} a été transmis pour archivage central. Motif : ${motive.trim()}`]
+        [u.id, docId, `Le document Réf ${doc.reference} a été retourné pour archivage central par ${fromService?.name || 'un service'}. Motif : ${motive.trim()}`]
       );
     }
 

@@ -203,6 +203,25 @@ router.post('/', authenticateToken, requirePermission('mission.create'), async (
       });
     }
 
+    // Anti-duplicate & Link Check for Online Mission Requests
+    const linkedRequestId = req.body.linked_request_id || req.body.request_id || null;
+    let linkedRequest = null;
+    if (linkedRequestId) {
+      linkedRequest = await db.get('SELECT * FROM mission_order_requests WHERE id = ?', [linkedRequestId]);
+      if (!linkedRequest) {
+        return res.status(404).json({ error: "La demande d'ordre de mission associée est introuvable." });
+      }
+      if (linkedRequest.official_document_id) {
+        return res.status(409).json({ 
+          error: "Un ordre de mission officiel a déjà été créé pour cette demande (Demande déjà traitée).",
+          official_document_id: linkedRequest.official_document_id
+        });
+      }
+      if (linkedRequest.status === 'REJETÉ' || linkedRequest.status === 'ARCHIVÉ') {
+        return res.status(400).json({ error: `Impossible de créer un ordre de mission pour une demande au statut "${linkedRequest.status}".` });
+      }
+    }
+
     // Fetch staff info for snapshot if staff_id provided
     let staffMember = null;
     let serviceName = '';
@@ -214,7 +233,19 @@ router.post('/', authenticateToken, requirePermission('mission.create'), async (
       if (staffMember) serviceName = staffMember.service_name || '';
     }
 
-    const { reference, reference_meta } = await generateReferenceWithMeta('MISSION_ORDER');
+    let reference = null;
+    let reference_meta = null;
+
+    if (linkedRequest && linkedRequest.reference) {
+      // Re-use the EXACT unique immutable reference of the initial mission request!
+      reference = linkedRequest.reference;
+    } else {
+      // Direct creation from scratch without request -> generate new official reference
+      const genResult = await generateReferenceWithMeta('MISSION_ORDER');
+      reference = genResult.reference;
+      reference_meta = genResult.reference_meta;
+    }
+
     const trackingToken = crypto.randomBytes(16).toString('hex');
 
     // Fetch Secrétariat Général service ID for signature routing
@@ -261,12 +292,13 @@ router.post('/', authenticateToken, requirePermission('mission.create'), async (
     // Snapshots & Frozen Template Instance Metadata
     await db.run(
       `INSERT INTO mission_orders 
-       (document_id, missionary_id, missionary_name, nationality, function_title, destination, object_of_mission, transport_mode, departure_date, return_date, driver_option, driver_id, driver_name, vehicle_id, observations, is_signed,
+       (document_id, request_id, missionary_id, missionary_name, nationality, function_title, destination, object_of_mission, transport_mode, departure_date, return_date, driver_option, driver_id, driver_name, vehicle_id, observations, is_signed,
         missionary_name_snapshot, missionary_firstnames_snapshot, missionary_nationality_snapshot, missionary_function_snapshot, missionary_service_snapshot, missionary_matricule_snapshot, driver_name_snapshot, vehicle_registration_snapshot,
         template_id, template_version_id, template_version_number, generated_file_path, generated_docx_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         docId,
+        linkedRequestId || null,
         staff_id || null,
         missionary_name,
         nationality || 'Guinéenne',
@@ -340,6 +372,29 @@ router.post('/', authenticateToken, requirePermission('mission.create'), async (
 
     await logAuditAction(user.id, 'CREATE', 'MISSION_ORDER', docId, req, { reference, template_id: instanceResult?.template_id, version: instanceResult?.template_version_number });
 
+    // Link Online Mission Request if created from one
+    if (linkedRequestId) {
+      const omStatus = 'EN ATTENTE DE SIGNATURE DU SECRÉTAIRE GÉNÉRAL';
+      await db.run(
+        `UPDATE mission_order_requests 
+         SET official_document_id = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [docId, omStatus, linkedRequestId]
+      );
+      await db.run(
+        `INSERT INTO mission_order_request_history (request_id, user_id, role_name, action, old_status, new_status, observation)
+         VALUES (?, ?, ?, 'GENERATE_OFFICIAL_OM', ?, ?, ?)`,
+        [
+          linkedRequestId,
+          user.id,
+          user.role_name,
+          linkedRequest ? linkedRequest.status : 'EN_ATTENTE_SC',
+          omStatus,
+          `Ordre de mission officiel établi par le Secrétariat Central (Réf: ${reference}) et transmis au Secrétaire Général pour signature.`
+        ]
+      );
+    }
+
     // Automatically generate official PDF Receipt with QR Code (Module Reçus Officiels)
     let receiptInfo = null;
     try {
@@ -353,7 +408,8 @@ router.post('/', authenticateToken, requirePermission('mission.create'), async (
       id: docId, 
       reference,
       tracking_token: trackingToken,
-      receipt: receiptInfo 
+      receipt: receiptInfo,
+      linked_request_id: linkedRequestId || null
     });
   } catch (err) {
     console.error('Create mission order error:', err);
@@ -451,12 +507,20 @@ router.post('/:id/sign', authenticateToken, requirePermission('mission.sign'), a
       [signedAt, user.id, signatureHash, pdfResult.filename, signedAt, docId]
     );
 
-    // 6. Lock document and return holder to Secrétariat Central
+    // 6. Lock document, set signed status and return holder to Secrétariat Central
     await db.run(
       `UPDATE documents 
-       SET status = 'RETOURNÉ AU SECRÉTARIAT CENTRAL', current_service_id = ?, is_locked = 1, qr_code_hash = ?, file_path = ?, updated_at = CURRENT_TIMESTAMP
+       SET status = 'SIGNÉ – RETOUR AU SECRÉTARIAT CENTRAL', current_service_id = ?, is_locked = 1, qr_code_hash = ?, file_path = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [scServiceId, signatureHash, pdfResult.filename, docId]
+    );
+
+    // Synchronize corresponding mission_order_requests
+    await db.run(
+      `UPDATE mission_order_requests 
+       SET status = 'SIGNÉ – RETOUR AU SECRÉTARIAT CENTRAL', updated_at = CURRENT_TIMESTAMP 
+       WHERE official_document_id = ?`,
+      [docId]
     );
 
     // 7. Register signature entry in document_signatures & signatures

@@ -343,7 +343,7 @@ export default function MissionRequests({ onSelectDocument }) {
                         <span>Fiche</span>
                       </button>
 
-                      {req.status === 'DEMANDE ENREGISTRÉE' && (
+                      {(req.status === 'DEMANDE ENREGISTRÉE' || req.status === 'EN_ATTENTE_SC' || req.status === 'EN ATTENTE') && !req.official_document_id && (
                         <button
                           onClick={() => handleAcceptRequest(req.id)}
                           disabled={actionLoading}
@@ -367,7 +367,7 @@ export default function MissionRequests({ onSelectDocument }) {
                         </button>
                       )}
 
-                      {req.official_document_id && req.status !== 'EN ATTENTE DE SIGNATURE DU SECRÉTAIRE GÉNÉRAL' && req.status !== 'SIGNÉ – RETOUR AU SECRÉTARIAT CENTRAL' && (
+                      {req.official_document_id && req.status !== 'EN ATTENTE DE SIGNATURE DU SECRÉTAIRE GÉNÉRAL' && req.status !== 'SIGNÉ – RETOUR AU SECRÉTARIAT CENTRAL' && req.status !== 'REMIS AU DEMANDEUR' && req.status !== 'ARCHIVÉ' && (
                         <button
                           onClick={() => handleTransmitToSG(req.id)}
                           disabled={actionLoading}
@@ -376,6 +376,17 @@ export default function MissionRequests({ onSelectDocument }) {
                         >
                           <Send className="w-3.5 h-3.5" />
                           <span>Transmettre au SG</span>
+                        </button>
+                      )}
+
+                      {req.official_document_id && onSelectDocument && (
+                        <button
+                          onClick={() => onSelectDocument(req.official_document_id)}
+                          className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition inline-flex items-center space-x-1 shadow-sm"
+                          title="Consulter l'ordre de mission officiel généré"
+                        >
+                          <FileCheck className="w-3.5 h-3.5 text-kindia-gold" />
+                          <span>Voir OM</span>
                         </button>
                       )}
                     </td>

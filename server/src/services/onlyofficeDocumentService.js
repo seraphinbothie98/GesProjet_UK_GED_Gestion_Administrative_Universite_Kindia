@@ -101,6 +101,18 @@ class OnlyofficeDocumentService {
       };
     }
 
+    // 4.5. Règle stricte : Ordres de mission transmis pour signature SG (Modification interdite dans ce workflow)
+    if (
+      (document.document_type === 'MISSION_ORDER' || document.document_type === 'ORDRE_MISSION') &&
+      (user.role_code === 'SECRÉTAIRE_GÉNÉRAL' || (document.status && document.status.includes('SIGNATURE')) || (document.status && document.status.includes('TRANSMIS')))
+    ) {
+      return {
+        canAccess: true,
+        mode: 'view',
+        reason: 'Ordre de mission officiel transmis pour signature (Modification interdite dans ce circuit)'
+      };
+    }
+
     // 5. Check user RBAC/ABAC rights
     const isAdmin = user.role_code === 'ADMINISTRATEUR';
     const isAuthor = document.created_by === user.id;

@@ -86,9 +86,56 @@ class WorkflowEngine {
   }
 
   /**
+   * Mark document as currently in progress by the holding service
+   */
+  static async markInProgress({ documentId, userId, userSvcId, remarks, req }) {
+    const doc = await db.get('SELECT * FROM documents WHERE id = ?', [documentId]);
+    if (!doc) throw new Error('Document introuvable.');
+
+    if (doc.status === 'ARCHIVED' || doc.status === 'ARCHIVÉ') {
+      throw new Error('Impossible de modifier le statut d’un document archivé.');
+    }
+
+    const isSuperAdmin = req?.user?.role_code === 'ADMINISTRATEUR';
+    if (Number(doc.current_service_id) !== Number(userSvcId) && !isSuperAdmin) {
+      const currService = await db.get('SELECT name FROM services WHERE id = ?', [doc.current_service_id]);
+      throw new Error(`Action impossible : Le document est actuellement sous la responsabilité du service [${currService ? currService.name : 'destinataire'}].`);
+    }
+
+    await db.run(
+      `UPDATE documents 
+       SET status = 'IN_PROGRESS', updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [documentId]
+    );
+
+    const userObj = await db.get(
+      `SELECT u.first_name, u.last_name, u.function_title, s.name as service_name 
+       FROM users u 
+       JOIN services s ON u.service_id = s.id 
+       WHERE u.id = ?`, 
+      [userId]
+    );
+    const detailsMsg = `Dossier pris en charge et mis En cours de traitement par [${userObj?.service_name || 'Service'}] (${userObj?.first_name} ${userObj?.last_name}${userObj?.function_title ? ' - ' + userObj.function_title : ''}).${remarks ? ' Observations : ' + remarks : ''}`;
+
+    await db.run(
+      `INSERT INTO document_history (document_id, user_id, service_id, action, details)
+       VALUES (?, ?, ?, 'IN_PROGRESS', ?)`,
+      [documentId, userId, userSvcId, detailsMsg]
+    );
+
+    await logAuditAction(userId, 'IN_PROGRESS', 'DOCUMENT', documentId, req, {
+      reference: doc.reference,
+      remarks
+    });
+
+    return { success: true, message: 'Dossier mis en cours de traitement avec succès.' };
+  }
+
+  /**
    * Transmit document directly to target service
    */
-  static async transmitDocument({ documentId, fromUserId, fromServiceId, toServiceId, toUserId, instruction, req }) {
+  static async transmitDocument({ documentId, fromUserId, fromServiceId, toServiceId, toUserId, instruction, priority, deadline, req }) {
     if (Number(fromServiceId) === Number(toServiceId)) {
       throw new Error('TRANSMISSION IMPOSSIBLE : Vous ne pouvez pas transmettre ou orienter un document vers votre propre service. Veuillez sélectionner un autre service destinataire.');
     }
@@ -100,31 +147,41 @@ class WorkflowEngine {
       throw new Error('Impossible de transmettre un document verrouillé.');
     }
 
-    if (Number(doc.current_service_id) !== Number(fromServiceId)) {
+    const isSuperAdminOrSC = req?.user?.role_code === 'ADMINISTRATEUR' || 
+                             req?.user?.role_code === 'AGENT_SECRÉTARIAT_CENTRAL' || 
+                             req?.user?.role_code === 'AGENT_SC' ||
+                             req?.user?.service_code === 'SC';
+
+    if (Number(doc.current_service_id) !== Number(fromServiceId) && !isSuperAdminOrSC) {
       const currService = await db.get('SELECT name FROM services WHERE id = ?', [doc.current_service_id]);
       throw new Error(`Action impossible : Le document est actuellement sous le contrôle du service [${currService ? currService.name : 'destinataire'}] et ne peut pas être transmis par votre service.`);
     }
 
     const transferRes = await db.run(
       `INSERT INTO document_transfers 
-       (document_id, from_service_id, from_user_id, to_service_id, to_user_id, action, instruction, status)
-       VALUES (?, ?, ?, ?, ?, 'TRANSMIT', ?, 'PENDING')`,
-      [documentId, fromServiceId, fromUserId, toServiceId, toUserId || null, instruction || 'Transmission simple']
+       (document_id, from_service_id, from_user_id, to_service_id, to_user_id, action, motif, instruction, deadline, status)
+       VALUES (?, ?, ?, ?, ?, 'TRANSMIT', 'Transmission administrative de dossier', ?, ?, 'PENDING')`,
+      [documentId, fromServiceId, fromUserId, toServiceId, toUserId || null, instruction || 'Pour examen et traitement', deadline || null]
     );
 
+    const newPriority = priority || doc.priority || 'NORMAL';
     await db.run(
       `UPDATE documents 
-       SET current_service_id = ?, current_user_id = ?, status = 'IN_PROGRESS', updated_at = CURRENT_TIMESTAMP
+       SET current_service_id = ?, current_user_id = ?, priority = ?, status = 'TRANSMIS', deadline_date = COALESCE(?, deadline_date), updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [toServiceId, toUserId || null, documentId]
+      [toServiceId, toUserId || null, newPriority, deadline || null, documentId]
     );
 
+    const fromService = await db.get('SELECT name FROM services WHERE id = ?', [fromServiceId]);
     const toService = await db.get('SELECT name FROM services WHERE id = ?', [toServiceId]);
+    const userObj = await db.get('SELECT first_name, last_name, function_title FROM users WHERE id = ?', [fromUserId]);
+
+    const historyDetail = `Transmis de [${fromService?.name || 'Service'}] vers [${toService?.name || 'Service'}] par ${userObj?.first_name} ${userObj?.last_name}${instruction ? ' - Instruction : ' + instruction : ''}`;
 
     await db.run(
       `INSERT INTO document_history (document_id, user_id, service_id, action, details)
        VALUES (?, ?, ?, 'TRANSMIT', ?)`,
-      [documentId, fromUserId, fromServiceId, `Transmis au service [${toService.name}]`]
+      [documentId, fromUserId, fromServiceId, historyDetail]
     );
 
     let targetUsers = [];
@@ -137,14 +194,77 @@ class WorkflowEngine {
     for (const u of targetUsers) {
       await db.run(
         `INSERT INTO notifications (user_id, document_id, title, message, type)
-         VALUES (?, ?, ?, ?, 'INFO')`,
-        [u.id, documentId, 'Document transmis', `Le document Réf ${doc.reference} vous a été transmis.`]
+         VALUES (?, ?, ?, ?, 'ACTION_REQUIRED')`,
+        [u.id, documentId, 'Nouveau document transmis', `Le document Réf ${doc.reference} vous a été transmis par ${fromService?.name || 'un service'}. Instruction : ${instruction || 'Pour examen'}`]
       );
     }
 
-    await logAuditAction(fromUserId, 'TRANSMIT', 'DOCUMENT', documentId, req, { fromServiceId, toServiceId });
+    await logAuditAction(fromUserId, 'TRANSMIT', 'DOCUMENT', documentId, req, { fromServiceId, toServiceId, instruction });
 
     return { success: true, transferId: transferRes.lastID };
+  }
+
+  /**
+   * Return/Transmit document specifically to Secrétariat Central for central archiving
+   */
+  static async returnToCentralArchive({ documentId, fromUserId, fromServiceId, motive, req }) {
+    const doc = await db.get('SELECT * FROM documents WHERE id = ?', [documentId]);
+    if (!doc) throw new Error('Document introuvable.');
+
+    if (doc.status === 'ARCHIVED' || doc.status === 'ARCHIVÉ') {
+      throw new Error('Le document est déjà archivé.');
+    }
+
+    const isSuperAdmin = req?.user?.role_code === 'ADMINISTRATEUR';
+    if (Number(doc.current_service_id) !== Number(fromServiceId) && !isSuperAdmin) {
+      const currService = await db.get('SELECT name FROM services WHERE id = ?', [doc.current_service_id]);
+      throw new Error(`Action impossible : Le document est actuellement sous la responsabilité du service [${currService ? currService.name : 'destinataire'}].`);
+    }
+
+    const scService = await db.get('SELECT id, name FROM services WHERE code = "SC"') || { id: 5, name: 'Secrétariat Central' };
+
+    await db.run(
+      `UPDATE documents 
+       SET current_service_id = ?, current_user_id = NULL, status = 'EN_ATTENTE_ARCHIVAGE_CENTRAL',
+           transmitted_to_sc_for_archive = 1, transmitted_to_sc_at = CURRENT_TIMESTAMP,
+           transmitted_to_sc_by = ?, transmission_to_sc_motive = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [scService.id, fromUserId, motive || 'Versement aux archives centrales', documentId]
+    );
+
+    await db.run(
+      `INSERT INTO document_transfers 
+       (document_id, from_service_id, from_user_id, to_service_id, action, motif, instruction, status)
+       VALUES (?, ?, ?, ?, 'TRANSMIT_CENTRAL_ARCHIVE', 'Versement pour Archivage Central', ?, 'PENDING_CENTRAL_ARCHIVE')`,
+      [documentId, fromServiceId, fromUserId, scService.id, motive || 'Retour au Secrétariat Central pour archivage central']
+    );
+
+    const fromService = await db.get('SELECT name FROM services WHERE id = ?', [fromServiceId]);
+    const userObj = await db.get('SELECT first_name, last_name, function_title FROM users WHERE id = ?', [fromUserId]);
+
+    await db.run(
+      `INSERT INTO document_history (document_id, user_id, service_id, action, details)
+       VALUES (?, ?, ?, 'TRANSMIT_TO_CENTRAL_ARCHIVE', ?)`,
+      [documentId, fromUserId, fromServiceId, `Retourné au [${scService.name}] pour versement aux archives centrales par [${fromService?.name || 'Service'}] (${userObj?.first_name} ${userObj?.last_name}). Motif : ${motive || 'Archivage central'}`]
+    );
+
+    // Notify SC
+    const scUsers = await db.all('SELECT id FROM users WHERE service_id = ? AND status = "ACTIVE"', [scService.id]);
+    for (const u of scUsers) {
+      await db.run(
+        `INSERT INTO notifications (user_id, document_id, title, message, type)
+         VALUES (?, ?, 'Dossier reçu pour Archivage Central', ?, 'ACTION_REQUIRED')`,
+        [u.id, documentId, `Le document Réf ${doc.reference} a été retourné par ${fromService?.name || 'un service'} pour archivage central. Motif : ${motive || 'Archivage'}`]
+      );
+    }
+
+    await logAuditAction(fromUserId, 'TRANSMIT_CENTRAL_ARCHIVE', 'DOCUMENT', documentId, req, {
+      fromServiceId,
+      toServiceId: scService.id,
+      motive
+    });
+
+    return { success: true, message: 'Dossier transmis au Secrétariat Central pour archivage central.' };
   }
 
   /**

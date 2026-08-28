@@ -9,6 +9,7 @@ import {
 import ReceiptSuccessModal from '../components/ReceiptSuccessModal';
 import TemplatePreviewModal from '../components/TemplatePreviewModal';
 import MissionSignatureModal from '../components/MissionSignatureModal';
+import PublicMissionRequestModal from '../components/PublicMissionRequestModal';
 
 export default function MissionOrders({ onSelectDocument }) {
   const { user, hasPermission, institution } = useAuth();
@@ -36,6 +37,7 @@ export default function MissionOrders({ onSelectDocument }) {
 
   // Search & Filter States
   const [searchQuery, setSearchQuery] = useState('');
+  const [requestFilter, setRequestFilter] = useState('ACTIVE'); // 'ACTIVE' | 'ALL'
 
   // Modals
   const [showModal, setShowModal] = useState(false);
@@ -194,6 +196,10 @@ export default function MissionOrders({ onSelectDocument }) {
 
   // Convert Online Request to Official OM (Pre-fills creation modal)
   const handleConvertRequestToOM = (reqItem) => {
+    if (reqItem.official_document_id || reqItem.status === 'DEMANDE ACCEPTÉE' || reqItem.status === 'ORDRE DE MISSION EN PRÉPARATION' || reqItem.status === 'EN ATTENTE DE SIGNATURE DU SECRÉTAIRE GÉNÉRAL') {
+      alert("Un ordre de mission officiel a déjà été créé pour cette demande ou celle-ci a déjà été traitée.");
+      return;
+    }
     resetForm();
     setLinkedRequestId(reqItem.id);
     setMissionaryName(reqItem.applicant_last_name || '');
@@ -225,6 +231,7 @@ export default function MissionOrders({ onSelectDocument }) {
       const fullMissionaryName = missionaryFirstnames ? `${missionaryName} ${missionaryFirstnames}` : missionaryName;
 
       const res = await api.createMissionOrder({
+        linked_request_id: linkedRequestId || null,
         template_id: selectedTemplateId || null,
         staff_id: selectedStaffId || null,
         missionary_name: fullMissionaryName,
@@ -245,15 +252,6 @@ export default function MissionOrders({ onSelectDocument }) {
         vehicle_registration: vehicleRegistration,
         observations
       });
-
-      // If created from an online request, also accept and link it
-      if (linkedRequestId) {
-        try {
-          await api.acceptMissionRequest(linkedRequestId);
-        } catch (linkErr) {
-          console.warn('Could not auto-update request state:', linkErr);
-        }
-      }
 
       setSuccessMsg('Ordre de mission créé avec succès et transmis au Secrétaire Général pour signature.');
       setShowModal(false);
@@ -433,7 +431,10 @@ export default function MissionOrders({ onSelectDocument }) {
   };
 
   // Filtered Lists
-  const pendingRequestsCount = requests.filter(r => r.status === 'EN_ATTENTE_SC' || r.status === 'DEMANDE ENREGISTRÉE' || r.status === 'EN ATTENTE').length;
+  const pendingRequestsCount = requests.filter(r => 
+    (r.status === 'EN_ATTENTE_SC' || r.status === 'DEMANDE ENREGISTRÉE' || r.status === 'EN ATTENTE' || r.status === 'DEMANDE REÇUE') && 
+    !r.official_document_id
+  ).length;
   const pendingSignCount = missions.filter(m => !m.is_signed && (m.status === 'PENDING' || m.status === 'EN ATTENTE')).length;
   const returnedCount = missions.filter(m => m.status === 'RETOURNÉ AU SECRÉTARIAT CENTRAL').length;
   const deliveredCount = missions.filter(m => m.status === 'REMIS AU DEMANDEUR').length;
@@ -469,6 +470,9 @@ export default function MissionOrders({ onSelectDocument }) {
                     (r.destination && r.destination.toLowerCase().includes(term)) ||
                     (r.object_of_mission && r.object_of_mission.toLowerCase().includes(term));
       if (!match) return false;
+    }
+    if (requestFilter === 'ACTIVE') {
+      return (r.status === 'EN_ATTENTE_SC' || r.status === 'DEMANDE ENREGISTRÉE' || r.status === 'EN ATTENTE' || r.status === 'DEMANDE REÇUE') && !r.official_document_id;
     }
     return true;
   });
@@ -741,14 +745,42 @@ export default function MissionOrders({ onSelectDocument }) {
                 Boîte de réception du Secrétariat Central • Examinez la demande et cliquez sur « Créer l'ordre de mission »
               </p>
             </div>
-            <div className="w-full sm:w-64">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Rechercher demandeur, destination..."
-                className="w-full px-3 py-1.5 rounded-xl border border-slate-300 text-xs"
-              />
+            
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              <div className="bg-slate-100 p-1 rounded-xl flex space-x-1 text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setRequestFilter('ACTIVE')}
+                  className={`px-3 py-1 rounded-lg transition ${
+                    requestFilter === 'ACTIVE'
+                      ? 'bg-kindia-blue text-white shadow-sm font-extrabold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  À traiter ({pendingRequestsCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRequestFilter('ALL')}
+                  className={`px-3 py-1 rounded-lg transition ${
+                    requestFilter === 'ALL'
+                      ? 'bg-kindia-blue text-white shadow-sm font-extrabold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Toutes ({requests.length})
+                </button>
+              </div>
+
+              <div className="w-full sm:w-56">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  placeholder="Rechercher demandeur..."
+                  className="w-full px-3 py-1.5 rounded-xl border border-slate-300 text-xs"
+                />
+              </div>
             </div>
           </div>
 
@@ -757,7 +789,11 @@ export default function MissionOrders({ onSelectDocument }) {
             {loading ? (
               <div className="p-6 text-center text-xs text-slate-400">Chargement des demandes...</div>
             ) : filteredRequests.length === 0 ? (
-              <div className="p-6 text-center text-xs text-slate-400">Aucune demande d'ordre de mission reçue pour le moment.</div>
+              <div className="p-6 text-center text-xs text-slate-400">
+                {requestFilter === 'ACTIVE' 
+                  ? 'Aucune demande d\'ordre de mission en attente de traitement.' 
+                  : 'Aucune demande d\'ordre de mission trouvée.'}
+              </div>
             ) : (
               filteredRequests.map(r => (
                 <div key={r.id} className="p-4 space-y-3 hover:bg-slate-50 transition">
@@ -766,11 +802,15 @@ export default function MissionOrders({ onSelectDocument }) {
                       {r.reference}
                     </span>
                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      r.status === 'EN_ATTENTE_SC' || r.status === 'DEMANDE ENREGISTRÉE' 
-                        ? 'bg-amber-100 text-amber-900 border border-amber-200 animate-pulse' 
-                        : 'bg-slate-100 text-slate-700'
+                      r.official_document_id 
+                        ? 'bg-emerald-100 text-emerald-900 border border-emerald-200'
+                        : (r.status === 'EN_ATTENTE_SC' || r.status === 'DEMANDE ENREGISTRÉE' || r.status === 'EN ATTENTE' || r.status === 'DEMANDE REÇUE'
+                          ? 'bg-amber-100 text-amber-900 border border-amber-200 animate-pulse'
+                          : (r.status === 'DEMANDE ACCEPTÉE'
+                            ? 'bg-blue-100 text-blue-900 border border-blue-200'
+                            : 'bg-slate-100 text-slate-700'))
                     }`}>
-                      {r.status === 'EN_ATTENTE_SC' ? 'EN ATTENTE SC' : r.status}
+                      {r.official_document_id ? 'OM ÉTABLI' : (r.status === 'EN_ATTENTE_SC' ? 'EN ATTENTE SC' : r.status)}
                     </span>
                   </div>
 
@@ -788,13 +828,20 @@ export default function MissionOrders({ onSelectDocument }) {
                   </div>
 
                   <div className="flex flex-wrap gap-2 pt-1">
-                    <button
-                      onClick={() => handleConvertRequestToOM(r)}
-                      className="w-full py-2 bg-kindia-blue hover:bg-kindia-lightBlue text-white font-extrabold rounded-xl text-xs flex items-center justify-center space-x-1.5 shadow"
-                    >
-                      <Plus className="w-3.5 h-3.5 text-kindia-gold" />
-                      <span>🧾 CRÉER L'ORDRE DE MISSION</span>
-                    </button>
+                    {(!r.official_document_id && (r.status === 'EN_ATTENTE_SC' || r.status === 'DEMANDE ENREGISTRÉE' || r.status === 'EN ATTENTE' || r.status === 'DEMANDE REÇUE')) ? (
+                      <button
+                        onClick={() => handleConvertRequestToOM(r)}
+                        className="w-full py-2 bg-kindia-blue hover:bg-kindia-lightBlue text-white font-extrabold rounded-xl text-xs flex items-center justify-center space-x-1.5 shadow"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-kindia-gold" />
+                        <span>🧾 CRÉER L'ORDRE DE MISSION</span>
+                      </button>
+                    ) : (
+                      <div className="w-full py-2 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold flex items-center justify-center space-x-1">
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>{r.official_doc_reference ? `OM: ${r.official_doc_reference}` : 'Demande traitée'}</span>
+                      </div>
+                    )}
                     <button
                       onClick={() => setSelectedRequestDetail(r)}
                       className="flex-1 py-1.5 bg-slate-100 text-slate-700 font-bold rounded-lg text-xs"
@@ -827,7 +874,11 @@ export default function MissionOrders({ onSelectDocument }) {
                   </tr>
                 ) : filteredRequests.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-400">Aucune demande d'ordre de mission reçue pour le moment.</td>
+                    <td colSpan={7} className="p-8 text-center text-slate-400">
+                      {requestFilter === 'ACTIVE' 
+                        ? 'Aucune demande d\'ordre de mission en attente de traitement.' 
+                        : 'Aucune demande d\'ordre de mission trouvée.'}
+                    </td>
                   </tr>
                 ) : (
                   filteredRequests.map(r => (
@@ -844,11 +895,15 @@ export default function MissionOrders({ onSelectDocument }) {
                       </td>
                       <td className="p-3.5">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                          r.status === 'EN_ATTENTE_SC' || r.status === 'DEMANDE ENREGISTRÉE' 
-                            ? 'bg-amber-100 text-amber-900 border border-amber-200' 
-                            : 'bg-slate-100 text-slate-700'
+                          r.official_document_id 
+                            ? 'bg-emerald-100 text-emerald-900 border border-emerald-200'
+                            : (r.status === 'EN_ATTENTE_SC' || r.status === 'DEMANDE ENREGISTRÉE' || r.status === 'EN ATTENTE' || r.status === 'DEMANDE REÇUE'
+                              ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                              : (r.status === 'DEMANDE ACCEPTÉE'
+                                ? 'bg-blue-100 text-blue-900 border border-blue-200'
+                                : 'bg-slate-100 text-slate-700'))
                         }`}>
-                          {r.status === 'EN_ATTENTE_SC' ? 'EN ATTENTE SC' : r.status}
+                          {r.official_document_id ? 'OM ÉTABLI' : (r.status === 'EN_ATTENTE_SC' ? 'EN ATTENTE SC' : r.status)}
                         </span>
                       </td>
                       <td className="p-3.5 text-right space-x-1.5">
@@ -860,14 +915,21 @@ export default function MissionOrders({ onSelectDocument }) {
                           👁 Détails
                         </button>
 
-                        <button
-                          onClick={() => handleConvertRequestToOM(r)}
-                          className="px-2.5 py-1 bg-kindia-blue hover:bg-kindia-lightBlue text-white font-extrabold rounded-lg text-[11px] shadow-sm inline-flex items-center space-x-1"
-                          title="Créer l'ordre de mission officiel avec les informations de la demande"
-                        >
-                          <Plus className="w-3 h-3 text-kindia-gold" />
-                          <span>🧾 Créer l'ordre de mission</span>
-                        </button>
+                        {(!r.official_document_id && (r.status === 'EN_ATTENTE_SC' || r.status === 'DEMANDE ENREGISTRÉE' || r.status === 'EN ATTENTE' || r.status === 'DEMANDE REÇUE')) ? (
+                          <button
+                            onClick={() => handleConvertRequestToOM(r)}
+                            className="px-2.5 py-1 bg-kindia-blue hover:bg-kindia-lightBlue text-white font-extrabold rounded-lg text-[11px] shadow-sm inline-flex items-center space-x-1"
+                            title="Créer l'ordre de mission officiel avec les informations de la demande"
+                          >
+                            <Plus className="w-3 h-3 text-kindia-gold" />
+                            <span>🧾 Créer l'ordre de mission</span>
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center space-x-1 px-2.5 py-1 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-[11px] font-bold">
+                            <CheckCircle className="w-3 h-3 text-emerald-600" />
+                            <span>{r.official_doc_reference ? `OM: ${r.official_doc_reference}` : 'Demande traitée'}</span>
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -1471,151 +1533,15 @@ export default function MissionOrders({ onSelectDocument }) {
         </div>
       )}
 
-      {/* Applicant Submission Modal (For Teachers, Non-attached Staff & Users) */}
-      {showRequestModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-5 border border-slate-100 my-8">
-            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold shadow">
-                  <Send className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-heading font-bold text-base text-slate-800">Demander un Ordre de Mission</h3>
-                  <p className="text-xs text-slate-500">Pour Enseignants-Chercheurs & Personnel de l’Université</p>
-                </div>
-              </div>
-              <button onClick={() => setShowRequestModal(false)} className="text-slate-400 hover:text-slate-600 font-bold text-lg">
-                ×
-              </button>
-            </div>
-
-            {/* Auto-detected Profile Banner */}
-            <div className="bg-gradient-to-r from-slate-800 to-kindia-blue text-white p-4 rounded-xl space-y-2">
-              <div className="flex justify-between items-start">
-                <div>
-                  <span className="text-[10px] text-kindia-gold uppercase tracking-wider font-bold block">INFORMATIONS DEMANDEUR (AUTO-DÉTECTÉES)</span>
-                  <h4 className="font-bold text-sm text-white">{user?.first_name} {user?.last_name}</h4>
-                </div>
-                <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                  user?.personnel_category === 'ENSEIGNANT_CHERCHEUR' ? 'bg-purple-500 text-white shadow-sm' : 'bg-emerald-500 text-white shadow-sm'
-                }`}>
-                  {user?.personnel_category === 'ENSEIGNANT_CHERCHEUR' ? '🎓 Enseignant-chercheur' : '🏢 Personnel administratif'}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs text-slate-200 pt-1 border-t border-white/10">
-                <div><span className="text-slate-400">Matricule :</span> {user?.matricule || 'N/A'}</div>
-                <div><span className="text-slate-400">Qualité / Fonction :</span> {user?.function_title || 'Enseignant-Chercheur'}</div>
-                <div className="col-span-2">
-                  <span className="text-slate-400">Structure / Faculté / Service :</span> {' '}
-                  <span className="font-bold text-kindia-gold">
-                    {user?.academic_structure || (user?.service_name ? `Service : ${user.service_name}` : 'Non rattaché à un service administratif')}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-xl text-xs flex items-center space-x-2">
-              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>ℹ️ <strong>Destinataire automatique :</strong> Votre demande sera transmise automatiquement au <strong>Secrétariat Central</strong> pour examen, validation et émission de l'ordre de mission officiel.</span>
-            </div>
-
-            <form onSubmit={handleRequestSubmit} className="space-y-4 text-xs">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">Destination de la mission *</label>
-                  <input 
-                    type="text"
-                    required
-                    placeholder="Ex: Conakry, Mamou, Labé, Kankan..."
-                    value={destination}
-                    onChange={e => setDestination(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">Moyen de transport *</label>
-                  <select
-                    value={transportMode}
-                    onChange={e => setTransportMode(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500"
-                  >
-                    <option value="Transport commun / Transport terrestre">Transport commun / Transport terrestre</option>
-                    <option value="Véhicule de service">Véhicule de service</option>
-                    <option value="Véhicule personnel">Véhicule personnel</option>
-                    <option value="Vol aérien national">Vol aérien national</option>
-                    <option value="Autre">Autre moyen</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">Objet de la mission *</label>
-                <input 
-                  type="text"
-                  required
-                  placeholder="Ex: Participation à une conférence scientifique, mission de recherche de terrain..."
-                  value={objectOfMission}
-                  onChange={e => setObjectOfMission(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">Date de départ *</label>
-                  <input 
-                    type="date"
-                    required
-                    value={departureDate}
-                    onChange={e => setDepartureDate(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-700 font-bold mb-1">Date de retour *</label>
-                  <input 
-                    type="date"
-                    required
-                    value={returnDate}
-                    onChange={e => setReturnDate(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-700 font-bold mb-1">Justification / Observations complémentaires</label>
-                <textarea
-                  rows={3}
-                  placeholder="Précisions sur la mission, besoins d'hébergement, invitation académique..."
-                  value={observations}
-                  onChange={e => setObservations(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setShowRequestModal(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow flex items-center space-x-2"
-                >
-                  <Send className="w-4 h-4 text-white" />
-                  <span>{submitting ? 'Transmission en cours...' : '🚀 TRANSMETTRE AU SECRÉTARIAT CENTRAL'}</span>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Unified Universal Mission Request Modal */}
+      <PublicMissionRequestModal
+        isOpen={showRequestModal}
+        onClose={() => {
+          setShowRequestModal(false);
+          loadData();
+        }}
+        defaultUserData={user}
+      />
 
       {/* Handover Confirmation Modal */}
       {showDeliverModal && (

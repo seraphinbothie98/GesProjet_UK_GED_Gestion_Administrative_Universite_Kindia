@@ -12,11 +12,12 @@ import MissionSignatureModal from '../components/MissionSignatureModal';
 import SGOrientationModal from '../components/SGOrientationModal';
 import ReturnForCorrectionModal from '../components/ReturnForCorrectionModal';
 import TransmitToCentralArchiveModal from '../components/TransmitToCentralArchiveModal';
+import ArchiveAndTransmitModal from '../components/ArchiveAndTransmitModal';
 import OnlyOfficeEditorModal from '../components/OnlyOfficeEditorModal';
 import { 
   ArrowLeft, Send, CornerUpLeft, ArrowRight, CheckCircle2, XCircle,
   Archive, FileText, Download, ShieldCheck, Lock, Award, Eye, QrCode,
-  ShieldAlert, Building2, UserCheck, Edit3
+  ShieldAlert, Building2, UserCheck, Edit3, Layers
 } from 'lucide-react';
 
 export default function DocumentDetail({ documentId, onBack }) {
@@ -35,10 +36,25 @@ export default function DocumentDetail({ documentId, onBack }) {
   const [showSGOrientModal, setShowSGOrientModal] = useState(false);
   const [showReturnForCorrectionModal, setShowReturnForCorrectionModal] = useState(false);
   const [showTransmitCentralModal, setShowTransmitCentralModal] = useState(false);
+  const [showArchiveAndTransmitModal, setShowArchiveAndTransmitModal] = useState(false);
   const [showOnlyOfficeModal, setShowOnlyOfficeModal] = useState(false);
 
+  const [markingInProgress, setMarkingInProgress] = useState(false);
+
+  const handleMarkInProgress = async () => {
+    try {
+      setMarkingInProgress(true);
+      await api.markInProgress(documentId);
+      loadDocument();
+    } catch (err) {
+      alert('Erreur lors de la prise en charge : ' + err.message);
+    } finally {
+      setMarkingInProgress(false);
+    }
+  };
+
   const handleArchiveInService = async () => {
-    if (!window.confirm('Voulez-vous classer ce document dans les archives privées de votre service ?')) return;
+    if (!window.confirm('Voulez-vous classer ce document dans les archives de votre service ?')) return;
     try {
       await api.archiveInService(documentId, { archive_scope: 'PRIVE_SERVICE' });
       alert('Document classé avec succès dans les archives de votre service.');
@@ -68,10 +84,10 @@ export default function DocumentDetail({ documentId, onBack }) {
   };
 
   const handleArchive = async () => {
-    if (!window.confirm('Voulez-vous vraiment classer ce document dans les archives électroniques ?')) return;
+    if (!window.confirm('Voulez-vous vraiment verser et classer ce document dans les archives centrales de l’Université ?')) return;
     try {
       await api.archiveDocument(documentId);
-      alert('Document archivé avec succès.');
+      alert('Document archivé avec succès dans les Archives Centrales de l’Université.');
       loadDocument();
     } catch (err) {
       alert('Erreur lors de l’archivage : ' + err.message);
@@ -155,67 +171,76 @@ export default function DocumentDetail({ documentId, onBack }) {
         {/* Action Controls - Restricted to Current Service Holder */}
         {(() => {
           const isCurrentHolder = Number(doc.current_service_id) === Number(user?.service_id) || user?.role_code === 'ADMINISTRATEUR';
-          const isSC = user?.service_code === 'SC';
+          const isSC = user?.service_code === 'SC' || user?.role_code === 'AGENT_SECRÉTARIAT_CENTRAL' || user?.role_code === 'AGENT_SC';
+          const isArchived = doc.status === 'ARCHIVED' || doc.status === 'ARCHIVÉ';
+          const isMissionOrder = doc.document_type === 'MISSION_ORDER' || doc.document_type === 'ORDRE_MISSION';
+          const isPendingSGSignature = isMissionOrder && !doc.is_locked && !isArchived && (
+            doc.status === 'EN ATTENTE DE SIGNATURE DU SECRÉTAIRE GÉNÉRAL' || 
+            doc.status === 'EN ATTENTE DE SIGNATURE' || 
+            doc.status === 'TRANSMIS AU SECRÉTAIRE GÉNÉRAL – EN ATTENTE DE SIGNATURE' ||
+            (doc.current_service_code === 'SG' && doc.status !== 'SIGNÉ' && doc.status !== 'SIGNÉ – RETOUR AU SECRÉTARIAT CENTRAL')
+          );
+          const canSignMission = isCurrentHolder && (user?.role_code === 'SECRÉTAIRE_GÉNÉRAL' || user?.role_code === 'ADMINISTRATEUR' || hasPermission('mission.sign'));
 
           return (
             <div className="flex flex-col w-full sm:w-auto">
-              {!isCurrentHolder && !isSC && (
+              {!isCurrentHolder && !isArchived && (
                 <div className="bg-amber-50 border border-amber-200 text-amber-900 px-3.5 py-2 rounded-xl text-[11px] font-medium flex items-center space-x-2 mb-2 sm:mb-0">
-                  <span>ℹ️ Document au service <strong>{doc.current_service_name}</strong> (Consultation seule)</span>
+                  <span>ℹ️ Responsable actuel : <strong>{doc.current_service_name || 'Service destinataire'}</strong> (Consultation seule pour votre service)</span>
                 </div>
               )}
 
               <div className="flex flex-wrap gap-2">
-                {/* Secrétaire Général Decision & Orientation (Rule 9: Imperative SG Circuit) */}
-                {isCurrentHolder && !doc.is_locked && (user?.role_code === 'SECRÉTAIRE_GÉNÉRAL' || user?.role_code === 'ADMINISTRATEUR') && (
+                {/* 1. ACTION MAJEURE ORDRE DE MISSION SG : SIGNER ET RENVOYER AU SC */}
+                {isPendingSGSignature && canSignMission && (
                   <button
-                    onClick={() => setShowSGOrientModal(true)}
-                    className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white text-xs font-black rounded-xl shadow-md transition flex items-center space-x-2 border border-amber-400"
+                    onClick={() => setShowMissionSignatureModal(true)}
+                    className="px-4 py-2 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-800 text-white text-xs font-black rounded-xl shadow-md transition flex items-center space-x-2 border border-emerald-400/40 active:scale-95 animate-pulse"
+                    title="Signer électroniquement l'ordre de mission et le retourner automatiquement au Secrétariat Central pour archivage et remise"
                   >
-                    <ShieldAlert className="w-4 h-4 text-amber-200" />
-                    <span>⚡ DÉCISION & ORIENTATION SG</span>
+                    <Award className="w-4 h-4 text-kindia-gold" />
+                    <span>✍️ SIGNER ET RENVOYER AU SC</span>
                   </button>
                 )}
 
-                {isCurrentHolder && !doc.is_locked && doc.status !== 'ACCEPTED' && doc.status !== 'REJECTED' && (hasPermission('documents.accept') || user?.role_code === 'SECRÉTAIRE_GÉNÉRAL' || user?.role_code === 'RECTEUR') && (
+                {/* 2. BOUTON UNIQUE MAJEUR COURRIER : ARCHIVER ET TRANSMETTRE (Pour les courriers et documents généraux) */}
+                {isCurrentHolder && !isArchived && !doc.is_locked && !isPendingSGSignature && (
                   <button
-                    onClick={() => setWorkflowMode('ACCEPT')}
-                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow transition flex items-center space-x-1.5"
+                    onClick={() => setShowArchiveAndTransmitModal(true)}
+                    className="px-4 py-2 bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 hover:from-blue-800 hover:to-indigo-900 text-white text-xs font-black rounded-xl shadow-md transition flex items-center space-x-2 border border-blue-400/30 active:scale-95"
+                    title="Prendre une décision : Archiver dans mon service, Transmettre à un autre service ou Retourner au Secrétariat Central"
                   >
-                    <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                    <span>✓ ACCEPTER</span>
+                    <Layers className="w-4 h-4 text-kindia-gold" />
+                    <span>📦 ARCHIVER ET TRANSMETTRE</span>
                   </button>
                 )}
 
-                {isCurrentHolder && !doc.is_locked && doc.status !== 'REJECTED' && (hasPermission('documents.reject') || user?.role_code === 'SECRÉTAIRE_GÉNÉRAL' || user?.role_code === 'RECTEUR') && (
+                {/* 3. Action: En cours de traitement */}
+                {isCurrentHolder && !isArchived && !doc.is_locked && !isPendingSGSignature && doc.status !== 'IN_PROGRESS' && doc.status !== 'EN_COURS' && (
                   <button
-                    onClick={() => setWorkflowMode('REJECT')}
-                    className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-black rounded-xl shadow transition flex items-center space-x-1.5"
+                    onClick={handleMarkInProgress}
+                    disabled={markingInProgress}
+                    className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black rounded-xl shadow transition flex items-center space-x-1.5"
+                    title="Prendre en charge et mettre le dossier en cours de traitement"
                   >
-                    <XCircle className="w-4 h-4 text-red-200" />
-                    <span>✕ REJETER</span>
+                    <span>⏳ EN COURS DE TRAITEMENT</span>
                   </button>
                 )}
 
-                {/* Chef de Service / Responsible: Sign & Return to Secrétariat Central (Rules 4 & 5) */}
-                {isCurrentHolder && !doc.is_locked && doc.current_service_code !== 'SC' && (
+                {/* 4. Action: Archivage Central réservé au Secrétariat Central */}
+                {isCurrentHolder && !isArchived && (isSC || user?.role_code === 'ADMINISTRATEUR') && doc.current_service_code === 'SC' && (doc.status === 'EN_ATTENTE_ARCHIVAGE_CENTRAL' || doc.status === 'TRANSMIS_POUR_ARCHIVAGE' || doc.status === 'ACCEPTED' || doc.status === 'COMPLETED' || doc.status === 'SIGNÉ – RETOUR AU SECRÉTARIAT CENTRAL' || doc.status === 'RETOURNÉ AU SECRÉTARIAT CENTRAL' || doc.status === 'REMIS AU DEMANDEUR') && (
                   <button
-                    onClick={() => {
-                      if (doc.document_type === 'MISSION_ORDER') {
-                        setShowMissionSignatureModal(true);
-                      } else {
-                        setWorkflowMode('SIGN_AND_RETURN');
-                      }
-                    }}
-                    className="px-3.5 py-2 bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-black rounded-xl shadow transition flex items-center space-x-1.5"
+                    onClick={handleArchive}
+                    className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black rounded-xl shadow transition flex items-center space-x-1.5"
+                    title="Classer définitivement le document dans les Archives Centrales de l'Université"
                   >
-                    <Award className="w-4 h-4 text-indigo-200" />
-                    <span>✍️ SIGNER ET RETOURNER AU SC</span>
+                    <Archive className="w-3.5 h-3.5 text-emerald-200" />
+                    <span>🏛️ ARCHIVER AUX ARCHIVES CENTRALES</span>
                   </button>
                 )}
 
                 {/* Return for correction button */}
-                {isCurrentHolder && doc.status !== 'ARCHIVED' && doc.status !== 'RETOUR' && (
+                {isCurrentHolder && !isArchived && doc.status !== 'RETOUR' && (
                   <button
                     onClick={() => setShowReturnForCorrectionModal(true)}
                     className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5"
@@ -226,29 +251,50 @@ export default function DocumentDetail({ documentId, onBack }) {
                   </button>
                 )}
 
-                {/* Return to Secrétariat Central Button (Rules 4 & 15) */}
-                {isCurrentHolder && doc.status !== 'ARCHIVED' && doc.current_service_code !== 'SC' && (
+                {/* Secrétaire Général Decision & Orientation (SG Specific options for non-mission docs) */}
+                {isCurrentHolder && !doc.is_locked && !isArchived && !isMissionOrder && (user?.role_code === 'SECRÉTAIRE_GÉNÉRAL' || user?.role_code === 'ADMINISTRATEUR') && (
                   <button
-                    onClick={() => setWorkflowMode('RETURN')}
-                    className="px-3.5 py-2 bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300 text-xs font-bold rounded-xl transition flex items-center space-x-1.5"
+                    onClick={() => setShowSGOrientModal(true)}
+                    className="px-3.5 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white text-xs font-black rounded-xl shadow-md transition flex items-center space-x-1.5 border border-amber-400"
                   >
-                    <CornerUpLeft className="w-3.5 h-3.5 text-amber-700" />
-                    <span>↩ RETOURNER AU SECRÉTARIAT CENTRAL</span>
+                    <ShieldAlert className="w-3.5 h-3.5 text-amber-200" />
+                    <span>⚡ DÉCISION & ORIENTATION SG</span>
                   </button>
                 )}
 
-                {/* ONLYOFFICE Document Server Action (Edit vs View) */}
-                {doc.file_path && (
+                {/* Accept / Reject if authorized */}
+                {isCurrentHolder && !doc.is_locked && !isArchived && !isPendingSGSignature && doc.status !== 'ACCEPTED' && doc.status !== 'REJECTED' && (hasPermission('documents.accept') || user?.role_code === 'SECRÉTAIRE_GÉNÉRAL' || user?.role_code === 'RECTEUR') && (
+                  <button
+                    onClick={() => setWorkflowMode('ACCEPT')}
+                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow transition flex items-center space-x-1.5"
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+                    <span>✓ ACCEPTER</span>
+                  </button>
+                )}
+
+                {isCurrentHolder && !doc.is_locked && !isArchived && !isPendingSGSignature && doc.status !== 'REJECTED' && (hasPermission('documents.reject') || user?.role_code === 'SECRÉTAIRE_GÉNÉRAL' || user?.role_code === 'RECTEUR') && (
+                  <button
+                    onClick={() => setWorkflowMode('REJECT')}
+                    className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-black rounded-xl shadow transition flex items-center space-x-1.5"
+                  >
+                    <XCircle className="w-4 h-4 text-red-200" />
+                    <span>✕ REJETER</span>
+                  </button>
+                )}
+
+                {/* ONLYOFFICE Document Server Action (Edit vs View) - STRICTLY EXCLUDED FOR MISSION ORDERS IN SG SIGNATURE WORKFLOW */}
+                {doc.file_path && !isMissionOrder && (
                   <button
                     onClick={() => setShowOnlyOfficeModal(true)}
                     className={`px-3.5 py-2 text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5 ${
-                      (isCurrentHolder || user?.role_code === 'ADMINISTRATEUR') && doc.status !== 'ARCHIVED' && doc.status !== 'SIGNÉ' && !doc.is_locked
+                      (isCurrentHolder || user?.role_code === 'ADMINISTRATEUR') && !isArchived && doc.status !== 'SIGNÉ' && !doc.is_locked
                         ? 'bg-emerald-600 hover:bg-emerald-700'
                         : 'bg-indigo-600 hover:bg-indigo-700'
                     }`}
                     title="Ouvrir le document dans ONLYOFFICE Document Server"
                   >
-                    {(isCurrentHolder || user?.role_code === 'ADMINISTRATEUR') && doc.status !== 'ARCHIVED' && doc.status !== 'SIGNÉ' && !doc.is_locked ? (
+                    {(isCurrentHolder || user?.role_code === 'ADMINISTRATEUR') && !isArchived && doc.status !== 'SIGNÉ' && !doc.is_locked ? (
                       <>
                         <Edit3 className="w-3.5 h-3.5 text-emerald-200" />
                         <span>✏️ MODIFIER AVEC ONLYOFFICE</span>
@@ -259,26 +305,6 @@ export default function DocumentDetail({ documentId, onBack }) {
                         <span>👁️ OUVRIR DANS ONLYOFFICE</span>
                       </>
                     )}
-                  </button>
-                )}
-
-                {isCurrentHolder && !doc.is_locked && hasPermission('documents.orient') && (
-                  <button
-                    onClick={() => setWorkflowMode('ORIENT')}
-                    className="px-3.5 py-2 bg-kindia-blue hover:bg-kindia-lightBlue text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5"
-                  >
-                    <ArrowRight className="w-3.5 h-3.5 text-kindia-gold" />
-                    <span>➡ ORIENTER</span>
-                  </button>
-                )}
-
-                {isCurrentHolder && !doc.is_locked && hasPermission('documents.transmit') && (
-                  <button
-                    onClick={() => setWorkflowMode('TRANSMIT')}
-                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>TRANSMETTRE</span>
                   </button>
                 )}
 
@@ -293,53 +319,7 @@ export default function DocumentDetail({ documentId, onBack }) {
                   </button>
                 )}
 
-                {/* Archive in Local Service Archive Button (For Originating Service / Holder) */}
-                {doc.status !== 'ARCHIVED' && (doc.status === 'VALIDÉ' || doc.status === 'SIGNÉ' || doc.status === 'ACCEPTED' || doc.status === 'COMPLETED') && (
-                  <button
-                    onClick={handleArchiveInService}
-                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5"
-                    title="Classer dans les archives privées de mon service"
-                  >
-                    <Archive className="w-3.5 h-3.5 text-kindia-gold" />
-                    <span>📁 ARCHIVER DANS MON SERVICE</span>
-                  </button>
-                )}
-
-                {/* Transmit to Central Archive Button (When doc is in private archive and not yet sent to SC) */}
-                {doc.archive_scope === 'PRIVE_SERVICE' && doc.transmitted_to_sc_for_archive !== 1 && (
-                  <button
-                    onClick={() => setShowTransmitCentralModal(true)}
-                    className="px-3.5 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5"
-                    title="Transmettre ce document au Secrétariat Central pour versement aux archives centrales"
-                  >
-                    <Send className="w-3.5 h-3.5 text-amber-200" />
-                    <span>🏛️ TRANSMETTRE AU SC (ARCHIVAGE CENTRAL)</span>
-                  </button>
-                )}
-
-                {/* Direct Archiving Button (Path B, Rules 5 & 13) */}
-                {doc.status !== 'ARCHIVED' && isSC && doc.current_service_code === 'SC' && hasPermission('documents.archive_direct') && (
-                  <button
-                    onClick={() => setShowDirectArchiveModal(true)}
-                    className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5"
-                  >
-                    <Archive className="w-3.5 h-3.5 text-amber-200" />
-                    <span>📁 ARCHIVER DIRECTEMENT</span>
-                  </button>
-                )}
-
-                {/* Archiving Button: RESERVED EXCLUSIVELY FOR SECRÉTARIAT CENTRAL (Rules 3, 6, 14, 15) */}
-                {doc.status !== 'ARCHIVED' && isSC && doc.current_service_code === 'SC' && hasPermission('documents.archive') && doc.processing_mode !== 'DIRECT_ARCHIVE' && (
-                  <button
-                    onClick={handleArchive}
-                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-xl shadow transition flex items-center space-x-1.5"
-                  >
-                    <Archive className="w-3.5 h-3.5 text-kindia-gold" />
-                    <span>📁 ARCHIVER</span>
-                  </button>
-                )}
-
-                {/* Trash Button: RESERVED EXCLUSIVELY FOR SYSTEM ADMINISTRATOR (Sections 1 & 14) */}
+                {/* Trash Button: RESERVED EXCLUSIVELY FOR SYSTEM ADMINISTRATOR */}
                 {user?.role_code === 'ADMINISTRATEUR' && doc.status !== 'TRASHED' && (
                   <button
                     onClick={() => setShowTrashModal(true)}
@@ -822,6 +802,19 @@ export default function DocumentDetail({ documentId, onBack }) {
           documentId={doc.id}
           onClose={() => setShowOnlyOfficeModal(false)}
           onSaveSuccess={() => {
+            loadDocument();
+          }}
+        />
+      )}
+
+      {/* Modal: Unified Archive and Transmit Modal */}
+      {showArchiveAndTransmitModal && (
+        <ArchiveAndTransmitModal
+          isOpen={showArchiveAndTransmitModal}
+          document={doc}
+          onClose={() => setShowArchiveAndTransmitModal(false)}
+          onSuccess={() => {
+            setShowArchiveAndTransmitModal(false);
             loadDocument();
           }}
         />

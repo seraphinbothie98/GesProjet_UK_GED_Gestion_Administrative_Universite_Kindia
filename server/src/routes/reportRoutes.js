@@ -20,7 +20,7 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
 
     const pendingDocs = await db.get(
       `SELECT COUNT(DISTINCT d.id) as count FROM documents d 
-       WHERE d.status IN ('PENDING', 'EN_ATTENTE', 'DEMANDE REÇUE', 'EN PRÉPARATION', 'EN ATTENTE DE SIGNATURE', 'ENREGISTRÉ', 'CREATED', 'DRAFT', 'EN ATTENTE D''ORIENTATION', 'EN ATTENTE DE TRAITEMENT', 'ORIENTÉ') 
+       WHERE d.status IN ('PENDING', 'EN_ATTENTE', 'DEMANDE REÇUE', 'EN PRÉPARATION', 'EN ATTENTE DE SIGNATURE', 'ENREGISTRÉ', 'CREATED', 'DRAFT', 'EN ATTENTE D''ORIENTATION', 'EN ATTENTE DE TRAITEMENT', 'ORIENTÉ', 'TRANSMIS', 'TRANSMIS_SG', 'EN_ATTENTE_ARCHIVAGE_CENTRAL') 
          AND d.status != 'TRASHED' AND ${abacSql}`,
       abacParams
     );
@@ -88,25 +88,33 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
     // =========================================================================
     let scStats = null;
     if (isSC) {
-      // 1. Mission requests pending
+      const scService = await db.get('SELECT id FROM services WHERE code = "SC"');
+      const scServiceId = scService ? scService.id : user.service_id;
+
+      // 1. Mission requests pending action / examination by SC (before acceptance or OM creation)
       const pendingReqs = await db.get(
-        `SELECT COUNT(*) as count FROM mission_order_requests WHERE status IN ('EN_ATTENTE_SC', 'DEMANDE ENREGISTRÉE', 'EN ATTENTE', 'DEMANDE REÇUE')`
+        `SELECT COUNT(*) as count FROM mission_order_requests 
+         WHERE status IN ('EN_ATTENTE_SC', 'DEMANDE ENREGISTRÉE', 'EN ATTENTE', 'DEMANDE REÇUE')
+           AND (official_document_id IS NULL OR official_document_id NOT IN (SELECT id FROM documents WHERE status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'TRASHED')))`
       );
 
-      // 2. Incoming mail pending action / orientation / treatment
+      // 2. Incoming mail pending action / orientation / treatment at SC
       const pendingIncomingMail = await db.get(
         `SELECT COUNT(DISTINCT d.id) as count FROM documents d 
          WHERE d.document_type IN ('INCOMING_MAIL', 'COURRIER_ENTRANT') 
-           AND d.status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'TRASHED', 'TRAITÉ', 'CLÔTURÉ', 'SIGNÉ', 'SIGNED')`
+           AND d.current_service_id = ?
+           AND d.status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'TRASHED', 'TRAITÉ', 'CLÔTURÉ', 'SIGNÉ', 'SIGNED')`,
+        [scServiceId]
       );
 
-      // 3. Internal mission orders pending
+      // 3. Internal mission orders pending action at SC (strictly deduplicated)
       const pendingInternalMissions = await db.get(
         `SELECT (
-           (SELECT COUNT(DISTINCT d.id) FROM documents d WHERE d.document_type IN ('MISSION_ORDER', 'ORDRE_MISSION') AND d.status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'TRASHED', 'TRAITÉ', 'CLÔTURÉ', 'SIGNÉ', 'SIGNED'))
+           (SELECT COUNT(DISTINCT d.id) FROM documents d WHERE d.document_type IN ('MISSION_ORDER', 'ORDRE_MISSION') AND d.current_service_id = ? AND d.status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'TRASHED', 'TRAITÉ', 'CLÔTURÉ', 'SIGNÉ', 'SIGNED'))
            +
-           (SELECT COUNT(*) FROM mission_order_requests WHERE status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'REJETÉ', 'REJETÉE') AND (official_document_id IS NULL OR official_document_id NOT IN (SELECT id FROM documents WHERE status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'TRASHED', 'TRAITÉ', 'CLÔTURÉ', 'SIGNÉ', 'SIGNED'))))
-         ) as count`
+           (SELECT COUNT(*) FROM mission_order_requests WHERE status IN ('EN_ATTENTE_SC', 'DEMANDE ENREGISTRÉE', 'EN ATTENTE', 'DEMANDE REÇUE') AND (official_document_id IS NULL OR official_document_id NOT IN (SELECT id FROM documents WHERE status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'TRASHED'))))
+         ) as count`,
+        [scServiceId]
       );
 
       // 4. External mission orders active / pending action
@@ -115,11 +123,13 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
          WHERE status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'REJETÉ PAR LE SECRÉTAIRE GÉNÉRAL')`
       );
 
-      // 5. Administrative requests pending
+      // 5. Administrative requests pending at SC
       const pendingAdministrativeRequests = await db.get(
         `SELECT COUNT(DISTINCT d.id) as count FROM documents d 
          WHERE d.document_type IN ('DEMANDE', 'DEMANDE_ADMINISTRATIVE') 
-           AND d.status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'TRASHED', 'TRAITÉ', 'CLÔTURÉ', 'SIGNÉ', 'SIGNED')`
+           AND d.current_service_id = ?
+           AND d.status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'TRASHED', 'TRAITÉ', 'CLÔTURÉ', 'SIGNÉ', 'SIGNED')`,
+        [scServiceId]
       );
 
       // 6. Documents pending official signature
@@ -303,16 +313,23 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
       const st = (doc.status || '').toUpperCase();
       if (st.includes('ORIENTATION') || st === 'PENDING' || st === 'CREATED' || st === 'ENREGISTRÉ') {
         nextAction = 'Orientation vers service compétent';
+      } else if (
+        st.includes('SIGNÉ') || 
+        st.includes('SIGNED') || 
+        st.includes('PRÊT POUR ARCHIVAGE') || 
+        st.includes('PRET POUR L\'ARCHIVAGE') ||
+        st.includes('RETOUR AU SECRÉTARIAT CENTRAL') ||
+        st.includes('EN_ATTENTE_ARCHIVAGE')
+      ) {
+        nextAction = "Prêt pour l'archivage";
       } else if (st.includes('TRAITEMENT') || st === 'IN_PROGRESS' || st === 'ORIENTÉ' || st === 'TRANSMIS') {
         nextAction = `Traitement par ${doc.service_name || 'le service'}`;
       } else if (st.includes('SIGNATURE') || st === 'EN ATTENTE DE SIGNATURE') {
         nextAction = isUserSG ? 'Signature du document' : "En attente de signature de l'autorité";
-      } else if (st.includes('RETOUR') || st === 'A_CORRIGER') {
+      } else if (st.includes('CORRECTION') || st === 'A_CORRIGER' || st.includes('RETOUR')) {
         nextAction = 'Correction par le service émetteur';
       } else if (st.includes('VALIDÉ') || st === 'ACCEPTED') {
         nextAction = 'Clôture et remise au demandeur';
-      } else if (st.includes('SIGNÉ') || st === 'SIGNED' || st.includes('PRÊT POUR ARCHIVAGE')) {
-        nextAction = 'Archivage définitif au Secrétariat Central';
       } else if (st.includes('ARCHIV') || st.includes('TRAITÉ') || st.includes('CLÔTURÉ')) {
         nextAction = 'Dossier traité et clôturé';
       } else {
@@ -444,13 +461,22 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
     // C. Internal Mission Order Requests (« DEMANDES D'ORDRE DE MISSION INTERNES »)
     // Synchronized with dashboard indicators without duplicates
     let internalMissionDossiers = [];
-    let moWhere = `r.status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'REJETÉ', 'REJETÉE')
-                   AND (r.official_document_id IS NULL OR r.official_document_id NOT IN (SELECT id FROM documents WHERE status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'TRASHED')))`;
+    let moWhere = '';
     let moParams = [];
 
-    const canSeeAllMissions = isSC || user.role_code === 'SECRÉTAIRE_GÉNÉRAL' || user.role_code === 'RECTEUR';
-    if (!canSeeAllMissions) {
-      moWhere += ` AND (r.user_id = ? OR LOWER(r.applicant_email) = LOWER(?) OR r.destination_service_id = ? OR (r.applicant_service_name = ? AND ? IS NOT NULL))`;
+    if (isSC) {
+      // Secrétariat Central only sees requests pending SC action (not accepted/processed yet, without official document)
+      moWhere = `r.status IN ('EN_ATTENTE_SC', 'DEMANDE ENREGISTRÉE', 'EN ATTENTE', 'DEMANDE REÇUE')
+                 AND (r.official_document_id IS NULL OR r.official_document_id NOT IN (SELECT id FROM documents WHERE status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'TRASHED')))`;
+    } else if (user.role_code === 'SECRÉTAIRE_GÉNÉRAL' || user.role_code === 'RECTEUR') {
+      // SG/Recteur only see requests explicitly submitted to them or pending their action
+      moWhere = `r.status IN ('EN ATTENTE DE SIGNATURE DU SECRÉTAIRE GÉNÉRAL')
+                 AND (r.official_document_id IS NULL OR r.official_document_id NOT IN (SELECT id FROM documents WHERE status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'TRASHED')))`;
+    } else {
+      // Regular applicant / staff: sees their own active requests
+      moWhere = `r.status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'REJETÉ', 'REJETÉE')
+                 AND (r.official_document_id IS NULL OR r.official_document_id NOT IN (SELECT id FROM documents WHERE status NOT IN ('ARCHIVED', 'ARCHIVÉ', 'TRASHED')))
+                 AND (r.user_id = ? OR LOWER(r.applicant_email) = LOWER(?) OR r.destination_service_id = ? OR (r.applicant_service_name = ? AND ? IS NOT NULL))`;
       moParams.push(user.id, user.email || '', user.service_id || 0, user.service_name || '', user.service_name || null);
     }
 

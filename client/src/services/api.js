@@ -142,9 +142,63 @@ export const api = {
     return data;
   },
 
+  async markInProgress(id, remarks = '') {
+    const res = await fetch(`${API_BASE}/documents/${id}/in-progress`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ remarks })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async archiveInService(id, payload = {}) {
+    const res = await fetch(`${API_BASE}/documents/${id}/archive-service`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async transmitToCentralArchive(id, payload) {
+    const motiveStr = typeof payload === 'string' ? payload : (payload?.motive || '');
+    const res = await fetch(`${API_BASE}/documents/${id}/transmit-to-central-archive`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motive: motiveStr })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async archiveCentralDocument(id) {
+    const res = await fetch(`${API_BASE}/documents/${id}/archive-central`, {
+      method: 'POST',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
   async archiveDocument(id) {
     const res = await fetch(`${API_BASE}/documents/${id}/archive`, {
       method: 'PUT',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async archiveCentralDocument(id) {
+    const res = await fetch(`${API_BASE}/documents/${id}/archive-central`, {
+      method: 'POST',
       headers: getAuthHeader()
     });
     const data = await res.json();
@@ -1800,6 +1854,33 @@ export const api = {
   },
 
   // Demandes d'Ordres de Mission (Interne / Public)
+  async verifyMissionApplicant(payload) {
+    const res = await fetch(`${API_BASE}/mission-requests/verify-applicant`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const err = new Error(data.message || data.error || 'Erreur lors de la vérification du travailleur.');
+      err.code = data.code;
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  },
+
+  async claimMatriculeVerification(payload) {
+    const res = await fetch(`${API_BASE}/mission-requests/claim-matricule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || data.error || 'Erreur lors de l’enregistrement du signalement.');
+    return data;
+  },
+
   async submitPublicMissionRequest(formData) {
     const res = await fetch(`${API_BASE}/mission-requests/public`, {
       method: 'POST',

@@ -163,11 +163,26 @@ export function formatNextAction(nextActionRaw, statusRaw, isSG = false, isSC = 
       ? "Signature du visa final de départ" 
       : "En attente de signature du visa de départ par le SG";
   }
-  if (st.includes('DÉPART SIGNÉ') || st.includes('PRÊT POUR ARCHIVAGE') || raw.includes('WAITING_ARCHIVE')) {
+  if (st.includes('DÉPART SIGNÉ') || raw.includes('WAITING_ARCHIVE')) {
     return "Retour au Secrétariat Central pour archivage définitif";
   }
-  if (st.includes('ARCHIV')) {
+
+  // Documents déjà archivés
+  if (st === 'ARCHIVED' || st === 'ARCHIVÉ' || st.includes('ARCHIVÉ DÉFINITIVEMENT')) {
     return "Dossier clôturé et archivé définitivement";
+  }
+
+  // Documents signés ou prêts pour archivage (Secrétariat Central)
+  if (
+    st.includes('SIGNÉ') || 
+    st.includes('SIGNED') || 
+    st.includes('PRÊT POUR ARCHIVAGE') || 
+    st.includes('PRET POUR L\'ARCHIVAGE') ||
+    st.includes('RETOUR AU SECRÉTARIAT CENTRAL') ||
+    st.includes('EN_ATTENTE_ARCHIVAGE') ||
+    raw.includes('WAITING_ARCHIVE')
+  ) {
+    return "Prêt pour l'archivage";
   }
 
   // Documents, Courriers & Demandes
@@ -180,14 +195,11 @@ export function formatNextAction(nextActionRaw, statusRaw, isSG = false, isSC = 
   if (st.includes('SIGNATURE') || st === 'EN ATTENTE DE SIGNATURE') {
     return isSG ? "Signature du document" : "En attente de signature de l'autorité habilitée";
   }
-  if (st.includes('RETOUR') || st === 'A_CORRIGER') {
+  if (st.includes('CORRECTION') || st === 'A_CORRIGER' || st === 'RETOUR' || st.includes('RETOURNÉ POUR CORRECTION')) {
     return "Correction par le service émetteur";
   }
   if (st.includes('VALIDÉ') || st === 'ACCEPTED') {
     return "Clôture et remise au demandeur";
-  }
-  if (st.includes('SIGNÉ') || st === 'SIGNED') {
-    return "Archivage définitif au Secrétariat Central";
   }
   if (st.includes('TRAITÉ') || st.includes('CLÔTURÉ')) {
     return "Dossier traité et clôturé";

@@ -581,7 +581,7 @@ export default function MissionSignatureModal({
               ) : (
                 <>
                   <CheckCircle2 className="w-4 h-4 text-emerald-200" />
-                  <span>✍️ CONFIRMER LA SIGNATURE OFFICIELLE</span>
+                  <span>✍️ SIGNER ET RENVOYER AU SC</span>
                 </>
               )}
             </button>
