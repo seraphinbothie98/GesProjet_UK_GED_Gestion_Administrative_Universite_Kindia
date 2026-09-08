@@ -1,17 +1,17 @@
 @echo off
 chcp 65001 >nul
-title UK-GED - Envoi vers GitHub (bothieseraphin1x-lab/UK_GED)
+title UK-GED - Envoi vers GitHub (bothieseraphin1x-lab/GesProjet_UK_GED_Gestion_Administrative_Universite_Kindia)
 color 0A
 
 echo ===============================================================================
-echo       ENVOI DU PROJET UK-GED VERS GITHUB (bothieseraphin1x-lab/UK_GED)
+echo       ENVOI DU PROJET UK-GED VERS GITHUB (bothieseraphin1x-lab/GesProjet_UK_GED_Gestion_Administrative_Universite_Kindia)
 echo ===============================================================================
 echo.
 
 cd /d "%~dp0"
 
 echo Verification de la configuration Git...
-git remote set-url origin https://github.com/bothieseraphin1x-lab/UK_GED.git
+git remote set-url origin https://github.com/bothieseraphin1x-lab/GesProjet_UK_GED_Gestion_Administrative_Universite_Kindia.git
 git branch -M main
 
 echo.
@@ -26,7 +26,7 @@ if %ERRORLEVEL% EQU 0 (
     color 0A
     echo ===============================================================================
     echo   SUCCES : Le projet a ete publie sur GitHub avec succes !
-    echo   Lien : https://github.com/bothieseraphin1x-lab/UK_GED
+    echo   Lien : https://github.com/bothieseraphin1x-lab/GesProjet_UK_GED_Gestion_Administrative_Universite_Kindia
     echo ===============================================================================
 ) else (
     color 0C
