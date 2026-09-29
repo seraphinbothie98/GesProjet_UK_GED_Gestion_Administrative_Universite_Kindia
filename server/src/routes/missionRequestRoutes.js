@@ -167,6 +167,8 @@ async function lookupWorkerByIdentifier(rawIdentifier) {
   return worker;
 }
 
+const lookupWorkerByMatricule = lookupWorkerByIdentifier;
+
 // 0. POST /api/mission-requests/verify-applicant - Universal Applicant Identity Verification
 router.post('/verify-applicant', async (req, res) => {
   const { identifier, matricule, password } = req.body;
@@ -439,7 +441,7 @@ router.post('/public', upload.array('files'), async (req, res) => {
       try {
         const decoded = jwt.verify(verification_token, JWT_SECRET);
         if (decoded.type === 'STAFF_VERIFIED' && decoded.matricule) {
-          staffRecord = await lookupWorkerByMatricule(decoded.matricule);
+          staffRecord = await lookupWorkerByIdentifier(decoded.matricule);
         }
       } catch (tokenErr) {
         console.warn('Verification token expired or invalid, falling back to database check:', tokenErr.message);
@@ -447,7 +449,7 @@ router.post('/public', upload.array('files'), async (req, res) => {
     }
 
     if (!staffRecord) {
-      staffRecord = await lookupWorkerByMatricule(applicant_matricule);
+      staffRecord = await lookupWorkerByIdentifier(applicant_matricule);
     }
 
     if (!staffRecord) {
@@ -633,7 +635,7 @@ router.post('/public', upload.array('files'), async (req, res) => {
     });
   } catch (err) {
     console.error('Public mission request submit error:', err);
-    res.status(500).json({ error: 'Erreur lors de l’enregistrement de votre demande.' });
+    res.status(500).json({ error: err.message || 'Erreur lors de l’enregistrement de votre demande.' });
   }
 });
 
