@@ -2319,73 +2319,11 @@ export default function MissionOrders({ onSelectDocument, autoOpenCreate = false
                 </div>
               </div>
 
-              {/* 4. FORMAT DE GÉNÉRATION DU DOCUMENT */}
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-                <h4 className="font-bold text-xs text-slate-800 flex items-center justify-between">
-                  <span className="flex items-center">
-                    <FileText className="w-4 h-4 mr-1.5 text-kindia-blue" />
-                    4. FORMAT DE GÉNÉRATION DU DOCUMENT
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-normal">Choix du moteur de rendu</span>
-                </h4>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <label className={`p-3 rounded-xl border-2 cursor-pointer transition flex items-start space-x-2.5 ${
-                    documentFormatInForm === 'DIRECT_PDF'
-                      ? 'border-emerald-500 bg-emerald-50/50 shadow-sm ring-1 ring-emerald-400'
-                      : 'border-slate-200 bg-white hover:border-slate-300'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="formDocumentFormat"
-                      value="DIRECT_PDF"
-                      checked={documentFormatInForm === 'DIRECT_PDF'}
-                      onChange={() => setDocumentFormatInForm('DIRECT_PDF')}
-                      className="mt-0.5 text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-extrabold text-xs text-emerald-950 block">
-                          ⚡ Format PDF Direct
-                        </span>
-                        <span className="px-1.5 py-0.2 bg-emerald-200 text-emerald-900 rounded text-[9px] font-black">Recommandé</span>
-                      </div>
-                      <span className="text-[11px] text-slate-500 block mt-0.5">
-                        Génération vectorielle haute fidélité ultra-rapide (&lt; 50ms) avec scellement direct
-                      </span>
-                    </div>
-                  </label>
-
-                  <label className={`p-3 rounded-xl border-2 cursor-pointer transition flex items-start space-x-2.5 ${
-                    documentFormatInForm === 'WORD_DOCX'
-                      ? 'border-blue-500 bg-blue-50/50 shadow-sm ring-1 ring-blue-400'
-                      : 'border-slate-200 bg-white hover:border-slate-300'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="formDocumentFormat"
-                      value="WORD_DOCX"
-                      checked={documentFormatInForm === 'WORD_DOCX'}
-                      onChange={() => setDocumentFormatInForm('WORD_DOCX')}
-                      className="mt-0.5 text-blue-600 focus:ring-blue-500"
-                    />
-                    <div>
-                      <span className="font-extrabold text-xs text-slate-800 block">
-                        📄 Format Word (DOCX)
-                      </span>
-                      <span className="text-[11px] text-slate-500 block mt-0.5">
-                        Modèle Word historique OpenXML avec conversion PDF standard
-                      </span>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              {/* 5. MODE DE SIGNATURE DU SECRÉTAIRE GÉNÉRAL */}
+              {/* 4. MODE DE SIGNATURE DU SECRÉTAIRE GÉNÉRAL */}
               <div className="bg-indigo-50/70 p-4 rounded-xl border border-indigo-200 space-y-3">
                 <h4 className="font-bold text-xs text-kindia-blue flex items-center">
                   <Award className="w-4 h-4 mr-1.5 text-kindia-blue" />
-                  5. MODE DE SIGNATURE DU SECRÉTAIRE GÉNÉRAL
+                  4. MODE DE SIGNATURE DU SECRÉTAIRE GÉNÉRAL
                 </h4>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
