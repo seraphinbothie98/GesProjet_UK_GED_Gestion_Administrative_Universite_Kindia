@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { Calendar, Clock, User, CheckCircle, AlertCircle, X, MapPin } from 'lucide-react';
+import { handleGuineaPhoneChange } from '../utils/phoneUtils';
 
 export default function PublicAppointmentModal({ onClose }) {
   const [responsibles, setResponsibles] = useState([]);
@@ -169,13 +170,13 @@ export default function PublicAppointmentModal({ onClose }) {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">Téléphone *</label>
+                  <label className="block font-bold text-slate-700 mb-1">Téléphone (+224) *</label>
                   <input
-                    type="text"
+                    type="tel"
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="Ex : +224 621 00 00 00"
-                    className="w-full p-2.5 rounded-xl border border-slate-300 bg-white"
+                    onChange={(e) => handleGuineaPhoneChange(e, setPhone)}
+                    placeholder="+224 6XX XX XX XX"
+                    className="w-full p-2.5 rounded-xl border border-slate-300 bg-white font-mono font-semibold"
                     required
                   />
                 </div>

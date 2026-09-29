@@ -3,8 +3,10 @@ import { api } from '../services/api';
 import { 
   FileText, CheckCircle, AlertCircle, X, Upload, Calendar, 
   User, Phone, Mail, Building2, MapPin, Send, Copy, ShieldCheck, 
-  KeyRound, Search, HelpCircle, ArrowRight, UserCheck, AlertTriangle
+  KeyRound, Search, HelpCircle, ArrowRight, UserCheck, AlertTriangle, Car,
+  Users, UserPlus, Trash2, Lock
 } from 'lucide-react';
+import { formatGuineaPhone } from '../utils/phoneUtils';
 
 export default function PublicMissionRequestModal({ isOpen, onClose, defaultUserData = null }) {
   // Step state: 'IDENTIFY' | 'CLAIM_MATRICULE' | 'FORM' | 'CONFIRMATION'
@@ -14,6 +16,24 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
   const [successClaimMsg, setSuccessClaimMsg] = useState(null);
   const [submittedData, setSubmittedData] = useState(null);
   const [copiedRef, setCopiedRef] = useState(false);
+
+  // Collective OM & Participants States
+  const [participants, setParticipants] = useState([]);
+  const [availableStaff, setAvailableStaff] = useState([]);
+  const [showAddParticipant, setShowAddParticipant] = useState(false);
+  const [addParticipantMode, setAddParticipantMode] = useState('SELECT'); // 'SELECT' | 'MANUAL'
+  const [selectedStaffToAdd, setSelectedStaffToAdd] = useState('');
+  const [newParticipant, setNewParticipant] = useState({
+    nom: '',
+    prenoms: '',
+    titre: 'M.',
+    fonction: 'Membre de mission',
+    matricule: '',
+    service_name: '',
+    telephone: '',
+    email: '',
+    is_requester: false
+  });
 
   // Identification step states
   const [identMatricule, setIdentMatricule] = useState('');
@@ -52,6 +72,115 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
     return 'Personnel';
   };
 
+  const buildRequesterParticipant = (usr) => {
+    return {
+      user_id: usr?.id || usr?.linked_user_id || null,
+      staff_id: usr?.staff_id || null,
+      nom: (usr?.last_name || usr?.nom || '').trim(),
+      prenoms: (usr?.first_name || usr?.prenoms || '').trim(),
+      titre: usr?.titre || 'M.',
+      fonction: getInitialFunction(usr) || 'Demandeur / Missionnaire',
+      matricule: (usr?.matricule || '').trim(),
+      service_name: getInitialService(usr) || 'Université de Kindia',
+      telephone: (usr?.phone || usr?.telephone || '').trim(),
+      email: (usr?.email || '').trim(),
+      is_requester: true,
+      order_index: 1
+    };
+  };
+
+  const updateParticipantFunction = (index, newFn) => {
+    setParticipants(prev => prev.map((p, idx) => idx === index ? { ...p, fonction: newFn } : p));
+  };
+
+  const handleAddStaffSelect = (staffId) => {
+    setSelectedStaffToAdd(staffId);
+    if (!staffId) return;
+    const st = availableStaff.find(s => String(s.id) === String(staffId));
+    if (st) {
+      setNewParticipant({
+        user_id: st.user_id || null,
+        staff_id: st.id,
+        nom: st.nom || '',
+        prenoms: st.prenoms || '',
+        titre: st.titre || st.grade || 'M.',
+        fonction: st.function_title || 'Membre de mission',
+        matricule: st.matricule || '',
+        service_name: st.service_name || '',
+        telephone: st.telephone || '',
+        email: st.email || '',
+        is_requester: false
+      });
+    }
+  };
+
+  const handleConfirmAddParticipant = () => {
+    if (!newParticipant.nom?.trim() || !newParticipant.prenoms?.trim()) {
+      setError('Veuillez renseigner au moins le nom et les prénoms de la personne.');
+      return;
+    }
+    // Duplicate check
+    const isDuplicate = participants.some(p => {
+      if (newParticipant.matricule && p.matricule && p.matricule.trim().toLowerCase() === newParticipant.matricule.trim().toLowerCase()) {
+        return true;
+      }
+      return (p.nom.trim().toLowerCase() === newParticipant.nom.trim().toLowerCase() && 
+              p.prenoms.trim().toLowerCase() === newParticipant.prenoms.trim().toLowerCase());
+    });
+
+    if (isDuplicate) {
+      setError('Cette personne fait déjà partie des participants de cette mission.');
+      return;
+    }
+
+    setParticipants(prev => [
+      ...prev,
+      {
+        ...newParticipant,
+        nom: newParticipant.nom.trim(),
+        prenoms: newParticipant.prenoms.trim(),
+        fonction: newParticipant.fonction?.trim() || 'Membre de mission',
+        is_requester: false,
+        order_index: prev.length + 1
+      }
+    ]);
+    setShowAddParticipant(false);
+    setSelectedStaffToAdd('');
+    setNewParticipant({
+      nom: '',
+      prenoms: '',
+      titre: 'M.',
+      fonction: 'Membre de mission',
+      matricule: '',
+      service_name: '',
+      telephone: '',
+      email: '',
+      is_requester: false
+    });
+    setError(null);
+  };
+
+  const handleRemoveParticipant = (index) => {
+    const target = participants[index];
+    if (target?.is_requester) {
+      setError("Vous devez obligatoirement faire partie des personnes participant à la mission pour soumettre cette demande d'ordre de mission.");
+      return;
+    }
+    setParticipants(prev => prev.filter((_, idx) => idx !== index));
+    setError(null);
+  };
+
+  // Vehicle & Driver States (Strictly filtered to this applicant)
+  const [assignedVehicles, setAssignedVehicles] = useState([]);
+  const [personalVehicles, setPersonalVehicles] = useState([]);
+  const [selectedVehicleKey, setSelectedVehicleKey] = useState('');
+  const [vehicleId, setVehicleId] = useState('');
+  const [personalVehicleId, setPersonalVehicleId] = useState('');
+  const [vehicleRegistration, setVehicleRegistration] = useState('');
+  const [driverOption, setDriverOption] = useState('SELF'); // 'SELF' | 'DRIVER'
+  const [driverId, setDriverId] = useState('');
+  const [driverName, setDriverName] = useState('Lui-même');
+
   // Main Form Data
   const [formData, setFormData] = useState({
     applicant_last_name: '',
@@ -69,12 +198,55 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
     start_date: '',
     end_date: '',
     duration_days: '',
-    transport_means: 'VÉHICULE OFFICIEL',
+    transport_means: 'Véhicule service/Personnel',
     justification_motif: '',
     host_organization: '',
     local_contact: '',
     files: []
   });
+
+  const loadConnectedUserVehicles = async (usr) => {
+    const staffId = usr?.staff_id || usr?.id;
+    if (!staffId) return;
+    try {
+      const [assigned, personal] = await Promise.all([
+        api.getStaffAssignedVehicles(staffId).catch(() => []),
+        api.getStaffPersonalVehicles(staffId, true).catch(() => [])
+      ]);
+      const aList = Array.isArray(assigned) ? assigned : [];
+      const pList = Array.isArray(personal) ? personal : [];
+      setAssignedVehicles(aList);
+      setPersonalVehicles(pList);
+
+      if (aList.length > 0) {
+        const primary = aList[0];
+        setSelectedVehicleKey(`FLEET_${primary.id}`);
+        setVehicleId(String(primary.id));
+        setPersonalVehicleId('');
+        setVehicleRegistration(primary.registration_number || '');
+        if (primary.default_driver_id) {
+          setDriverOption('DRIVER');
+          setDriverId(String(primary.default_driver_id));
+          setDriverName(primary.default_driver_full_name || 'Chauffeur habituel');
+        } else {
+          setDriverOption('SELF');
+          setDriverId('');
+          setDriverName('Lui-même');
+        }
+      } else if (pList.length > 0) {
+        const pv = pList[0];
+        setSelectedVehicleKey(`PV_${pv.id}`);
+        setPersonalVehicleId(String(pv.id));
+        setVehicleId('');
+        setVehicleRegistration(pv.registration_number || '');
+        setDriverOption('SELF');
+        setDriverId('');
+        setDriverName('Lui-même');
+      }
+    } catch (err) {
+      console.warn('Erreur chargement véhicules du demandeur:', err);
+    }
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -86,6 +258,23 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
       setAccountPreview(null);
       setVerifiedWorker(null);
       setVerificationToken(null);
+      setAssignedVehicles([]);
+      setPersonalVehicles([]);
+      setSelectedVehicleKey('');
+      setVehicleId('');
+      setPersonalVehicleId('');
+      setVehicleRegistration('');
+      setDriverOption('SELF');
+      setDriverId('');
+      setDriverName('Lui-même');
+
+      // Load active staff for collective mission participant selector
+      api.getStaff({ status: 'ACTIF' })
+        .then(list => setAvailableStaff(Array.isArray(list) ? list : []))
+        .catch(() => setAvailableStaff([]));
+
+      setShowAddParticipant(false);
+      setSelectedStaffToAdd('');
 
       // If user is already authenticated in the app
       if (defaultUserData && (defaultUserData.id || defaultUserData.matricule)) {
@@ -99,11 +288,15 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
           applicant_service_name: getInitialService(defaultUserData),
           applicant_phone: defaultUserData.phone || '',
           applicant_email: defaultUserData.email || '',
-          applicant_institution: 'Université de Kindia'
+          applicant_institution: 'Université de Kindia',
+          transport_means: 'Véhicule service/Personnel'
         }));
+        setParticipants([buildRequesterParticipant(defaultUserData)]);
+        loadConnectedUserVehicles(defaultUserData);
         setCurrentStep('FORM');
       } else {
         setIdentMatricule('');
+        setParticipants([]);
         setCurrentStep('IDENTIFY');
       }
     }
@@ -115,7 +308,7 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
   const handleVerifyApplicant = async (e) => {
     if (e) e.preventDefault();
     if (!identMatricule.trim()) {
-      setError('Veuillez renseigner votre matricule de travailleur.');
+      setError('Veuillez renseigner votre matricule, numéro de téléphone ou adresse email.');
       return;
     }
 
@@ -124,6 +317,7 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
 
     try {
       const res = await api.verifyMissionApplicant({
+        identifier: identMatricule.trim(),
         matricule: identMatricule.trim(),
         password: identPassword ? identPassword.trim() : undefined
       });
@@ -149,8 +343,42 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
             applicant_service_name: res.user.service_name || 'Université de Kindia',
             applicant_phone: res.user.phone || '',
             applicant_email: res.user.email || '',
-            applicant_institution: 'Université de Kindia'
+            applicant_institution: 'Université de Kindia',
+            transport_means: 'Véhicule service/Personnel'
           }));
+
+          setParticipants([buildRequesterParticipant({ ...res.user, staff_id: res.worker?.staff_id })]);
+
+          const aList = res.assigned_vehicles || res.user.assigned_vehicles || [];
+          const pList = res.personal_vehicles || res.user.personal_vehicles || [];
+          setAssignedVehicles(aList);
+          setPersonalVehicles(pList);
+          if (aList.length > 0) {
+            const primary = aList[0];
+            setSelectedVehicleKey(`FLEET_${primary.id}`);
+            setVehicleId(String(primary.id));
+            setPersonalVehicleId('');
+            setVehicleRegistration(primary.registration_number || '');
+            if (primary.default_driver_id) {
+              setDriverOption('DRIVER');
+              setDriverId(String(primary.default_driver_id));
+              setDriverName(primary.default_driver_full_name || 'Chauffeur habituel');
+            } else {
+              setDriverOption('SELF');
+              setDriverId('');
+              setDriverName('Lui-même');
+            }
+          } else if (pList.length > 0) {
+            const pv = pList[0];
+            setSelectedVehicleKey(`PV_${pv.id}`);
+            setPersonalVehicleId(String(pv.id));
+            setVehicleId('');
+            setVehicleRegistration(pv.registration_number || '');
+            setDriverOption('SELF');
+            setDriverId('');
+            setDriverName('Lui-même');
+          }
+
           setCurrentStep('FORM');
           return;
         }
@@ -168,8 +396,42 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
           applicant_service_name: res.worker.service_name || 'Services Généraux / Université de Kindia',
           applicant_phone: res.worker.phone || '',
           applicant_email: res.worker.email || '',
-          applicant_institution: 'Université de Kindia'
+          applicant_institution: 'Université de Kindia',
+          transport_means: 'Véhicule service/Personnel'
         }));
+
+        setParticipants([buildRequesterParticipant(res.worker)]);
+
+        const aList = res.assigned_vehicles || res.worker.assigned_vehicles || [];
+        const pList = res.personal_vehicles || res.worker.personal_vehicles || [];
+        setAssignedVehicles(aList);
+        setPersonalVehicles(pList);
+        if (aList.length > 0) {
+          const primary = aList[0];
+          setSelectedVehicleKey(`FLEET_${primary.id}`);
+          setVehicleId(String(primary.id));
+          setPersonalVehicleId('');
+          setVehicleRegistration(primary.registration_number || '');
+          if (primary.default_driver_id) {
+            setDriverOption('DRIVER');
+            setDriverId(String(primary.default_driver_id));
+            setDriverName(primary.default_driver_full_name || 'Chauffeur habituel');
+          } else {
+            setDriverOption('SELF');
+            setDriverId('');
+            setDriverName('Lui-même');
+          }
+        } else if (pList.length > 0) {
+          const pv = pList[0];
+          setSelectedVehicleKey(`PV_${pv.id}`);
+          setPersonalVehicleId(String(pv.id));
+          setVehicleId('');
+          setVehicleRegistration(pv.registration_number || '');
+          setDriverOption('SELF');
+          setDriverId('');
+          setDriverName('Lui-même');
+        }
+
         setCurrentStep('FORM');
         return;
       }
@@ -248,6 +510,23 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
       if (verificationToken) {
         payload.append('verification_token', verificationToken);
       }
+
+      if (vehicleId) payload.append('vehicle_id', vehicleId);
+      if (personalVehicleId) payload.append('personal_vehicle_id', personalVehicleId);
+      if (vehicleRegistration) payload.append('vehicle_registration', vehicleRegistration);
+      payload.append('driver_option', driverOption);
+      if (driverId) payload.append('driver_id', driverId);
+      if (driverName) payload.append('driver_name', driverName);
+
+      // Absolute Rule: Requester MUST be in the participants list
+      const hasRequester = participants && participants.length > 0 && participants.some(p => p.is_requester);
+      if (!hasRequester) {
+        setError("Vous devez obligatoirement faire partie des personnes participant à la mission pour soumettre cette demande d'ordre de mission.");
+        setLoading(false);
+        return;
+      }
+
+      payload.append('participants', JSON.stringify(participants));
 
       let res;
       if (defaultUserData && defaultUserData.id) {
@@ -329,9 +608,9 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
 
               <form onSubmit={handleVerifyApplicant} className="space-y-4 max-w-lg mx-auto bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-sm">
                 <div>
-                  <label className="block font-bold text-slate-800 mb-1.5 flex items-center space-x-1.5">
+                  <label className="block font-bold text-slate-800 mb-1.5 flex items-center space-x-1.5 text-xs">
                     <User className="w-4 h-4 text-kindia-blue" />
-                    <span>Matricule Professionnel du Travailleur *</span>
+                    <span>Matricule, N° de Téléphone ou Email Professionnel *</span>
                   </label>
                   <div className="relative">
                     <input
@@ -344,13 +623,13 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
                         setAccountPreview(null);
                         setError(null);
                       }}
-                      placeholder="Ex: UK-DAF-005, UK-CHAUFF-001, UK-SEC-001, UK-NETT-001..."
-                      className="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-kindia-blue font-mono font-bold text-sm text-slate-800 uppercase"
+                      placeholder="Ex: UK_0001, +224 622 72 94 08, ou recteur@gmail.com"
+                      className="w-full px-4 py-3 bg-white border border-slate-300 rounded-xl focus:ring-2 focus:ring-kindia-blue font-bold text-sm text-slate-800"
                     />
-                    <Search className="w-5 h-5 text-slate-400 absolute right-3 top-3" />
+                    <Search className="w-5 h-5 text-slate-400 absolute right-3 top-3.5" />
                   </div>
-                  <span className="text-[11px] text-slate-500 mt-1 block">
-                    Saisissez votre matricule officiel attribué par l'Université de Kindia.
+                  <span className="text-[11px] text-slate-500 mt-1.5 block">
+                    Recherchez votre profil travailleur par votre <strong>matricule</strong>, votre <strong>numéro de téléphone</strong> ou votre <strong>adresse email</strong>.
                   </span>
                 </div>
 
@@ -366,7 +645,7 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
                     </p>
 
                     <div>
-                      <label className="block font-bold text-indigo-950 mb-1 flex items-center space-x-1">
+                      <label className="block font-bold text-indigo-950 mb-1 flex items-center space-x-1 text-xs">
                         <KeyRound className="w-3.5 h-3.5 text-indigo-600" />
                         <span>Mot de passe de votre compte UK-GED *</span>
                       </label>
@@ -390,10 +669,10 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
                     className="w-full py-3 bg-kindia-blue hover:bg-kindia-lightBlue text-white font-bold rounded-xl shadow-lg transition flex items-center justify-center space-x-2 text-xs uppercase tracking-wider"
                   >
                     {loading ? (
-                      <span>Vérification dans le répertoire officiel...</span>
+                      <span>Recherche dans le répertoire officiel...</span>
                     ) : (
                       <>
-                        <span>{requiresPassword ? 'VALIDER ET ACCÉDER AU FORMULAIRE' : 'VÉRIFIER MON MATRICULE & CONTINUER'}</span>
+                        <span>{requiresPassword ? 'VALIDER ET ACCÉDER AU FORMULAIRE' : 'RECHERCHER & CONTINUER'}</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
@@ -409,7 +688,7 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
                   className="text-xs font-bold text-slate-600 hover:text-kindia-blue underline inline-flex items-center space-x-1.5"
                 >
                   <HelpCircle className="w-4 h-4 text-kindia-gold" />
-                  <span>Matricule non reconnu ou inactif ? Demander la vérification de mon matricule</span>
+                  <span>Informations non reconnues ou inactives ? Demander une vérification de profil</span>
                 </button>
               </div>
             </div>
@@ -504,14 +783,14 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
                       />
                     </div>
                     <div>
-                      <label className="block font-bold text-slate-700 mb-1">Téléphone de contact *</label>
+                      <label className="block font-bold text-slate-700 mb-1">Téléphone de contact (+224) *</label>
                       <input
-                        type="text"
+                        type="tel"
                         required
                         value={claimData.phone}
-                        onChange={(e) => setClaimData(prev => ({ ...prev, phone: e.target.value }))}
-                        placeholder="Ex: +224 620 00 00 00"
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl"
+                        onChange={(e) => setClaimData(prev => ({ ...prev, phone: formatGuineaPhone(e.target.value) }))}
+                        placeholder="+224 6XX XX XX XX"
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono font-semibold"
                       />
                     </div>
                     <div className="md:col-span-2">
@@ -598,15 +877,15 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Téléphone de contact *</label>
+                    <label className="block font-bold text-slate-700 mb-1">Téléphone de contact (+224) *</label>
                     <input
-                      type="text"
+                      type="tel"
                       name="applicant_phone"
                       required
                       value={formData.applicant_phone}
-                      onChange={handleInputChange}
-                      placeholder="Ex: +224 622 11 22 33"
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-kindia-blue font-medium"
+                      onChange={(e) => setFormData(prev => ({ ...prev, applicant_phone: formatGuineaPhone(e.target.value) }))}
+                      placeholder="+224 6XX XX XX XX"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-kindia-blue font-mono font-semibold"
                     />
                   </div>
 
@@ -625,12 +904,248 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
                 </div>
               </div>
 
+              {/* 2. PERSONNES PARTICIPANT À LA MISSION (OM INDIVIDUEL OU COLLECTIF) */}
+              <div className="space-y-3 pt-2 border-t border-slate-200">
+                <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                  <div className="flex items-center space-x-2">
+                    <Users className="w-4 h-4 text-kindia-gold" />
+                    <h4 className="font-heading font-extrabold text-xs text-slate-800 uppercase tracking-wider">
+                      2. Personnes participant à la mission
+                    </h4>
+                  </div>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wide uppercase ${
+                    participants.length > 1 
+                      ? 'bg-amber-100 text-amber-900 border border-amber-300' 
+                      : 'bg-blue-100 text-blue-900 border border-blue-200'
+                  }`}>
+                    {participants.length > 1 ? `👥 OM Collectif (${participants.length} personnes)` : '👤 OM Individuel (1 personne)'}
+                  </span>
+                </div>
+
+                {/* Obligatory Rule Info Box */}
+                <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl text-[11px] text-blue-950 flex items-start space-x-2">
+                  <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="block font-bold">Règle d'attribution obligatoire :</strong>
+                    <span>En tant que demandeur, vous faites obligatoirement partie de la mission. Vous pouvez ajouter un ou plusieurs collègues pour constituer un <strong>ordre de mission collectif</strong>.</span>
+                  </div>
+                </div>
+
+                {/* Participants List */}
+                <div className="space-y-2">
+                  {participants.map((p, idx) => (
+                    <div 
+                      key={idx} 
+                      className={`p-3 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs ${
+                        p.is_requester 
+                          ? 'bg-emerald-50/70 border-emerald-200 shadow-sm' 
+                          : 'bg-white border-slate-200 hover:border-slate-300 shadow-sm'
+                      }`}
+                    >
+                      <div className="flex items-start space-x-3">
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[10px] shrink-0 ${
+                          p.is_requester ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'
+                        }`}>
+                          {idx + 1}
+                        </div>
+                        <div>
+                          <div className="flex items-center space-x-2">
+                            <span className="font-extrabold text-slate-900 text-xs">
+                              {p.titre ? `${p.titre} ` : ''}{p.prenoms} {p.nom}
+                            </span>
+                            {p.is_requester && (
+                              <span className="text-[10px] bg-emerald-100 text-emerald-800 font-black px-2 py-0.5 rounded-full border border-emerald-300 flex items-center space-x-1">
+                                <CheckCircle className="w-3 h-3" />
+                                <span>Vous (Demandeur)</span>
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5 font-medium">
+                            {p.matricule && <span>Matricule : <strong className="font-mono text-slate-700">{p.matricule}</strong></span>}
+                            {p.service_name && <span>Service : <span className="text-slate-700">{p.service_name}</span></span>}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100">
+                        <div className="flex-1 md:w-52">
+                          <label className="block text-[10px] text-slate-500 font-bold mb-0.5">Rôle / Fonction dans la mission :</label>
+                          <input
+                            type="text"
+                            value={p.fonction || ''}
+                            onChange={(e) => updateParticipantFunction(idx, e.target.value)}
+                            placeholder="Ex: Chef de mission, Membre, Chercheur..."
+                            className="w-full px-2.5 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:ring-1 focus:ring-kindia-blue font-medium"
+                          />
+                        </div>
+
+                        {p.is_requester ? (
+                          <div className="p-1.5 text-slate-400 cursor-not-allowed" title="Le demandeur doit obligatoirement être membre de la mission">
+                            <Lock className="w-4 h-4 text-emerald-600" />
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveParticipant(idx)}
+                            className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition"
+                            title="Retirer ce participant"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add participant button & inline form */}
+                {!showAddParticipant ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddParticipant(true);
+                      setSelectedStaffToAdd('');
+                    }}
+                    className="w-full py-2 px-3 border-2 border-dashed border-kindia-gold/60 hover:border-kindia-gold bg-amber-50/40 hover:bg-amber-50 text-amber-900 rounded-xl font-bold text-xs flex items-center justify-center space-x-2 transition"
+                  >
+                    <UserPlus className="w-4 h-4 text-kindia-gold" />
+                    <span>+ Ajouter une personne participant à la mission (OM Collectif)</span>
+                  </button>
+                ) : (
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="font-heading font-extrabold text-xs text-slate-800 uppercase tracking-wider flex items-center space-x-1.5">
+                        <UserPlus className="w-4 h-4 text-kindia-blue" />
+                        <span>Ajouter un participant</span>
+                      </span>
+                      <div className="flex items-center space-x-1 bg-white p-0.5 rounded-lg border border-slate-200 text-[11px]">
+                        <button
+                          type="button"
+                          onClick={() => setAddParticipantMode('SELECT')}
+                          className={`px-2 py-0.5 rounded font-bold ${
+                            addParticipantMode === 'SELECT' ? 'bg-kindia-blue text-white' : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Annuaire UK
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAddParticipantMode('MANUAL')}
+                          className={`px-2 py-0.5 rounded font-bold ${
+                            addParticipantMode === 'MANUAL' ? 'bg-kindia-blue text-white' : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          Saisie libre
+                        </button>
+                      </div>
+                    </div>
+
+                    {addParticipantMode === 'SELECT' ? (
+                      <div className="space-y-2">
+                        <label className="block text-slate-700 font-bold text-xs">
+                          Sélectionner un membre du personnel de l'Université :
+                        </label>
+                        <select
+                          value={selectedStaffToAdd}
+                          onChange={(e) => handleAddStaffSelect(e.target.value)}
+                          className="w-full p-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold text-slate-800"
+                        >
+                          <option value="">-- Choisir dans l'annuaire du personnel actif --</option>
+                          {availableStaff
+                            .filter(st => !participants.some(p => (st.matricule && p.matricule === st.matricule) || (p.staff_id && p.staff_id === st.id)))
+                            .map(st => (
+                              <option key={st.id} value={st.id}>
+                                {st.titre ? `${st.titre} ` : ''}{st.nom} {st.prenoms} {st.matricule ? `(${st.matricule})` : ''} — {st.function_title || 'Personnel'} [{st.service_name || 'UK'}]
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                    ) : null}
+
+                    {/* Participant Details preview/edit */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
+                      <div>
+                        <label className="block text-slate-600 font-bold mb-0.5 text-[11px]">Nom de famille *</label>
+                        <input
+                          type="text"
+                          value={newParticipant.nom}
+                          onChange={(e) => setNewParticipant(prev => ({ ...prev, nom: e.target.value }))}
+                          placeholder="Ex: CAMARA"
+                          className="w-full p-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-600 font-bold mb-0.5 text-[11px]">Prénoms *</label>
+                        <input
+                          type="text"
+                          value={newParticipant.prenoms}
+                          onChange={(e) => setNewParticipant(prev => ({ ...prev, prenoms: e.target.value }))}
+                          placeholder="Ex: Sékou"
+                          className="w-full p-2 bg-white border border-slate-300 rounded-xl text-xs font-semibold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-600 font-bold mb-0.5 text-[11px]">Matricule</label>
+                        <input
+                          type="text"
+                          value={newParticipant.matricule}
+                          onChange={(e) => setNewParticipant(prev => ({ ...prev, matricule: e.target.value }))}
+                          placeholder="Ex: 284918C"
+                          className="w-full p-2 bg-white border border-slate-300 rounded-xl text-xs font-mono font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-600 font-bold mb-0.5 text-[11px]">Service / Faculté</label>
+                        <input
+                          type="text"
+                          value={newParticipant.service_name}
+                          onChange={(e) => setNewParticipant(prev => ({ ...prev, service_name: e.target.value }))}
+                          placeholder="Ex: Faculté des Sciences"
+                          className="w-full p-2 bg-white border border-slate-300 rounded-xl text-xs"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="block text-slate-600 font-bold mb-0.5 text-[11px]">Rôle / Fonction dans la mission *</label>
+                        <input
+                          type="text"
+                          value={newParticipant.fonction}
+                          onChange={(e) => setNewParticipant(prev => ({ ...prev, fonction: e.target.value }))}
+                          placeholder="Ex: Co-chercheur, Membre de mission, Chauffeur..."
+                          className="w-full p-2 bg-white border border-slate-300 rounded-xl text-xs font-bold text-kindia-blue"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end space-x-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAddParticipant(false);
+                          setSelectedStaffToAdd('');
+                        }}
+                        className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs"
+                      >
+                        Annuler
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleConfirmAddParticipant}
+                        className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-sm flex items-center space-x-1"
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        <span>Ajouter à la mission</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Mission Details */}
               <div className="space-y-3 pt-2 border-t border-slate-200">
                 <div className="flex items-center space-x-2 border-b border-slate-200 pb-2">
                   <MapPin className="w-4 h-4 text-kindia-gold" />
                   <h4 className="font-heading font-extrabold text-xs text-slate-800 uppercase tracking-wider">
-                    2. Détails de la Mission
+                    3. Détails de la Mission
                   </h4>
                 </div>
 
@@ -685,17 +1200,17 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Moyen de transport prévu</label>
+                    <label className="block font-bold text-slate-700 mb-1">Moyen de transport prévu *</label>
                     <select
                       name="transport_means"
                       value={formData.transport_means}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-kindia-blue font-bold"
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-kindia-blue font-bold text-slate-800"
                     >
-                      <option value="VÉHICULE OFFICIEL">Véhicule Officiel de l’Université</option>
-                      <option value="TRANSPORTS EN COMMUN">Transports en commun / Car</option>
-                      <option value="VÉHICULE PERSONNEL">Véhicule Personnel</option>
-                      <option value="AVION">Avion (Vol national / international)</option>
+                      <option value="Véhicule service/Personnel">Véhicule service/Personnel</option>
+                      <option value="Transports en commun / Car">Transports en commun / Car</option>
+                      <option value="Avion (Vol national / international)">Avion (Vol national / international)</option>
+                      <option value="Autre">Autre</option>
                     </select>
                   </div>
 
@@ -760,6 +1275,150 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
                   />
                 </div>
               </div>
+
+              {/* 3. VÉHICULE & CONDUCTEUR (Affichage strictement réservé aux véhicules affectés au demandeur) */}
+              {(formData.transport_means === 'Véhicule service/Personnel' || formData.transport_means === 'Véhicule de service' || formData.transport_means === 'Véhicule personnel' || formData.transport_means === 'VÉHICULE OFFICIEL') && (
+                <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Car className="w-4 h-4 text-amber-700" />
+                      <h4 className="font-heading font-extrabold text-xs text-amber-900 uppercase tracking-wider">
+                        3. Véhicule & Conducteur (Véhicule de service affecté ou personnel)
+                      </h4>
+                    </div>
+                    <span className="text-[10px] font-mono bg-amber-100 text-amber-900 px-2 py-0.5 rounded font-bold border border-amber-200">
+                      {vehicleRegistration ? `Immatriculation : ${vehicleRegistration}` : 'Véhicule service/Personnel'}
+                    </span>
+                  </div>
+
+                  {/* Sélection de véhicule : uniquement les véhicules affectés au demandeur */}
+                  <div>
+                    <label className="block font-bold text-slate-800 text-xs mb-1">
+                      Sélectionner le Véhicule (Affecté à votre service ou Personnel) :
+                    </label>
+                    <select
+                      value={selectedVehicleKey}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSelectedVehicleKey(val);
+                        if (val.startsWith('FLEET_')) {
+                          const vId = val.replace('FLEET_', '');
+                          setVehicleId(vId);
+                          setPersonalVehicleId('');
+                          const veh = assignedVehicles.find(v => String(v.id) === String(vId));
+                          if (veh) {
+                            setVehicleRegistration(veh.registration_number || '');
+                            if (veh.default_driver_id) {
+                              setDriverOption('DRIVER');
+                              setDriverId(String(veh.default_driver_id));
+                              setDriverName(veh.default_driver_full_name || 'Chauffeur habituel');
+                            } else {
+                              setDriverOption('SELF');
+                              setDriverId('');
+                              setDriverName('Lui-même');
+                            }
+                          }
+                        } else if (val.startsWith('PV_')) {
+                          const pvId = val.replace('PV_', '');
+                          setPersonalVehicleId(pvId);
+                          setVehicleId('');
+                          const pv = personalVehicles.find(v => String(v.id) === String(pvId));
+                          if (pv) {
+                            setVehicleRegistration(pv.registration_number || '');
+                          }
+                          setDriverOption('SELF');
+                          setDriverId('');
+                          setDriverName('Lui-même');
+                        } else {
+                          setVehicleId('');
+                          setPersonalVehicleId('');
+                        }
+                      }}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 font-bold text-kindia-blue bg-white focus:ring-2 focus:ring-kindia-blue text-xs"
+                    >
+                      <option value="">-- Sélectionner un véhicule affecté / personnel ou renseigner l'immatriculation ci-dessous --</option>
+                      {assignedVehicles.length > 0 && (
+                        <optgroup label="⭐ Véhicules de service qui vous sont affectés">
+                          {assignedVehicles.map(v => (
+                            <option key={`FLEET_${v.id}`} value={`FLEET_${v.id}`}>
+                              🚙 {v.registration_number} — {v.brand} {v.model || ''} {v.default_driver_full_name ? `(Chauffeur: ${v.default_driver_full_name})` : ''}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {personalVehicles.length > 0 && (
+                        <optgroup label="🚗 Vos véhicules personnels enregistrés">
+                          {personalVehicles.map(pv => (
+                            <option key={`PV_${pv.id}`} value={`PV_${pv.id}`}>
+                              🚗 {pv.registration_number} — {pv.brand} {pv.model || ''} ({pv.vehicle_type || 'Voiture'}{pv.color ? `, ${pv.color}` : ''})
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </select>
+                  </div>
+
+                  {/* Numéro d'immatriculation et Conducteur */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Numéro d'Immatriculation du Véhicule *
+                      </label>
+                      <input
+                        type="text"
+                        value={vehicleRegistration}
+                        onChange={(e) => setVehicleRegistration(e.target.value)}
+                        placeholder="Ex : RC-1234-A ou VA-4421-GN"
+                        className="w-full p-2.5 rounded-xl border border-slate-300 font-mono font-bold uppercase bg-white focus:ring-2 focus:ring-kindia-blue text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Option de Conduite
+                      </label>
+                      <div className="flex items-center space-x-4 pt-1 text-xs">
+                        <label className="flex items-center space-x-1.5 cursor-pointer font-bold text-slate-700">
+                          <input
+                            type="radio"
+                            name="driver_option"
+                            checked={driverOption === 'SELF'}
+                            onChange={() => {
+                              setDriverOption('SELF');
+                              setDriverName('Lui-même');
+                              setDriverId('');
+                            }}
+                            className="text-kindia-blue focus:ring-kindia-blue"
+                          />
+                          <span>Lui-même (Demandeur)</span>
+                        </label>
+                        <label className="flex items-center space-x-1.5 cursor-pointer font-bold text-slate-700">
+                          <input
+                            type="radio"
+                            name="driver_option"
+                            checked={driverOption === 'DRIVER'}
+                            onChange={() => setDriverOption('DRIVER')}
+                            className="text-kindia-blue focus:ring-kindia-blue"
+                          />
+                          <span>Chauffeur</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  {driverOption === 'DRIVER' && (
+                    <div className="pt-2">
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Nom / Prénoms du Chauffeur</label>
+                      <input
+                        type="text"
+                        value={driverName}
+                        onChange={(e) => setDriverName(e.target.value)}
+                        placeholder="Ex: Diallo Ibrahima (Chauffeur du Rectorat)"
+                        className="w-full p-2 bg-white rounded-xl border border-slate-300 font-semibold text-xs"
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Attachments */}
               <div className="p-4 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-2">
@@ -849,7 +1508,8 @@ export default function PublicMissionRequestModal({ isOpen, onClose, defaultUser
                   </button>
                 </div>
 
-                <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-500 flex justify-between px-2">
+                <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-500 flex flex-wrap justify-between gap-2 px-2">
+                  <span><strong>Type :</strong> <span className="text-kindia-blue font-bold">{participants.length > 1 ? `OM Collectif (${participants.length} pers.)` : 'OM Individuel'}</span></span>
                   <span><strong>Statut :</strong> <span className="text-amber-800 font-bold">{submittedData.status}</span></span>
                   <span><strong>Demandeur :</strong> <span className="font-bold">{formData.applicant_first_names} {formData.applicant_last_name}</span></span>
                 </div>

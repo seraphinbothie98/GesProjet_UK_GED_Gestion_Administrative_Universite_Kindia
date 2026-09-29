@@ -3,7 +3,7 @@ import { renderAsync } from 'docx-preview';
 import { api } from '../services/api';
 import { 
   X, ZoomIn, ZoomOut, RotateCcw, Download, Maximize, Minimize, 
-  ChevronLeft, ChevronRight, FileText, AlertTriangle, RefreshCw, Loader2, Edit3 
+  ChevronLeft, ChevronRight, FileText, AlertTriangle, RefreshCw, Loader2, Edit3, Printer, Sparkles 
 } from 'lucide-react';
 
 export default function TemplatePreviewModal({ template, version, onClose, onOpenEditor }) {
@@ -12,6 +12,7 @@ export default function TemplatePreviewModal({ template, version, onClose, onOpe
   const [fileBlob, setFileBlob] = useState(null);
   const [blobUrl, setBlobUrl] = useState('');
   const [odtHtml, setOdtHtml] = useState('');
+  const [instSettings, setInstSettings] = useState(null);
   
   // Viewer state
   const [zoom, setZoom] = useState(100);
@@ -29,8 +30,15 @@ export default function TemplatePreviewModal({ template, version, onClose, onOpe
   const versionId = version?.id || 'current';
   const fileType = (version?.file_type || template?.format || 'DOCX').toUpperCase();
 
+  const isMissionOrder = 
+    template?.code === 'ORDRE_001' || 
+    template?.code?.includes('OM') || 
+    template?.name?.toLowerCase().includes('mission') || 
+    template?.document_type_code === 'MISSION_ORDER' ||
+    template?.category === 'Missions';
+
   useEffect(() => {
-    loadDocumentPreview();
+    loadInstitutionAndPreview();
     return () => {
       if (blobUrl) {
         URL.revokeObjectURL(blobUrl);
@@ -38,19 +46,33 @@ export default function TemplatePreviewModal({ template, version, onClose, onOpe
     };
   }, [templateId, versionId]);
 
-  const loadDocumentPreview = async () => {
-    console.log(`[PREVIEW] template_id = ${templateId}, version_id = ${versionId}, file = ${templateName}`);
+  const loadInstitutionAndPreview = async () => {
     setLoading(true);
     setError('');
     setOdtHtml('');
 
     try {
+      // 1. Fetch institution settings for metadata
+      const instData = await api.getInstitutionSettings().catch(() => null);
+      if (instData) setInstSettings(instData);
+
+      // 2. Fetch template file blob and render faithfully
       if (fileType === 'ODT') {
         const odtData = await api.getTemplateVersionODTPreview(templateId, versionId);
         setOdtHtml(odtData.html || '<p>Contenu du document ODT vide ou non disponible.</p>');
       } else {
         try {
-          const blob = await api.fetchTemplateVersionBlob(templateId, versionId);
+          let blob = null;
+          if (isMissionOrder && api.fetchMissionTemplateBlob && (!versionId || versionId === 'current')) {
+            try {
+              blob = await api.fetchMissionTemplateBlob(templateId);
+            } catch (e) {
+              blob = await api.fetchTemplateVersionBlob(templateId, versionId);
+            }
+          } else {
+            blob = await api.fetchTemplateVersionBlob(templateId, versionId);
+          }
+
           setFileBlob(blob);
           const url = URL.createObjectURL(blob);
           setBlobUrl(url);
@@ -69,7 +91,6 @@ export default function TemplatePreviewModal({ template, version, onClose, onOpe
             }, 100);
           }
         } catch (blobErr) {
-          // Fallback to customized HTML if physical file is not available or was customized online
           const htmlRes = await api.getTemplateVersionHTML(templateId, versionId);
           if (htmlRes && htmlRes.html) {
             setOdtHtml(htmlRes.html);
@@ -80,7 +101,7 @@ export default function TemplatePreviewModal({ template, version, onClose, onOpe
       }
     } catch (err) {
       console.error('Failed to load template preview:', err);
-      setError(err.message || 'Impossible de charger la prévisualisation. Le fichier est peut-être introuvable ou corrompu.');
+      setError(err.message || 'Impossible de charger la prévisualisation.');
     } finally {
       setLoading(false);
     }
@@ -112,10 +133,14 @@ export default function TemplatePreviewModal({ template, version, onClose, onOpe
     }
   };
 
+  const handlePrintDocument = () => {
+    window.print();
+  };
+
   return (
     <div 
       ref={modalContainerRef}
-      className="fixed inset-0 bg-slate-900/85 backdrop-blur-sm z-50 flex flex-col w-screen h-screen overflow-hidden text-slate-800"
+      className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex flex-col w-screen h-screen overflow-hidden text-slate-800"
     >
       {/* HEADER */}
       <div className="bg-slate-900 text-white px-6 py-3 border-b border-slate-800 flex justify-between items-center flex-shrink-0 shadow-md">
@@ -125,15 +150,15 @@ export default function TemplatePreviewModal({ template, version, onClose, onOpe
           </div>
           <div>
             <h2 className="font-heading font-extrabold text-sm text-white flex items-center space-x-2">
-              <span>Prévisualisation — {templateName}</span>
+              <span>Prévisualisation Officielle — {templateName}</span>
               <span className="bg-kindia-gold text-slate-900 text-[10px] px-2 py-0.5 rounded-full font-extrabold font-mono uppercase">
                 Version v{versionNum}
               </span>
               <span className="bg-slate-800 text-slate-300 text-[10px] px-2 py-0.5 rounded-full font-mono border border-slate-700">
-                {fileType}
+                {isMissionOrder ? 'A4 OFFICIEL' : fileType}
               </span>
             </h2>
-            <p className="text-[11px] text-slate-400">Rendu réel du document officiel importé — Université de Kindia</p>
+            <p className="text-[11px] text-slate-400">Rendu conforme aux normes administratives de l'Université de Kindia</p>
           </div>
         </div>
 
@@ -183,31 +208,17 @@ export default function TemplatePreviewModal({ template, version, onClose, onOpe
           </button>
         </div>
 
-        {/* Multi-page Navigation */}
-        <div className="flex items-center space-x-2 bg-slate-900/60 px-3 py-1.5 rounded-xl border border-slate-700 text-[11px]">
-          <button 
-            onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
-            disabled={currentPage <= 1}
-            className="p-1 hover:bg-slate-700 rounded disabled:opacity-40 transition"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-
-          <span className="font-mono text-slate-300">
-            Page <strong className="text-white">{currentPage}</strong> sur {totalPages}
-          </span>
-
-          <button 
-            onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
-            disabled={currentPage >= totalPages}
-            className="p-1 hover:bg-slate-700 rounded disabled:opacity-40 transition"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Primary Actions: Edit, Download, Fullscreen, Close */}
+        {/* Primary Actions */}
         <div className="flex items-center space-x-2">
+          <button
+            onClick={handlePrintDocument}
+            className="px-3.5 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-xl transition flex items-center space-x-1.5"
+            title="Imprimer le document"
+          >
+            <Printer className="w-4 h-4 text-emerald-400" />
+            <span>Imprimer</span>
+          </button>
+
           {onOpenEditor && (
             <button
               onClick={() => {
@@ -215,10 +226,10 @@ export default function TemplatePreviewModal({ template, version, onClose, onOpe
                 onOpenEditor(template, version);
               }}
               className="px-4 py-1.5 bg-kindia-blue hover:bg-kindia-lightBlue text-white font-extrabold rounded-xl transition shadow flex items-center space-x-1.5 border border-kindia-gold/40"
-              title="Ouvrir ce modèle exact dans l'Éditeur Word"
+              title="Ouvrir dans l'Éditeur"
             >
               <Edit3 className="w-4 h-4 text-kindia-gold" />
-              <span>✍️ Personnaliser ce modèle</span>
+              <span>✍️ Personnaliser</span>
             </button>
           )}
 
@@ -234,7 +245,7 @@ export default function TemplatePreviewModal({ template, version, onClose, onOpe
           <button
             onClick={handleDownloadOriginal}
             className="px-4 py-1.5 bg-kindia-gold hover:bg-amber-400 text-slate-900 font-extrabold rounded-xl transition shadow flex items-center space-x-1.5"
-            title="Télécharger le fichier original"
+            title="Télécharger le fichier"
           >
             <Download className="w-4 h-4" />
             <span>Télécharger</span>
@@ -256,7 +267,7 @@ export default function TemplatePreviewModal({ template, version, onClose, onOpe
             <Loader2 className="w-10 h-10 text-kindia-blue animate-spin" />
             <div>
               <h4 className="font-heading font-extrabold text-slate-800 text-base">Chargement de la prévisualisation…</h4>
-              <p className="text-xs text-slate-500 mt-1">Préparation du document {fileType} de la version v{versionNum}</p>
+              <p className="text-xs text-slate-500 mt-1">Préparation du document officiel</p>
             </div>
           </div>
         ) : error ? (
@@ -267,24 +278,6 @@ export default function TemplatePreviewModal({ template, version, onClose, onOpe
             <div>
               <h4 className="font-heading font-extrabold text-red-900 text-base">Impossible de prévisualiser le fichier</h4>
               <p className="text-xs text-slate-600 mt-2 leading-relaxed">{error}</p>
-            </div>
-
-            <div className="pt-3 flex flex-wrap gap-2 justify-center">
-              <button
-                onClick={loadDocumentPreview}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center space-x-1"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>Réessayer</span>
-              </button>
-
-              <button
-                onClick={handleDownloadOriginal}
-                className="px-4 py-2 bg-kindia-blue text-white hover:bg-kindia-lightBlue rounded-xl text-xs font-bold flex items-center space-x-1 shadow"
-              >
-                <Download className="w-3.5 h-3.5 text-kindia-gold" />
-                <span>Télécharger le fichier original</span>
-              </button>
             </div>
           </div>
         ) : (
@@ -316,12 +309,6 @@ export default function TemplatePreviewModal({ template, version, onClose, onOpe
             {/* ODT / HTML / CUSTOMIZED VIEWER */}
             {(fileType === 'ODT' || odtHtml) && (
               <div className="w-full bg-white rounded-2xl shadow-2xl p-8 md:p-12 border border-slate-200 min-h-[82vh] text-left">
-                <div className="border-b border-slate-200 pb-4 mb-6 flex justify-between items-center">
-                  <span className="text-xs font-mono font-bold text-kindia-gold uppercase">
-                    {fileType === 'ODT' ? 'DOCUMENT OPENOFFICE / LIBREOFFICE (ODT)' : 'DOCUMENT OFFICIEL PERSONNALISÉ'}
-                  </span>
-                  <span className="text-xs text-slate-400 font-mono">v{versionNum}</span>
-                </div>
                 <div 
                   className="prose prose-slate max-w-none text-slate-800 text-sm leading-relaxed"
                   dangerouslySetInnerHTML={{ __html: odtHtml }}

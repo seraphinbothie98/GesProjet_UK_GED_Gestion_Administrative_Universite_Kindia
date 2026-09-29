@@ -60,6 +60,30 @@ export function AuthProvider({ children }) {
     return `${targetPath}?v=${version}`;
   };
 
+  const getRectorPhotoUrl = () => {
+    const targetPath = institution?.rector_photo_path || '/uploads/logos/rector_portrait.jpg';
+    if (!targetPath) return '/rector_portrait.jpg';
+    const version = institution?.updated_at ? new Date(institution.updated_at).getTime() : Date.now();
+    return `${targetPath}?v=${version}`;
+  };
+
+  const getLoginBackgroundUrl = () => {
+    const targetPath = institution?.login_background_path || '/uploads/logos/login_bg_default.jpg';
+    if (!targetPath) return '/login_bg_default.jpg';
+    const version = institution?.updated_at ? new Date(institution.updated_at).getTime() : Date.now();
+    return `${targetPath}?v=${version}`;
+  };
+
+  const refreshUser = async () => {
+    try {
+      const u = await api.getMe();
+      if (u) setUser(u);
+      return u;
+    } catch (err) {
+      console.error('Failed to refresh user profile:', err);
+    }
+  };
+
   const refreshInstitution = async () => {
     await loadInstitution();
   };
@@ -67,8 +91,12 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{
       user,
+      setUser,
+      refreshUser,
       institution,
       getLogoUrl,
+      getRectorPhotoUrl,
+      getLoginBackgroundUrl,
       refreshInstitution,
       login,
       logout,

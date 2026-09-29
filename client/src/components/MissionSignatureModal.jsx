@@ -6,6 +6,7 @@ import {
   Eye, Download, ShieldCheck, Clock, User, Calendar, MapPin, 
   Car, Briefcase, Hash, ExternalLink, RefreshCw, X, AlertCircle
 } from 'lucide-react';
+import { formatFullName, formatTransportDisplay, formatDriverDisplay } from '../utils/userUtils';
 
 export default function MissionSignatureModal({ 
   documentId, 
@@ -83,9 +84,11 @@ export default function MissionSignatureModal({
   const nationality = extension.nationality || missionData?.nationality || 'Guinéenne';
   const departureDate = extension.departure_date || missionData?.departure_date || 'Date de départ';
   const returnDate = extension.return_date || missionData?.return_date || 'Date de retour';
-  const transportMode = extension.transport_mode || missionData?.transport_mode || 'Véhicule de service';
-  const driverName = extension.driver_name || extension.driver_name_snapshot || missionData?.driver_name || missionaryName;
-  const vehicleReg = extension.vehicle_registration || extension.vehicle_registration_snapshot || missionData?.vehicle_registration || 'Véhicule officiel';
+  const rawTransport = extension.transport_mode || missionData?.transport_mode || 'Véhicule service/Personnel';
+  const vehicleReg = extension.vehicle_registration || extension.vehicle_registration_snapshot || missionData?.vehicle_registration || '';
+  const transportMode = formatTransportDisplay(rawTransport, vehicleReg);
+  const rawDriver = extension.driver_name || extension.driver_name_snapshot || missionData?.driver_name;
+  const driverName = formatDriverDisplay(rawTransport, rawDriver, extension.driver_option, missionaryName);
   const observations = extension.observations || missionData?.observations || '';
   
   // File paths for real document rendering
@@ -260,16 +263,13 @@ export default function MissionSignatureModal({
                   </div>
 
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 sm:col-span-2 lg:col-span-1">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Transport & Conduite</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Moyen de Transport</span>
                     <span className="font-bold text-slate-800 block mt-0.5 flex items-center space-x-1">
                       <Car className="w-3.5 h-3.5 text-amber-600 inline mr-1" />
                       <span>{transportMode}</span>
                     </span>
                     <span className="text-[11px] text-slate-600 block mt-0.5">
-                      Conducteur : <strong>{driverName}</strong>
-                    </span>
-                    <span className="text-[10px] text-slate-500 font-mono block">
-                      Immatriculation : {vehicleReg}
+                      Conduit par : <strong>{driverName}</strong>
                     </span>
                   </div>
 
@@ -449,7 +449,7 @@ export default function MissionSignatureModal({
                         )}
                       </div>
                       <p className="font-extrabold text-slate-900 underline">
-                        {user?.first_name} {user?.last_name}
+                        {formatFullName(user)}
                       </p>
                     </div>
                   </div>
@@ -484,7 +484,7 @@ export default function MissionSignatureModal({
                   <div className="bg-white p-3.5 rounded-xl border border-amber-200 space-y-1.5">
                     <span className="text-[10px] font-bold text-slate-400 uppercase block">Signataire Officiel Connecté</span>
                     <span className="font-black text-slate-800 text-sm block">
-                      {user?.first_name} {user?.last_name}
+                      {formatFullName(user)}
                     </span>
                     <span className="text-[11px] text-slate-600 block">
                       {user?.function_title || 'Secrétaire Général de l’Université de Kindia'}

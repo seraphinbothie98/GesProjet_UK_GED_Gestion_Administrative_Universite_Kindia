@@ -10,7 +10,7 @@ import DispatchDetailModal from '../components/DispatchDetailModal';
 import AttachmentPreviewModal from '../components/AttachmentPreviewModal';
 import AcknowledgeDispatchModal from '../components/AcknowledgeDispatchModal';
 
-export default function Dispatching({ onSelectDocument }) {
+export default function Dispatching({ onSelectDocument, autoOpenCreate = false }) {
   const [activeTab, setActiveTab] = useState('INBOX'); // 'INBOX', 'TRACKING', 'DASHBOARD'
   
   // Inbox state
@@ -31,7 +31,13 @@ export default function Dispatching({ onSelectDocument }) {
   const [statsLoading, setStatsLoading] = useState(false);
 
   // Modals state
-  const [showNewModal, setShowNewModal] = useState(false);
+  const [showNewModal, setShowNewModal] = useState(autoOpenCreate);
+
+  useEffect(() => {
+    if (autoOpenCreate) {
+      setShowNewModal(true);
+    }
+  }, [autoOpenCreate]);
   const [selectedDispatchId, setSelectedDispatchId] = useState(null);
   const [previewDocModal, setPreviewDocModal] = useState(null); // Attachment to preview
   const [acknowledgingItem, setAcknowledgingItem] = useState(null); // Item for Acknowledge workflow

@@ -1,12 +1,15 @@
 import React from 'react';
 import { useAuth } from '../context/AuthContext';
+import { usePwa } from '../context/PwaContext';
 import { 
   LayoutDashboard, Inbox, Send, FileCheck, Archive, 
-  Search, ShieldAlert, Building2, Users, Lock, Award, QrCode, Calendar, X, LogOut, ChevronRight, FileText
+  Search, ShieldAlert, Building2, Users, Lock, Award, QrCode, Calendar, X, LogOut, ChevronRight, FileText, Download, CheckCircle2
 } from 'lucide-react';
+import { formatFullName } from '../utils/userUtils';
 
 export default function MobileDrawer({ isOpen, onClose, currentPage, setCurrentPage }) {
   const { user, hasPermission, institution, getLogoUrl, logout } = useAuth();
+  const { isInstalled, promptInstall } = usePwa();
   const logoUrl = getLogoUrl();
 
   if (!isOpen) return null;
@@ -26,7 +29,7 @@ export default function MobileDrawer({ isOpen, onClose, currentPage, setCurrentP
     { id: 'outgoing', label: 'Courriers sortants', icon: Send, show: isCentralAdminOrSC && hasPermission('outgoing_mail.read') },
     { 
       id: 'missions', 
-      label: '📄 Gestion des Ordres de mission', 
+      label: '📄 Ordre de mission', 
       icon: FileCheck, 
       show: isCentralAdminOrSC 
     },
@@ -35,13 +38,14 @@ export default function MobileDrawer({ isOpen, onClose, currentPage, setCurrentP
     { id: 'search', label: 'Recherche globale', icon: Search, show: true },
     { id: 'audit', label: 'Journal d’audit', icon: ShieldAlert, show: hasPermission('audit.read') || user?.role_code === 'ADMINISTRATEUR' },
     { id: 'services', label: 'Gestion des services', icon: Building2, show: hasPermission('services.read') || user?.role_code === 'ADMINISTRATEUR' },
-    { id: 'users', label: 'Gestion des utilisateurs', icon: Users, show: hasPermission('users.read') || user?.role_code === 'ADMINISTRATEUR' },
     { id: 'roles', label: 'Rôles & Permissions', icon: Lock, show: hasPermission('roles.create') || user?.role_code === 'ADMINISTRATEUR' },
-    { id: 'staff', label: '👥 Personnel', icon: Users, show: user?.service_code === 'SC' || hasPermission('personnel.view') || user?.role_code === 'ADMINISTRATEUR' },
+    { id: 'staff', label: '👥 Personnel & Utilisateurs', icon: Users, show: hasPermission('users.read') || user?.service_code === 'SC' || hasPermission('personnel.view') || user?.role_code === 'ADMINISTRATEUR' },
+    { id: 'fleet', label: '🚗 Parc Automobile', icon: Building2, show: isCentralAdminOrSC },
+    { id: 'drivers', label: '🚖 Chauffeurs', icon: Users, show: isCentralAdminOrSC },
     { id: 'institution', label: '🏛️ Identité Visuelle', icon: Building2, show: hasPermission('institution.manage') || user?.role_code === 'ADMINISTRATEUR' },
-    { id: 'templates', label: '📄 Modèles de documents', icon: FileCheck, show: hasPermission('templates.manage') || user?.role_code === 'ADMINISTRATEUR' },
+    { id: 'mission-template', label: '📜 Modèle Ordre de mission', icon: FileCheck, show: user?.role_code === 'ADMINISTRATEUR' },
     { id: 'document-types', label: '⚖️ Types de documents', icon: FileText, show: hasPermission('settings.manage') || user?.role_code === 'ADMINISTRATEUR' },
-    { id: 'signatures', label: '✍️ Signatures électroniques', icon: Lock, show: hasPermission('signatures.manage') || user?.role_code === 'ADMINISTRATEUR' },
+    { id: 'signatures', label: '✍️ Signatures électroniques', icon: Lock, show: user?.role_code === 'ADMINISTRATEUR' },
     { id: 'maintenance', label: '🛠️ Corbeille & Maintenance', icon: ShieldAlert, show: user?.role_code === 'ADMINISTRATEUR' },
     { id: 'account-settings', label: '👤 Mon Compte & Sécurité', icon: Users, show: true }
   ];
@@ -96,7 +100,7 @@ export default function MobileDrawer({ isOpen, onClose, currentPage, setCurrentP
             </div>
             <div className="overflow-hidden">
               <span className="block text-xs font-bold text-white truncate">
-                {user?.first_name} {user?.last_name}
+                {formatFullName(user)}
               </span>
               <span className="block text-[10px] text-kindia-gold truncate">
                 {user?.function_title || user?.role_name}
@@ -133,8 +137,26 @@ export default function MobileDrawer({ isOpen, onClose, currentPage, setCurrentP
           </nav>
         </div>
 
-        {/* Footer */}
-        <div className="p-4 border-t border-white/10 space-y-3">
+        {/* Footer & PWA Installation */}
+        <div className="p-4 border-t border-white/10 space-y-2.5">
+          {!isInstalled ? (
+            <button
+              onClick={() => {
+                onClose();
+                promptInstall();
+              }}
+              className="w-full py-2.5 bg-kindia-gold text-kindia-blue hover:bg-yellow-400 rounded-xl text-xs font-black flex items-center justify-center space-x-2 shadow-md transition cursor-pointer"
+            >
+              <Download className="w-4 h-4 text-kindia-blue" />
+              <span>Installer UK-GED sur mobile</span>
+            </button>
+          ) : (
+            <div className="w-full py-1.5 flex items-center justify-center space-x-1.5 text-[11px] text-slate-300 font-medium bg-white/5 rounded-lg border border-white/10">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Application installée</span>
+            </div>
+          )}
+
           <button
             onClick={() => {
               onClose();

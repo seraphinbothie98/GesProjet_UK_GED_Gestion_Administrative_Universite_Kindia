@@ -28,7 +28,7 @@ const reportRoutes = require('./routes/reportRoutes');
 const appointmentRoutes = require('./routes/appointmentRoutes');
 const documentTypeRoutes = require('./routes/documentTypeRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
-const templateRoutes = require('./routes/templateRoutes');
+const missionTemplateRoutes = require('./routes/missionTemplateRoutes');
 const signatureRoutes = require('./routes/signatureRoutes');
 const staffRoutes = require('./routes/staffRoutes');
 const maintenanceRoutes = require('./routes/maintenanceRoutes');
@@ -42,6 +42,9 @@ const transmissionRoutes = require('./routes/transmissionRoutes');
 const accountRoutes = require('./routes/accountRoutes');
 const onlyofficeRoutes = require('./routes/onlyofficeRoutes');
 const onlyofficeDocumentService = require('./services/onlyofficeDocumentService');
+const vehicleRoutes = require('./routes/vehicleRoutes');
+const driverRoutes = require('./routes/driverRoutes');
+const positionRoutes = require('./routes/positionRoutes');
 
 const app = express();
 
@@ -61,6 +64,7 @@ app.use('/uploads', (req, res) => {
   const candidates = [
     path.join(UPLOAD_DIR, reqSubPath),
     path.join(UPLOAD_DIR, fileBasename),
+    path.join(UPLOAD_DIR, 'avatars', fileBasename),
     path.join(UPLOAD_DIR, 'logos', fileBasename),
     path.join(UPLOAD_DIR, 'signatures', fileBasename),
     path.join(UPLOAD_DIR, 'templates', fileBasename)
@@ -106,9 +110,12 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/document-types', documentTypeRoutes);
 app.use('/api/settings', settingsRoutes);
-app.use('/api/templates', templateRoutes);
+app.use('/api/mission-template', missionTemplateRoutes);
 app.use('/api/signatures', signatureRoutes);
 app.use('/api/staff', staffRoutes);
+app.use('/api/vehicles', vehicleRoutes);
+app.use('/api/drivers', driverRoutes);
+app.use('/api/positions', positionRoutes);
 app.use('/api/admin/maintenance', maintenanceRoutes);
 app.use('/api/external-missionaries', externalMissionaryRoutes);
 app.use('/api/mission-requests', missionRequestRoutes);

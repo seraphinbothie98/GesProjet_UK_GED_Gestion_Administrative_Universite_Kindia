@@ -1,12 +1,14 @@
 import React from 'react';
 import { useAuth } from '../context/AuthContext';
+import { usePwa } from '../context/PwaContext';
 import { 
   LayoutDashboard, Inbox, Send, FileCheck, Archive, 
-  Search, ShieldAlert, Building2, Users, Lock, Award, QrCode, Calendar, FileText
+  Search, ShieldAlert, Building2, Users, Lock, Award, QrCode, Calendar, FileText, Download, CheckCircle2, LogOut
 } from 'lucide-react';
 
 export default function Sidebar({ currentPage, setCurrentPage }) {
-  const { user, hasPermission, institution, getLogoUrl } = useAuth();
+  const { user, hasPermission, institution, getLogoUrl, logout } = useAuth();
+  const { isInstalled, promptInstall } = usePwa();
   const logoUrl = getLogoUrl();
   const showLogo = institution?.show_logo_sidebar !== 0 && logoUrl;
 
@@ -27,7 +29,7 @@ export default function Sidebar({ currentPage, setCurrentPage }) {
     { id: 'outgoing', label: 'Courriers sortants', icon: Send, show: isCentralAdminOrSC && hasPermission('outgoing_mail.read') },
     { 
       id: 'missions', 
-      label: user?.role_code === 'SECRÉTAIRE_GÉNÉRAL' || user?.role_code === 'RECTEUR' ? '✍️ Ordres de mission (À signer)' : '📄 Gestion des Ordres de mission', 
+      label: user?.role_code === 'SECRÉTAIRE_GÉNÉRAL' || user?.role_code === 'RECTEUR' ? '✍️ Ordres de mission (À signer)' : '📄 Ordre de mission', 
       icon: FileCheck, 
       show: isCentralAdminOrSC || user?.role_code === 'SECRÉTAIRE_GÉNÉRAL' || user?.role_code === 'RECTEUR' || hasPermission('mission.sign') || user?.personnel_category === 'ENSEIGNANT_CHERCHEUR'
     },
@@ -36,14 +38,13 @@ export default function Sidebar({ currentPage, setCurrentPage }) {
     { id: 'search', label: 'Recherche globale', icon: Search, show: true },
     { id: 'audit', label: 'Journal d’audit', icon: ShieldAlert, show: hasPermission('audit.read') || user?.role_code === 'ADMINISTRATEUR' },
     { id: 'services', label: 'Gestion des services', icon: Building2, show: hasPermission('services.read') || user?.role_code === 'ADMINISTRATEUR' },
-    { id: 'admin-service-archives', label: '🗄️ Archives des Services', icon: Archive, show: user?.role_code === 'ADMINISTRATEUR' },
-    { id: 'users', label: 'Gestion des utilisateurs', icon: Users, show: hasPermission('users.read') || user?.role_code === 'ADMINISTRATEUR' },
-    { id: 'roles', label: 'Rôles & Permissions', icon: Lock, show: hasPermission('roles.create') || user?.role_code === 'ADMINISTRATEUR' },
-    { id: 'staff', label: '👥 Personnel', icon: Users, show: user?.service_code === 'SC' || hasPermission('personnel.view') || user?.role_code === 'ADMINISTRATEUR' },
+    { id: 'staff', label: '👥 Personnel & Utilisateurs', icon: Users, show: hasPermission('users.read') || user?.service_code === 'SC' || hasPermission('personnel.view') || user?.role_code === 'ADMINISTRATEUR' },
+    { id: 'fleet', label: '🚗 Parc Automobile', icon: Building2, show: isCentralAdminOrSC },
+    { id: 'drivers', label: '🚖 Chauffeurs', icon: Users, show: isCentralAdminOrSC },
     { id: 'institution', label: '🏛️ Identité Visuelle', icon: Building2, show: hasPermission('institution.manage') || user?.role_code === 'ADMINISTRATEUR' },
-    { id: 'templates', label: '📄 Modèles de documents', icon: FileCheck, show: hasPermission('templates.manage') || user?.role_code === 'ADMINISTRATEUR' },
+    { id: 'mission-template', label: '📜 Modèle Ordre de mission', icon: FileCheck, show: user?.role_code === 'ADMINISTRATEUR' },
     { id: 'document-types', label: '⚖️ Types de documents', icon: FileText, show: hasPermission('settings.manage') || user?.role_code === 'ADMINISTRATEUR' },
-    { id: 'signatures', label: '✍️ Signatures électroniques', icon: Lock, show: hasPermission('signatures.manage') || user?.role_code === 'ADMINISTRATEUR' },
+    { id: 'signatures', label: '✍️ Signatures électroniques', icon: Lock, show: user?.role_code === 'ADMINISTRATEUR' },
     { id: 'maintenance', label: '🛠️ Corbeille & Maintenance', icon: ShieldAlert, show: user?.role_code === 'ADMINISTRATEUR' },
     { id: 'account-settings', label: '👤 Mon Compte & Sécurité', icon: Users, show: true }
   ];
@@ -112,11 +113,42 @@ export default function Sidebar({ currentPage, setCurrentPage }) {
         </nav>
       </div>
 
-      {/* Footer Info */}
-      <div className="p-4 border-t border-white/10 text-center">
-        <span className="text-[10px] text-slate-400 block font-medium">République de Guinée</span>
-        <span className="text-[9px] text-kindia-gold block">Système Officiel Certifié 2026</span>
+      {/* Footer & PWA Installation Action */}
+      <div className="p-4 border-t border-white/10 text-center space-y-2.5">
+        {!isInstalled ? (
+          <button
+            onClick={() => promptInstall()}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-kindia-gold/15 hover:bg-kindia-gold/25 text-kindia-gold border border-kindia-gold/30 text-xs font-bold transition shadow-xs group cursor-pointer"
+            title="Installer UK-GED comme application sur cet ordinateur"
+          >
+            <div className="flex items-center space-x-2">
+              <Download className="w-4 h-4 text-kindia-gold shrink-0 group-hover:scale-110 transition" />
+              <span>Installer UK-GED</span>
+            </div>
+            <span className="text-[10px] bg-kindia-gold text-kindia-blue font-black px-1.5 py-0.5 rounded">PWA</span>
+          </button>
+        ) : (
+          <div className="w-full flex items-center justify-center space-x-1.5 py-1 text-slate-300 text-[10px] font-medium opacity-80">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <span>Application installée</span>
+          </div>
+        )}
+
+        <button
+          onClick={logout}
+          className="w-full flex items-center justify-center space-x-2 px-3 py-2.5 rounded-xl bg-rose-600/20 hover:bg-rose-600 hover:text-white text-rose-300 border border-rose-500/30 text-xs font-bold transition duration-150 shadow-xs cursor-pointer group"
+          title="Se déconnecter et retourner à la page de connexion"
+        >
+          <LogOut className="w-4 h-4 text-rose-300 group-hover:text-white transition shrink-0" />
+          <span>Se déconnecter</span>
+        </button>
+
+        <div>
+          <span className="text-[10px] text-slate-400 block font-medium">République de Guinée</span>
+          <span className="text-[9px] text-kindia-gold block">Système Officiel Certifié 2026</span>
+        </div>
       </div>
     </aside>
   );
 }
+

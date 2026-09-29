@@ -146,82 +146,342 @@ function parseParagraphXml(pXml) {
 
 /**
  * Replaces dynamic placeholders {{tag}} inside a Word XML string,
- * automatically handling Word XML fragmentation across <w:t> tags.
+ * preserving Word run properties (<w:rPr>) and formatting faithfully.
  */
 function replacePlaceholdersInWordXml(xmlString, dataMap) {
   if (!xmlString) return xmlString;
 
-  return xmlString.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (paragraphXml) => {
-    const textMatches = [];
-    const tRegex = /(<w:t\b[^>]*>)([\s\S]*?)(<\/w:t>)/g;
-    let match;
-    let fullText = '';
-    
-    while ((match = tRegex.exec(paragraphXml)) !== null) {
-      textMatches.push({
-        full: match[0],
-        openTag: match[1],
-        content: match[2],
-        closeTag: match[3],
-        index: match.index
-      });
-      fullText += match[2];
+  // Normalized map of cleaned keys and XML-escaped values
+  const normalizedMap = [];
+  for (const [rawKey, val] of Object.entries(dataMap)) {
+    const cleanKey = rawKey.replace(/^\{\{|\}\}$/g, '').trim();
+    let escapedVal = xmlEscape(val !== undefined && val !== null ? val : '');
+    if (escapedVal.includes('\n')) {
+      escapedVal = escapedVal.replace(/\r\n/g, '\n').replace(/\n/g, '</w:t><w:br/><w:t>');
     }
+    const keyPattern = cleanKey.replace(/_/g, '[_\\s]+');
+    const regex = new RegExp(`\\{\\s*\\{\\s*${keyPattern}\\s*\\}\\s*\\}`, 'gi');
+    normalizedMap.push({ key: cleanKey, regex, val: escapedVal });
+  }
 
-    if (!fullText.includes('{{')) {
+  return xmlString.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (paragraphXml) => {
+    if (!paragraphXml.includes('{')) {
       return paragraphXml;
     }
 
-    let replacedText = fullText;
-    for (const [rawKey, val] of Object.entries(dataMap)) {
-      const cleanKey = rawKey.replace(/^\{\{|\}\}$/g, '');
-      const regex = new RegExp(`\\{\\{\\s*${cleanKey}\\s*\\}\\}`, 'gi');
-      replacedText = replacedText.replace(regex, xmlEscape(val !== undefined && val !== null ? val : ''));
+    // Step 1: In-place replacement within individual <w:t> elements (preserves exact run styling)
+    let processedXml = paragraphXml.replace(/(<w:t\b[^>]*>)([\s\S]*?)(<\/w:t>)/g, (match, openTag, textContent, closeTag) => {
+      let updatedText = textContent;
+      for (const { regex, val } of normalizedMap) {
+        if (regex.test(updatedText)) {
+          regex.lastIndex = 0;
+          updatedText = updatedText.replace(regex, val);
+        }
+      }
+      return `${openTag}${updatedText}${closeTag}`;
+    });
+
+    if (!processedXml.includes('{')) {
+      return processedXml;
     }
 
-    if (replacedText !== fullText && textMatches.length > 0) {
-      let count = 0;
-      return paragraphXml.replace(/(<w:t\b[^>]*>)([\s\S]*?)(<\/w:t>)/g, (m, open, text, close) => {
-        count++;
-        if (count === 1) return `${open}${replacedText}${close}`;
-        return `${open}${close}`;
-      });
+    // Step 2: Handle cross-run split placeholders iteratively until all placeholders are replaced
+    let changed = true;
+    let maxIterations = 15;
+    while (changed && maxIterations-- > 0 && processedXml.includes('{')) {
+      changed = false;
+      const tRegex = /(<w:t\b[^>]*>)([\s\S]*?)(<\/w:t>)/g;
+      const textMatches = [];
+      let match;
+      let fullText = '';
+
+      while ((match = tRegex.exec(processedXml)) !== null) {
+        const start = fullText.length;
+        const content = match[2];
+        const end = start + content.length;
+        textMatches.push({
+          full: match[0],
+          openTag: match[1],
+          content,
+          closeTag: match[3],
+          start,
+          end
+        });
+        fullText += content;
+      }
+
+      for (const { regex, val } of normalizedMap) {
+        regex.lastIndex = 0;
+        const tagMatch = regex.exec(fullText);
+        if (tagMatch) {
+          const matchStart = tagMatch.index;
+          const matchEnd = matchStart + tagMatch[0].length;
+          const affectedRuns = textMatches.filter(r => r.end > matchStart && r.start < matchEnd);
+          if (affectedRuns.length > 0) {
+            for (let i = 0; i < affectedRuns.length; i++) {
+              const run = affectedRuns[i];
+              const localStart = Math.max(0, matchStart - run.start);
+              const localEnd = Math.min(run.content.length, matchEnd - run.start);
+
+              if (i === 0) {
+                const prefix = run.content.substring(0, localStart);
+                const suffix = (affectedRuns.length === 1) ? run.content.substring(localEnd) : '';
+                run.content = prefix + val + suffix;
+              } else if (i === affectedRuns.length - 1) {
+                run.content = run.content.substring(localEnd);
+              } else {
+                run.content = '';
+              }
+            }
+
+            let runIndex = 0;
+            processedXml = processedXml.replace(/(<w:t\b[^>]*>)([\s\S]*?)(<\/w:t>)/g, (m, open, text, close) => {
+              const r = textMatches[runIndex++];
+              return r ? `${open}${r.content}${close}` : m;
+            });
+            changed = true;
+            break; // Restart loop to re-compute run offsets accurately
+          }
+        }
+      }
     }
 
-    return paragraphXml;
+    return processedXml;
   });
 }
 
 /**
- * Main function to inject data into a DOCX template file.
+ * Helper to normalize and consolidate split {{...}} placeholders in Word paragraph XML
  */
-async function fillDocxTemplate(docxBufferOrPath, dataMap) {
+function normalizeParagraphRuns(pXml) {
+  if (!pXml.includes('{')) return pXml;
+
+  // 1. Remove proofErr and spelling tags that Word inserts inside curly braces
+  let cleanedXml = pXml.replace(/<w:proofErr\b[^>]*\/>/g, '');
+
+  // 2. Parse all <w:t> elements and their offsets in the combined text
+  const tRegex = /(<w:t\b[^>]*>)([\s\S]*?)(<\/w:t>)/g;
+  const textMatches = [];
+  let match;
+  let fullText = '';
+
+  while ((match = tRegex.exec(cleanedXml)) !== null) {
+    const start = fullText.length;
+    const content = match[2];
+    const end = start + content.length;
+    textMatches.push({
+      openTag: match[1],
+      content,
+      closeTag: match[3],
+      start,
+      end
+    });
+    fullText += content;
+  }
+
+  if (!fullText.includes('{')) return cleanedXml;
+
+  // 3. Find all {{tag}} patterns in fullText
+  const tagRegex = /\{\{\s*([a-zA-Z0-9_\s]+?)\s*\}\}/g;
+  let tagMatch;
+  let hasSplit = false;
+
+  while ((tagMatch = tagRegex.exec(fullText)) !== null) {
+    const matchStart = tagMatch.index;
+    const matchEnd = matchStart + tagMatch[0].length;
+    const cleanTag = `{{${tagMatch[1].trim()}}}`;
+
+    // Find affected runs
+    const affected = textMatches.filter(r => r.end > matchStart && r.start < matchEnd);
+    if (affected.length > 1) {
+      hasSplit = true;
+      for (let i = 0; i < affected.length; i++) {
+        const run = affected[i];
+        const localStart = Math.max(0, matchStart - run.start);
+        const localEnd = Math.min(run.content.length, matchEnd - run.start);
+
+        if (i === 0) {
+          const prefix = run.content.substring(0, localStart);
+          const suffix = (affected.length === 1) ? run.content.substring(localEnd) : '';
+          run.content = prefix + cleanTag + suffix;
+        } else if (i === affected.length - 1) {
+          run.content = run.content.substring(localEnd);
+        } else {
+          run.content = '';
+        }
+      }
+    }
+  }
+
+  if (hasSplit) {
+    let runIndex = 0;
+    cleanedXml = cleanedXml.replace(/(<w:t\b[^>]*>)([\s\S]*?)(<\/w:t>)/g, (m, open, text, close) => {
+      const r = textMatches[runIndex++];
+      return r ? `${open}${r.content}${close}` : m;
+    });
+  }
+
+  return cleanedXml;
+}
+
+/**
+ * Helper to generate an OpenXML DrawingML inline picture XML element
+ */
+function createInlineDrawingXml(relId, widthPt = 60, heightPt = 60, docPrId = 1, name = "Image") {
+  const cx = Math.round(widthPt * 12700);
+  const cy = Math.round(heightPt * 12700);
+  return `<w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="${docPrId}" name="${xmlEscape(name)}"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="${docPrId}" name="${xmlEscape(name)}"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="${relId}" cstate="print"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing>`;
+}
+
+/**
+ * Main function to inject data and images (QR Code, Signatures, Stamps) into a DOCX template file.
+ */
+async function fillDocxTemplate(docxBufferOrPath, dataMap = {}, imageMap = {}) {
   const buffer = typeof docxBufferOrPath === 'string'
     ? fs.readFileSync(docxBufferOrPath)
     : docxBufferOrPath;
 
   const zip = await JSZip.loadAsync(buffer);
+  const injectedImages = {};
 
-  const targetFiles = [
-    'word/document.xml',
-    'word/header1.xml',
-    'word/header2.xml',
-    'word/header3.xml',
-    'word/footer1.xml',
-    'word/footer2.xml',
-    'word/footer3.xml'
-  ];
-
-  for (const fileName of targetFiles) {
-    const file = zip.file(fileName);
-    if (file) {
-      const xmlContent = await file.async('string');
-      const updatedXml = replacePlaceholdersInWordXml(xmlContent, dataMap);
-      zip.file(fileName, updatedXml);
+  // 1. Ensure [Content_Types].xml supports PNG & JPEG images
+  const ctFile = zip.file('[Content_Types].xml');
+  if (ctFile) {
+    let ctXml = await ctFile.async('string');
+    let ctChanged = false;
+    if (!ctXml.includes('Extension="png"') && !ctXml.includes('extension="png"')) {
+      ctXml = ctXml.replace('</Types>', '<Default Extension="png" ContentType="image/png"/></Types>');
+      ctChanged = true;
+    }
+    if (!ctXml.includes('Extension="jpg"') && !ctXml.includes('extension="jpg"')) {
+      ctXml = ctXml.replace('</Types>', '<Default Extension="jpg" ContentType="image/jpeg"/></Types>');
+      ctChanged = true;
+    }
+    if (!ctXml.includes('Extension="jpeg"') && !ctXml.includes('extension="jpeg"')) {
+      ctXml = ctXml.replace('</Types>', '<Default Extension="jpeg" ContentType="image/jpeg"/></Types>');
+      ctChanged = true;
+    }
+    if (ctChanged) {
+      zip.file('[Content_Types].xml', ctXml);
     }
   }
 
-  return await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  // 2. Prepare Relationships in word/_rels/document.xml.rels
+  let docRelsXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+  const docRelsFile = zip.file('word/_rels/document.xml.rels');
+  if (docRelsFile) {
+    docRelsXml = await docRelsFile.async('string');
+  }
+
+  let nextRelIdx = 100;
+  const activeImageRels = {};
+
+  if (imageMap && typeof imageMap === 'object') {
+    for (const [rawKey, imgDef] of Object.entries(imageMap)) {
+      if (!imgDef) continue;
+      const cleanKey = rawKey.replace(/^\{\{|\}\}$/g, '').trim().toLowerCase();
+      let imgBuffer = imgDef.buffer;
+      if (!imgBuffer && imgDef.filePath && fs.existsSync(imgDef.filePath)) {
+        imgBuffer = fs.readFileSync(imgDef.filePath);
+      }
+      if (imgBuffer && Buffer.isBuffer(imgBuffer) && imgBuffer.length > 0) {
+        const ext = imgDef.extension || (imgDef.filePath && path.extname(imgDef.filePath).replace('.', '')) || 'png';
+        const relId = `rId_img_${cleanKey.replace(/[^a-zA-Z0-9]/g, '_')}_${nextRelIdx++}`;
+        const mediaName = `media_${cleanKey.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.${ext}`;
+        
+        zip.file(`word/media/${mediaName}`, imgBuffer);
+        
+        const newRel = `<Relationship Id="${relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${mediaName}"/>`;
+        docRelsXml = docRelsXml.replace('</Relationships>', `${newRel}</Relationships>`);
+        
+        activeImageRels[cleanKey] = {
+          relId,
+          widthPt: imgDef.widthPt || 60,
+          heightPt: imgDef.heightPt || 60,
+          name: imgDef.name || cleanKey
+        };
+      }
+    }
+    zip.file('word/_rels/document.xml.rels', docRelsXml);
+  }
+
+  // 3. Scan and process all XML parts inside the DOCX zip (document.xml, header*.xml, footer*.xml)
+  const fileNames = Object.keys(zip.files);
+  let docPrId = 500;
+
+  for (const fileName of fileNames) {
+    if (fileName.startsWith('word/') && fileName.endsWith('.xml') && !fileName.includes('_rels/')) {
+      const file = zip.file(fileName);
+      if (file) {
+        let xmlContent = await file.async('string');
+
+        // Step 3.0: Normalize paragraph runs to consolidate any split {{tag}} placeholders
+        xmlContent = xmlContent.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, normalizeParagraphRuns);
+
+        // Step 3.1: Inject inline images for matched tags
+        for (const [cleanKey, imgData] of Object.entries(activeImageRels)) {
+          const keyPattern = cleanKey.replace(/_/g, '[_\\s]+');
+          const tagCheckRegex = new RegExp(`\\{\\{\\s*${keyPattern}\\s*\\}\\}`, 'i');
+          
+          if (tagCheckRegex.test(xmlContent)) {
+            const drawingXml = createInlineDrawingXml(
+              imgData.relId,
+              imgData.widthPt,
+              imgData.heightPt,
+              docPrId++,
+              imgData.name
+            );
+
+            // 1. If inside an AlternateContent block (Word Textbox/Shape), replace the specific AlternateContent block
+            const altRegex = new RegExp(`<mc:AlternateContent\\b[^>]*>(?:(?!<mc:AlternateContent\\b)[\\s\\S])*?\\{\\{\\s*${keyPattern}\\s*\\}\\}[\\s\\S]*?<\\/mc:AlternateContent>`, 'gi');
+            if (altRegex.test(xmlContent)) {
+              altRegex.lastIndex = 0;
+              xmlContent = xmlContent.replace(altRegex, `<w:r><w:rPr><w:noProof/></w:rPr>${drawingXml}</w:r>`);
+              injectedImages[cleanKey] = true;
+            } else {
+              // 2. If inside a standard run
+              const runRegex = new RegExp(`<w:r\\b[^>]*>(?:(?!<w:r[ >])[\\s\\S])*?<w:t\\b[^>]*>\\s*\\{\\{\\s*${keyPattern}\\s*\\}\\}\\s*<\\/w:t>(?:(?!<w:r[ >])[\\s\\S])*?<\\/w:r>`, 'gi');
+              if (runRegex.test(xmlContent)) {
+                runRegex.lastIndex = 0;
+                xmlContent = xmlContent.replace(runRegex, `<w:r><w:rPr><w:noProof/></w:rPr>${drawingXml}</w:r>`);
+                injectedImages[cleanKey] = true;
+              } else {
+                const directTagRegex = new RegExp(`\\{\\{\\s*${keyPattern}\\s*\\}\\}`, 'gi');
+                if (directTagRegex.test(xmlContent)) {
+                  directTagRegex.lastIndex = 0;
+                  xmlContent = xmlContent.replace(directTagRegex, `</w:t></w:r><w:r><w:rPr><w:noProof/></w:rPr>${drawingXml}</w:r><w:r><w:t>`);
+                  injectedImages[cleanKey] = true;
+                }
+              }
+            }
+          }
+        }
+
+        // Step 3.2: Clear any unprovided image placeholders so they don't remain as raw {{tag}} text
+        const commonImageKeys = [
+          'qr_code', 'qrcode', 'signature', 'signature_sg', 'signature_secretaire_general',
+          'signature_recteur', 'cachet', 'cachet_officiel', 'tampon'
+        ];
+        for (const imgKey of commonImageKeys) {
+          if (!activeImageRels[imgKey]) {
+            const keyPattern = imgKey.replace(/_/g, '[_\\s]+');
+            const altClearRegex = new RegExp(`<mc:AlternateContent\\b[^>]*>(?:(?!<mc:AlternateContent\\b)[\\s\\S])*?\\{\\{\\s*${keyPattern}\\s*\\}\\}[\\s\\S]*?<\\/mc:AlternateContent>`, 'gi');
+            xmlContent = xmlContent.replace(altClearRegex, '');
+            const clearRegex = new RegExp(`\\{\\{\\s*${keyPattern}\\s*\\}\\}`, 'gi');
+            xmlContent = xmlContent.replace(clearRegex, '');
+          }
+        }
+
+        // Step 3.3: Replace standard text placeholders
+        const updatedXml = replacePlaceholdersInWordXml(xmlContent, dataMap);
+        zip.file(fileName, updatedXml);
+      }
+    }
+  }
+
+  const generatedBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  generatedBuffer.injectedImages = injectedImages;
+  return generatedBuffer;
 }
 
 /**
@@ -411,7 +671,7 @@ async function buildOfficialKindiaMissionDocx(data = {}) {
           <w:tcPr><w:tcW w:w="4850" w:type="dxa"/><w:vAlign w:bottom"/></w:tcPr>
           <w:p>
             <w:pPr><w:jc w:val="left"/><w:spacing w:after="0"/></w:pPr>
-            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:sz w:val="16"/><w:color w:val="64748B"/></w:rPr><w:t>[ QR Code Sécurisé : {{qr_code}} ]</w:t></w:r>
+            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:sz w:val="16"/><w:color w:val="64748B"/></w:rPr><w:t></w:t></w:r>
           </w:p>
         </w:tc>
         <w:tc>
@@ -776,7 +1036,7 @@ async function buildGenericOfficialDocx({
           <w:tcPr><w:tcW w:w="4850" w:type="dxa"/><w:vAlign w:bottom"/></w:tcPr>
           <w:p>
             <w:pPr><w:jc w:val="left"/><w:spacing w:after="0"/></w:pPr>
-            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:sz w:val="16"/><w:color w:val="64748B"/></w:rPr><w:t>[ Sceau / QR Code : {{QR_CODE}} ]</w:t></w:r>
+            <w:r><w:rPr><w:rFonts w:ascii="Times New Roman"/><w:sz w:val="16"/><w:color w:val="64748B"/></w:rPr><w:t></w:t></w:r>
           </w:p>
         </w:tc>
         <w:tc>
@@ -817,6 +1077,7 @@ async function buildGenericOfficialDocx({
 module.exports = {
   docxToHtml,
   fillDocxTemplate,
+  replacePlaceholdersInWordXml,
   buildOfficialKindiaMissionDocx,
   buildGenericOfficialDocx,
   generateDocxFromHtml

@@ -949,6 +949,29 @@ CREATE TABLE IF NOT EXISTS mission_order_request_attachments (
 );
 CREATE INDEX IF NOT EXISTS idx_mo_req_att_req_id ON mission_order_request_attachments(request_id);
 
+CREATE TABLE IF NOT EXISTS mission_order_participants (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mission_order_id INTEGER REFERENCES documents(id) ON DELETE CASCADE,
+    request_id INTEGER REFERENCES mission_order_requests(id) ON DELETE CASCADE,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    staff_id INTEGER REFERENCES staff(id) ON DELETE SET NULL,
+    nom TEXT NOT NULL,
+    prenoms TEXT,
+    titre TEXT DEFAULT 'M.',
+    fonction TEXT NOT NULL,
+    matricule TEXT,
+    service_name TEXT,
+    telephone TEXT,
+    email TEXT,
+    is_requester INTEGER DEFAULT 0,
+    order_index INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_mop_order_id ON mission_order_participants(mission_order_id);
+CREATE INDEX IF NOT EXISTS idx_mop_req_id ON mission_order_participants(request_id);
+CREATE INDEX IF NOT EXISTS idx_mop_user_id ON mission_order_participants(user_id);
+CREATE INDEX IF NOT EXISTS idx_mop_staff_id ON mission_order_participants(staff_id);
+
 -- =======================================================
 -- MODULE DE DISPATCHING ET DE DIFFUSION ADMINISTRATIVE
 -- =======================================================

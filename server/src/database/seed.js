@@ -347,6 +347,16 @@ async function seedDatabase(options = {}) {
     if (!userColNames.includes('academic_structure')) {
       await db.run("ALTER TABLE users ADD COLUMN academic_structure TEXT;");
     }
+    if (!userColNames.includes('titre')) {
+      await db.run("ALTER TABLE users ADD COLUMN titre TEXT DEFAULT 'M.';");
+    }
+
+    // Dynamic column migrations for staff table
+    const staffCols = await db.all("PRAGMA table_info(staff)");
+    const staffColNames = staffCols.map(c => c.name);
+    if (!staffColNames.includes('titre')) {
+      await db.run("ALTER TABLE staff ADD COLUMN titre TEXT DEFAULT 'M.';");
+    }
 
     // 1. Seed Roles
     console.log('--- SEEDING ROLES ---');
@@ -587,8 +597,9 @@ async function seedDatabase(options = {}) {
     const testUsers = [
       {
         matricule: 'UK-ADM-001',
-        first_name: 'Admin',
-        last_name: 'Kindia',
+        titre: 'M.',
+        first_name: 'Gnan Seraphin',
+        last_name: 'BOTHIE',
         email: 'admin@univ-kindia.edu.gn',
         phone: '+224 620 00 00 01',
         function_title: 'Administrateur Système',
@@ -600,8 +611,9 @@ async function seedDatabase(options = {}) {
       },
       {
         matricule: 'UK-SC-002',
-        first_name: 'Mariama',
-        last_name: 'Camara',
+        titre: 'Mme',
+        first_name: 'Marie Thérèse',
+        last_name: 'LAMAH',
         email: 'sc@univ-kindia.edu.gn',
         phone: '+224 621 11 22 33',
         function_title: 'Agent du Secrétariat Central',
@@ -613,8 +625,9 @@ async function seedDatabase(options = {}) {
       },
       {
         matricule: 'UK-SG-003',
-        first_name: 'Dr. Ousmane',
-        last_name: 'Diallo',
+        titre: 'Dr',
+        first_name: 'Mamadou Billo',
+        last_name: 'DOUMBOUYA',
         email: 'sg@univ-kindia.edu.gn',
         phone: '+224 622 33 44 55',
         function_title: 'Secrétaire Général',
@@ -625,9 +638,10 @@ async function seedDatabase(options = {}) {
         pass: sgPassword
       },
       {
-        matricule: 'UK-REC-004',
-        first_name: 'Prof. Mamadou',
-        last_name: 'Bah',
+        matricule: 'RECT_001_UK',
+        titre: 'Pr',
+        first_name: 'Akoye Massa',
+        last_name: 'ZOUMANIGUI',
         email: 'recteur@univ-kindia.edu.gn',
         phone: '+224 623 44 55 66',
         function_title: 'Recteur de l’Université de Kindia',
@@ -639,8 +653,9 @@ async function seedDatabase(options = {}) {
       },
       {
         matricule: 'UK-DAF-005',
-        first_name: 'Ibrahima Sory',
-        last_name: 'Sow',
+        titre: 'M.',
+        first_name: 'Kabinet',
+        last_name: 'SAMOURA',
         email: 'daf@univ-kindia.edu.gn',
         phone: '+224 624 55 66 77',
         function_title: 'Directeur des Affaires Financières',
@@ -652,8 +667,9 @@ async function seedDatabase(options = {}) {
       },
       {
         matricule: 'UK-CF-006',
-        first_name: 'Aissatou',
-        last_name: 'Barry',
+        titre: 'M.',
+        first_name: 'Moussa',
+        last_name: 'DONZO',
         email: 'cf@univ-kindia.edu.gn',
         phone: '+224 625 66 77 88',
         function_title: 'Contrôleur Financier',
@@ -665,8 +681,9 @@ async function seedDatabase(options = {}) {
       },
       {
         matricule: 'UK-FS-001',
-        first_name: 'Prof. Aboubacar',
-        last_name: 'Touré',
+        titre: 'Pr',
+        first_name: 'Boubacar Sidy Sily',
+        last_name: 'BAH',
         email: 'doyen_fs@univ-kindia.edu.gn',
         phone: '+224 626 11 22 44',
         function_title: 'Doyen de la Faculté des Sciences',
@@ -678,8 +695,9 @@ async function seedDatabase(options = {}) {
       },
       {
         matricule: 'UK-INFO-001',
-        first_name: 'Dr. Bangaly',
-        last_name: 'Kaba',
+        titre: 'Dr',
+        first_name: 'Mamadou Gando',
+        last_name: 'DIALLO',
         email: 'chef_info@univ-kindia.edu.gn',
         phone: '+224 627 00 11 22',
         function_title: 'Chef du Département d’Informatique',
@@ -691,8 +709,9 @@ async function seedDatabase(options = {}) {
       },
       {
         matricule: 'UK-INFO-002',
-        first_name: 'M. Sékou Oumar',
-        last_name: 'Traoré',
+        titre: 'M.',
+        first_name: 'Sékou Oumar',
+        last_name: 'TRAORÉ',
         email: 'agent_info@univ-kindia.edu.gn',
         phone: '+224 628 33 44 55',
         function_title: 'Enseignant & Rédacteur Administratif',
@@ -703,30 +722,18 @@ async function seedDatabase(options = {}) {
         pass: agentPassword
       },
       {
-        matricule: 'UK-MATH-001',
-        first_name: 'Dr. Ibrahima',
-        last_name: 'Camara',
-        email: 'chef_math@univ-kindia.edu.gn',
+        matricule: 'BIO_001_UK',
+        titre: 'Dre',
+        first_name: 'Mariame',
+        last_name: 'BAH',
+        email: 'bio001uk@univ-kindia.edu.gn',
         phone: '+224 629 00 22 44',
-        function_title: 'Chef du Département de Mathématiques',
+        function_title: 'Chef du Département de Biologie',
         personnel_category: 'ENSEIGNANT_CHERCHEUR',
-        academic_structure: 'Faculté des Sciences - Département de Mathématiques',
-        service_code: 'FS_MATH',
+        academic_structure: 'Faculté des Sciences - Département de Biologie',
+        service_code: 'FS_BIO',
         role_code: ROLES.CHEF_SERVICE,
         pass: chefPassword
-      },
-      {
-        matricule: 'UK-MATH-002',
-        first_name: 'M. Lansana',
-        last_name: 'Condé',
-        email: 'agent_math@univ-kindia.edu.gn',
-        phone: '+224 629 11 33 55',
-        function_title: 'Enseignant Chercheur en Mathématiques',
-        personnel_category: 'ENSEIGNANT_CHERCHEUR',
-        academic_structure: 'Faculté des Sciences - Département de Mathématiques',
-        service_code: 'FS_MATH',
-        role_code: ROLES.STANDARD,
-        pass: agentPassword
       }
     ];
 
@@ -738,16 +745,16 @@ async function seedDatabase(options = {}) {
 
       if (!existing) {
         const res = await db.run(
-          `INSERT INTO users (matricule, first_name, last_name, email, phone, function_title, personnel_category, academic_structure, service_id, role_id, password_hash, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')`,
-          [u.matricule, u.first_name, u.last_name, u.email, u.phone, u.function_title, u.personnel_category || 'PERSONNEL_ADMINISTRATIF', u.academic_structure || '', sId, rId, u.pass]
+          `INSERT INTO users (matricule, titre, first_name, last_name, email, phone, function_title, personnel_category, academic_structure, service_id, role_id, password_hash, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE')`,
+          [u.matricule, u.titre || 'M.', u.first_name, u.last_name, u.email, u.phone, u.function_title, u.personnel_category || 'PERSONNEL_ADMINISTRATIF', u.academic_structure || '', sId, rId, u.pass]
         );
         userIds[u.email] = res.lastID;
       } else {
         userIds[u.email] = existing.id;
         await db.run(
-          'UPDATE users SET function_title = ?, personnel_category = ?, academic_structure = ?, service_id = ?, role_id = ? WHERE id = ?',
-          [u.function_title, u.personnel_category || 'PERSONNEL_ADMINISTRATIF', u.academic_structure || '', sId, rId, existing.id]
+          'UPDATE users SET titre = ?, function_title = ?, personnel_category = ?, academic_structure = ?, service_id = ?, role_id = ? WHERE id = ?',
+          [u.titre || 'M.', u.function_title, u.personnel_category || 'PERSONNEL_ADMINISTRATIF', u.academic_structure || '', sId, rId, existing.id]
         );
       }
     }

@@ -5,12 +5,153 @@ const db = require('../database/db');
 const { generateQRCodeBuffer } = require('./qrService');
 const { UPLOAD_DIR } = require('../config/constants');
 const docxService = require('./docxService');
+const { convertDocxToPdf } = require('./docxToPdfEngine');
+const { formatFullName, formatTransportDisplay, formatDriverDisplay } = require('../utils/userUtils');
 
 /**
- * Helper to fetch active or specific customized template and version for a given document type code
+ * Helper to dynamically resolve the active Secrétaire Général / Signatory
  */
+async function resolveCurrentMissionSignatory(signatureDetails = {}) {
+  // If explicitly passed with a real custom signer name
+  if (signatureDetails.signed_by_name && signatureDetails.signed_by_name !== 'Dr Mamadou Billo DOUMBOUYA') {
+    return {
+      signerName: formatFullName(signatureDetails.signed_by_name),
+      signerRole: signatureDetails.signed_by_role || 'LE SECRETAIRE GENERAL',
+      signaturePath: signatureDetails.signature_image_path || null
+    };
+  }
+
+  try {
+    // 1. Check active assignment on position SECRETARIAT_GENERAL or RECTEUR
+    const sgAssign = await db.get(
+      `SELECT sa.*, p.title as pos_title, p.code as pos_code, 
+              s.nom, s.prenoms, s.titre as staff_titre, s.user_id,
+              u.first_name, u.last_name, u.titre as user_titre, u.id as direct_user_id
+       FROM staff_assignments sa 
+       JOIN positions p ON sa.position_id = p.id 
+       LEFT JOIN staff s ON sa.staff_id = s.id 
+       LEFT JOIN users u ON s.user_id = u.id 
+       WHERE sa.status = 'ACTIVE' 
+         AND (p.code = 'SECRETARIAT_GENERAL' OR p.title LIKE '%Secrétaire Général%')
+       ORDER BY sa.id DESC LIMIT 1`
+    );
+
+    if (sgAssign) {
+      const nom = sgAssign.nom || sgAssign.last_name || '';
+      const prenoms = sgAssign.prenoms || sgAssign.first_name || '';
+      const titre = sgAssign.staff_titre || sgAssign.user_titre || '';
+      const fullName = formatFullName({ nom, prenoms, titre });
+      const role = sgAssign.pos_title ? sgAssign.pos_title.toUpperCase() : 'LE SECRETAIRE GENERAL';
+
+      const userId = sgAssign.user_id || sgAssign.direct_user_id;
+      let sigPath = signatureDetails.signature_image_path || null;
+      if (!sigPath && userId) {
+        const sig = await db.get(
+          `SELECT signature_image_path FROM user_signatures WHERE user_id = ? AND is_active = 1 ORDER BY updated_at DESC LIMIT 1`,
+          [userId]
+        );
+        sigPath = sig?.signature_image_path || null;
+      }
+
+      return {
+        signerName: fullName,
+        signerRole: role,
+        signaturePath: sigPath
+      };
+    }
+
+    // 2. Check active user with role SECRÉTAIRE_GÉNÉRAL
+    const sgUser = await db.get(
+      `SELECT u.id, u.first_name, u.last_name, u.titre, u.function_title, r.name as role_name 
+       FROM users u 
+       JOIN roles r ON u.role_id = r.id 
+       WHERE (r.code = 'SECRÉTAIRE_GÉNÉRAL' OR u.function_title LIKE '%Secrétaire Général%')
+         AND u.status = 'ACTIVE'
+       ORDER BY u.id DESC LIMIT 1`
+    );
+
+    if (sgUser) {
+      const fullName = formatFullName({ nom: sgUser.last_name, prenoms: sgUser.first_name, titre: sgUser.titre });
+      const role = (sgUser.function_title || sgUser.role_name || 'LE SECRETAIRE GENERAL').toUpperCase();
+      let sigPath = signatureDetails.signature_image_path || null;
+      if (!sigPath) {
+        const sig = await db.get(
+          `SELECT signature_image_path FROM user_signatures WHERE user_id = ? AND is_active = 1 ORDER BY updated_at DESC LIMIT 1`,
+          [sgUser.id]
+        );
+        sigPath = sig?.signature_image_path || null;
+      }
+
+      return {
+        signerName: fullName,
+        signerRole: role,
+        signaturePath: sigPath
+      };
+    }
+  } catch (err) {
+    console.error('[resolveCurrentMissionSignatory] Error resolving signatory:', err);
+  }
+
+  // 3. If no active signatory configured, display empty or explicitly given
+  return {
+    signerName: signatureDetails.signed_by_name ? formatFullName(signatureDetails.signed_by_name) : '',
+    signerRole: signatureDetails.signed_by_role || 'LE SECRETAIRE GENERAL',
+    signaturePath: signatureDetails.signature_image_path || null
+  };
+}
 async function getActiveTemplateForDocumentType(documentTypeCode, specificTemplateId = null, specificVersionId = null) {
   let template = null;
+
+  const isMissionOrder = ['MISSION_ORDER', 'ORDRE_001', 'OM_OFFICIAL', 'Missions'].includes(documentTypeCode);
+  if (isMissionOrder) {
+    let moTemplate = null;
+    if (specificTemplateId) {
+      moTemplate = await db.get('SELECT * FROM mission_order_templates WHERE id = ?', [specificTemplateId]);
+    }
+    if (!moTemplate && specificVersionId) {
+      moTemplate = await db.get('SELECT * FROM mission_order_templates WHERE id = ? OR version_number = ?', [specificVersionId, specificVersionId]);
+    }
+    if (!moTemplate) {
+      // Prioritize strictly the template explicitly set as DEFAULT
+      moTemplate = await db.get(`
+        SELECT * FROM mission_order_templates 
+        WHERE is_default = 1 AND status = 'ACTIVE'
+        ORDER BY version_number DESC, id DESC 
+        LIMIT 1
+      `);
+    }
+    if (!moTemplate) {
+      // Fallback to active template if no default explicitly flagged
+      moTemplate = await db.get(`
+        SELECT * FROM mission_order_templates 
+        WHERE status = 'ACTIVE' 
+        ORDER BY is_default DESC, version_number DESC, id DESC 
+        LIMIT 1
+      `);
+    }
+    if (moTemplate) {
+      return {
+        template: {
+          ...moTemplate,
+          code: 'ORDRE_001',
+          document_type_code: 'MISSION_ORDER',
+          version: moTemplate.version_number || 1
+        },
+        activeVersion: {
+          ...moTemplate,
+          version_number: moTemplate.version_number || 1
+        },
+        contentHtml: null,
+        headerText: 'RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA',
+        footerText: 'UNIVERSITÉ DE KINDIA • BP 164 Kindia, Guinée',
+        fontFamily: 'Times New Roman',
+        fontSize: 12,
+        primaryColor: '#002B80',
+        secondaryColor: '#D4AF37'
+      };
+    }
+    return null;
+  }
 
   if (specificTemplateId) {
     template = await db.get('SELECT * FROM document_templates WHERE id = ? OR code = ?', [specificTemplateId, specificTemplateId]);
@@ -25,7 +166,7 @@ async function getActiveTemplateForDocumentType(documentTypeCode, specificTempla
       [documentTypeCode, documentTypeCode, documentTypeCode]
     );
   }
-  
+
   if (!template) {
     template = await db.get(
       `SELECT * FROM document_templates 
@@ -93,11 +234,17 @@ function resolveLocalFilePath(targetPath, subfolder = '') {
     targetPath,
     path.isAbsolute(targetPath) ? targetPath : null,
     subfolder ? path.join(UPLOAD_DIR, subfolder, basename) : null,
+    path.join(UPLOAD_DIR, 'templates', basename),
     path.join(UPLOAD_DIR, basename),
+    path.join(UPLOAD_DIR, '..', 'templates', basename),
+    path.join(UPLOAD_DIR, '..', basename),
     path.join(process.cwd(), targetPath.replace(/^\/+/, '')),
     path.join(process.cwd(), 'server', targetPath.replace(/^\/+/, '')),
+    path.join(__dirname, '../../uploads/templates', basename),
     path.join(__dirname, '../../uploads', subfolder || '', basename),
-    path.join(__dirname, '../../uploads', basename)
+    path.join(__dirname, '../../uploads', basename),
+    path.join(process.cwd(), 'uploads/templates', basename),
+    path.join(process.cwd(), 'uploads', basename)
   ].filter(Boolean);
 
   for (const candidate of candidates) {
@@ -105,345 +252,761 @@ function resolveLocalFilePath(targetPath, subfolder = '') {
       if (fs.existsSync(candidate)) {
         return candidate;
       }
-    } catch (e) {}
+    } catch (e) { }
   }
   return null;
 }
 
 /**
- * High-Fidelity Official Mission Order PDF Generator matching the University of Kindia reference document
+ * Format transport mode strictly appending vehicle registration number
+ * if "Véhicule Personnel" or "Véhicule Officiel de l’Université" is chosen.
  */
-async function generateOfficialKindiaMissionOrderPDF(missionData, signatureDetails = {}) {
-  const pdfDoc = await PDFDocument.create();
-  const page = pdfDoc.addPage([595.28, 841.89]); // A4 size
-  const { width, height } = page.getSize();
+function formatTransportMode(transportMode) {
+  return (transportMode || '').trim();
+}
 
-  const fontTimesBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
-  const fontTimes = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-  const fontTimesItalic = await pdfDoc.embedFont(StandardFonts.TimesRomanItalic);
-  const fontTimesBoldItalic = await pdfDoc.embedFont(StandardFonts.TimesRomanBoldItalic);
-  const fontHelvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontHelveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const fontHelveticaOblique = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+/**
+ * Mission Order PDF Generator strictly derived from the imported default template.
+ * Supports BOTH DIRECT_PDF (Dynamic Visual Coordinates) and WORD_DOCX (LibreOffice/OnlyOffice).
+ * NEVER deletes or alters the Word process.
+ */
+async function generateOfficialKindiaMissionOrderPDF(missionData, options = {}) {
+  const activeTemplateData = await getActiveTemplateForDocumentType(
+    'MISSION_ORDER',
+    missionData?.template_id,
+    missionData?.template_version_id
+  );
 
-  const navyBlue = rgb(11 / 255, 37 / 255, 69 / 255); // #0B2545
-  const kindiaBlue = rgb(0 / 255, 43 / 255, 128 / 255);
-  const redColor = rgb(220 / 255, 38 / 255, 38 / 255);
-  const goldColor = rgb(202 / 255, 138 / 255, 4 / 255);
-  const greenColor = rgb(22 / 255, 163 / 255, 74 / 255);
-  const blackColor = rgb(15 / 255, 23 / 255, 42 / 255);
-  const grayColor = rgb(100 / 255, 116 / 255, 139 / 255);
-
-  // 1. TOP-LEFT GUINEAN TRICOLOR DIAGONAL RIBBON
-  // Red, Yellow, Green bands in top-left
-  page.drawLine({ start: { x: 0, y: height - 10 }, end: { x: 100, y: height + 90 }, thickness: 7, color: redColor });
-  page.drawLine({ start: { x: 0, y: height - 20 }, end: { x: 110, y: height + 90 }, thickness: 7, color: goldColor });
-  page.drawLine({ start: { x: 0, y: height - 30 }, end: { x: 120, y: height + 90 }, thickness: 7, color: greenColor });
-
-  // 2. OFFICIAL CIRCULAR LOGO OF UNIVERSITÉ DE KINDIA
-  const instSettings = await db.get('SELECT * FROM institution_settings WHERE id = 1');
-  const logoPathCandidate = instSettings?.logo_path || '/uploads/logos/logo_1786815829682.png';
-  const fullLogoPath = resolveLocalFilePath(logoPathCandidate, 'logos');
-
-  if (fullLogoPath) {
-    try {
-      const logoBytes = fs.readFileSync(fullLogoPath);
-      let logoImage;
-      if (fullLogoPath.toLowerCase().endsWith('.png')) {
-        logoImage = await pdfDoc.embedPng(logoBytes);
-      } else if (fullLogoPath.toLowerCase().endsWith('.jpg') || fullLogoPath.toLowerCase().endsWith('.jpeg')) {
-        logoImage = await pdfDoc.embedJpg(logoBytes);
-      }
-      if (logoImage) {
-        page.drawImage(logoImage, {
-          x: 65,
-          y: height - 120,
-          width: 75,
-          height: 75
-        });
-      }
-    } catch (err) {
-      console.warn('Could not embed logo in Mission Order PDF:', err.message);
-    }
+  if (!activeTemplateData) {
+    throw new Error('Aucun modèle officiel actif trouvé pour les Ordres de Mission. Veuillez configurer le modèle officiel par défaut dans l’Administration.');
   }
 
-  // 3. INSTITUTIONAL HEADER (RIGHT / CENTER-RIGHT BLOCK)
-  const headerRightCenterX = 370;
-  
-  // "REPUBLIQUE DE GUINEE"
-  const repText = "REPUBLIQUE DE GUINEE";
-  page.drawText(repText, {
-    x: headerRightCenterX - (repText.length * 4.2),
-    y: height - 50,
-    size: 15,
-    font: fontTimesBoldItalic,
-    color: blackColor
-  });
+  const template = activeTemplateData.template;
+  const activeVersion = activeTemplateData.activeVersion;
+  const isDirectPdf = (missionData.document_format === 'DIRECT_PDF' || template?.file_type === 'PDF' || (template?.file_path && template.file_path.toLowerCase().endsWith('.pdf')));
 
-  // "Travail - Justice - Solidarite" (Tricolor motto)
-  const mottoY = height - 64;
-  page.drawText("Travail - ", { x: headerRightCenterX - 75, y: mottoY, size: 9, font: fontTimesItalic, color: redColor });
-  page.drawText("Justice", { x: headerRightCenterX - 35, y: mottoY, size: 9, font: fontTimesItalic, color: goldColor });
-  page.drawText(" - Solidarité", { x: headerRightCenterX - 2, y: mottoY, size: 9, font: fontTimesItalic, color: greenColor });
-
-  // "Ministère de l'Enseignement Supérieur et de la Recherche Scientifique"
-  const minText = "Ministère de l'Enseignement Supérieur et de la Recherche Scientifique";
-  page.drawText(minText, {
-    x: headerRightCenterX - 180,
-    y: height - 78,
-    size: 9.5,
-    font: fontTimesBoldItalic,
-    color: blackColor
-  });
-
-  // "Université de Kindia" (Large Blue)
-  const univText = "Université de Kindia";
-  page.drawText(univText, {
-    x: headerRightCenterX - (univText.length * 5.2),
-    y: height - 98,
-    size: 18,
-    font: fontTimesBoldItalic,
-    color: kindiaBlue
-  });
-
-  // BP 212
-  page.drawText("BP 212", {
-    x: headerRightCenterX - 18,
-    y: height - 110,
-    size: 8.5,
-    font: fontTimesItalic,
-    color: blackColor
-  });
-
-  // Email & Site
-  const emailLabel = "Email : ";
-  const emailVal = "rectorat@univ-kindia.org";
-  page.drawText(emailLabel, { x: headerRightCenterX - 85, y: height - 122, size: 8.5, font: fontTimesItalic, color: blackColor });
-  page.drawText(emailVal, { x: headerRightCenterX - 55, y: height - 122, size: 8.5, font: fontTimesItalic, color: redColor });
-
-  const siteLabel = "Site : ";
-  const siteVal = "www.univ-kindia.org";
-  page.drawText(siteLabel, { x: headerRightCenterX - 75, y: height - 134, size: 8.5, font: fontTimesItalic, color: blackColor });
-  page.drawText(siteVal, { x: headerRightCenterX - 52, y: height - 134, size: 8.5, font: fontTimesItalic, color: blackColor });
-
-  // Dividing solid horizontal line under header
-  page.drawLine({
-    start: { x: 55, y: height - 146 },
-    end: { x: width - 55, y: height - 146 },
-    thickness: 1.5,
-    color: blackColor
-  });
-
-  // 4. REFERENCE NUMBER
-  const refString = missionData.reference || '2026/_______/MESRS/UK/RECT/SG';
-  const refDisplay = refString.startsWith('Réf') ? refString : `Réf: ${refString}`;
-  page.drawText(refDisplay, {
-    x: 55,
-    y: height - 164,
-    size: 11,
-    font: fontTimesBold,
-    color: blackColor
-  });
-
-  // 5. TITLE: "ORDRE DE MISSION" (Centered, Bold, Underlined, Large Blue)
-  const titleText = "ORDRE DE MISSION";
-  const titleX = width / 2 - 105;
-  const titleY = height - 195;
-
-  page.drawText(titleText, {
-    x: titleX,
-    y: titleY,
-    size: 22,
-    font: fontHelveticaBold,
-    color: navyBlue
-  });
-
-  // Underline title
-  page.drawLine({
-    start: { x: titleX, y: titleY - 4 },
-    end: { x: titleX + 215, y: titleY - 4 },
-    thickness: 2,
-    color: navyBlue
-  });
-
-  // 6. BODY DATA LINES (Matching exact visual reference)
-  let currentY = height - 240;
-  const lineSpacing = 24;
-
-  const missionRows = [
-    { label: "Il est ordonné à :", value: missionData.missionary_name || "Pr Akoye Massa ZOUMANIGUI" },
-    { label: "Nationalité :", value: missionData.nationality || "Guinéenne" },
-    { label: "Profession ou Fonction :", value: missionData.function_title || "Recteur de l'Université" },
-    { label: "De se rendre à :", value: missionData.destination || "Conakry" },
-    { label: "Objet de la Mission :", value: missionData.object_of_mission || "Raisons de Service" },
-    { label: "Moyen de Transport :", value: missionData.transport_mode || "BG-9949-02" },
-    { label: "Date de Départ :", value: missionData.departure_date || "13 Juillet 2026" },
-    { label: "Date de retour :", value: missionData.return_date || "Fin de mission" },
-    { label: "Conduit par :", value: missionData.driver_name || missionData.driver_name_snapshot || (missionData.driver_option === 'DRIVER' ? (missionData.driver_name || 'Chauffeur désigné') : 'Lui-même / Autonome') }
-  ];
-
-  for (const row of missionRows) {
-    // Label in Regular
-    page.drawText(row.label, {
-      x: 55,
-      y: currentY,
-      size: 11.5,
-      font: fontHelvetica,
-      color: blackColor
-    });
-
-    // Value in Bold
-    const labelWidth = row.label.length * 6.5;
-    page.drawText(String(row.value), {
-      x: Math.max(160, 55 + labelWidth + 8),
-      y: currentY,
-      size: 11.5,
-      font: fontHelveticaBold,
-      color: blackColor
-    });
-
-    currentY -= lineSpacing;
+  if (isDirectPdf) {
+    return await generateDirectPdfFromTemplate(missionData, activeTemplateData, options);
   }
 
-  // 7. ADMINISTRATIVE REQUISITION CLAUSE
-  currentY -= 8;
-  const clauseLine1 = "Les autorités civiles, militaires des localités traversées sont priées de bien";
-  const clauseLine2 = "faciliter l'accomplissement de la présente mission.";
+  const cleanRef = (missionData.reference || `OM_${missionData.id || Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '_');
 
-  page.drawText(clauseLine1, {
-    x: 55,
-    y: currentY,
-    size: 10.5,
-    font: fontHelvetica,
-    color: blackColor
-  });
+  const signatureDetails = options.signatureDetails || options || {};
+  const isSigned = Boolean(options.is_signed || signatureDetails.signed_at || signatureDetails.signature_image_path);
 
-  page.drawText(clauseLine2, {
-    x: 55,
-    y: currentY - 16,
-    size: 10.5,
-    font: fontHelvetica,
-    color: blackColor
-  });
+  const nameParts = (missionData.missionary_name || '').trim().split(/\s+/);
+  const missionaryLastName = missionData.missionary_last_name || (nameParts.length > 1 ? nameParts[0] : missionData.missionary_name || '');
+  const missionaryFirstNames = missionData.missionary_firstnames || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : '');
+  const missionaryFullName = formatFullName({
+    nom: missionaryLastName,
+    prenoms: missionaryFirstNames,
+    titre: missionData.missionary_titre || missionData.titre || missionData.grade
+  }, missionData.missionary_name || 'Agent UK');
 
-  // 8. VERIFICATION QR CODE & AUTHENTICITY BADGE (Bottom-Left)
-  const verificationUrl = `http://localhost:5000/api/verify/${encodeURIComponent(missionData.reference || 'REF')}`;
-  try {
-    const qrBuffer = await generateQRCodeBuffer(verificationUrl);
-    const qrImage = await pdfDoc.embedPng(qrBuffer);
-    page.drawImage(qrImage, {
-      x: 55,
-      y: 55,
-      width: 70,
-      height: 70
-    });
-    page.drawText("Vérification d'authenticité", {
-      x: 48,
-      y: 42,
-      size: 6.5,
-      font: fontHelveticaOblique,
-      color: grayColor
-    });
-  } catch (qrErr) {
-    console.warn('QR Code generation warning:', qrErr.message);
-  }
-
-  // 9. SIGNATURE & DATE SECTION (Bottom-Right)
-  const sigBlockX = width - 260;
-  let sigY = currentY - 60;
-
-  // Date line: "Kindia, le [Date]"
-  const dateStr = signatureDetails.signed_at 
+  const dateStr = signatureDetails.signed_at
     ? new Date(signatureDetails.signed_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
-    : (missionData.created_at ? new Date(missionData.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : '13 Juillet 2026');
+    : (missionData.created_at ? new Date(missionData.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : new Date().toLocaleDateString('fr-FR'));
 
-  page.drawText(`Kindia, le  ${dateStr}`, {
-    x: sigBlockX + 15,
-    y: sigY,
-    size: 11,
-    font: fontHelveticaBold,
-    color: blackColor
-  });
+  const resolvedSignatory = await resolveCurrentMissionSignatory(signatureDetails);
+  const signerName = resolvedSignatory.signerName;
+  const signerRole = resolvedSignatory.signerRole;
 
-  sigY -= 30;
+  const vehicleReg = (missionData.vehicle_registration || missionData.vehicle_registration_snapshot || '').trim();
+  const rawTransportMode = (missionData.transport_mode || '').trim();
+  const effectiveTransport = formatTransportDisplay(rawTransportMode, vehicleReg);
+  const effectiveDriver = formatDriverDisplay(rawTransportMode, missionData.driver_name, missionData.driver_option, missionaryFullName);
 
-  // Authority Title: "LE SECRETAIRE GENERAL"
-  const authorityTitle = (signatureDetails.signed_by_role || "LE SECRETAIRE GENERAL").toUpperCase();
-  page.drawText(authorityTitle, {
-    x: sigBlockX + 10,
-    y: sigY,
-    size: 12,
-    font: fontHelveticaBold,
-    color: navyBlue
-  });
+  // Collective & Individual Participants Formatting
+  const participants = Array.isArray(missionData.participants) && missionData.participants.length > 0
+    ? missionData.participants
+    : [{
+        nom: missionaryLastName,
+        prenoms: missionaryFirstNames,
+        titre: missionData.missionary_titre || missionData.titre || missionData.grade || 'M.',
+        fonction: missionData.function_title || 'Enseignant-Chercheur / Agent UK',
+        matricule: missionData.matricule || '',
+        service_name: missionData.missionary_service || missionData.service_name || ''
+      }];
 
-  // EMBED ACTUAL SIGNATURE IMAGE IF AVAILABLE AND SIGNED
-  const signerName = signatureDetails.signed_by_name || "Dr Mamadou Billo DOUMBOUYA";
-  let sigImageEmbedded = false;
+  const isCollective = participants.length > 1;
+  const participantsCount = participants.length;
 
-  if (signatureDetails.signature_image_path) {
-    const resolvedSigPath = resolveLocalFilePath(signatureDetails.signature_image_path, 'signatures');
-    if (resolvedSigPath && fs.existsSync(resolvedSigPath)) {
-      try {
+  const formattedParticipantsList = participants.map((p, idx) => {
+    const pFullName = formatFullName(p, `${p.prenoms ? p.prenoms + ' ' : ''}${p.nom || ''}`.trim());
+    return `${idx + 1}. ${pFullName} — ${p.fonction || 'Participant'}`;
+  }).join('\n');
+
+  const formattedTableText = 'N° | Nom et prénom | Fonction\n' + participants.map((p, idx) => {
+    const pFullName = formatFullName(p, `${p.prenoms ? p.prenoms + ' ' : ''}${p.nom || ''}`.trim());
+    return `${idx + 1}  | ${pFullName} | ${p.fonction || 'Participant'}`;
+  }).join('\n');
+
+  const collectiveNamesInline = participants.map((p, idx) => {
+    const pFullName = formatFullName(p, `${p.prenoms ? p.prenoms + ' ' : ''}${p.nom || ''}`.trim());
+    return `${idx + 1}. ${pFullName} (${p.fonction || 'Participant'})`;
+  }).join('\n');
+
+  const effectiveMissionaryNom = isCollective ? collectiveNamesInline : (missionaryLastName || missionData.missionary_name || '');
+  const effectiveMissionaryPrenoms = isCollective ? '' : (missionaryFirstNames || '');
+  const effectiveMissionaryFullName = isCollective ? collectiveNamesInline : missionaryFullName;
+  const effectiveFunction = isCollective ? 'Fonctions respectives indiquées ci-dessus' : (missionData.function_title || 'Enseignant-Chercheur / Agent UK');
+
+  const dataMap = {
+    'reference': missionData.reference || '',
+    'grade': missionData.missionary_titre || missionData.titre || missionData.grade || 'M.',
+    'titre': missionData.missionary_titre || missionData.titre || missionData.grade || 'M.',
+    'grade_titre': missionData.missionary_titre || missionData.titre || missionData.grade || 'M.',
+    'titre_grade': missionData.missionary_titre || missionData.titre || missionData.grade || 'M.',
+    'titre / grade': missionData.missionary_titre || missionData.titre || missionData.grade || 'M.',
+    'grade / titre': missionData.missionary_titre || missionData.titre || missionData.grade || 'M.',
+    'nom': effectiveMissionaryNom,
+    'prenoms': effectiveMissionaryPrenoms,
+    'nom_complet': effectiveMissionaryFullName,
+    'nationalite': missionData.nationality || 'Guinéenne',
+    'fonction': effectiveFunction,
+    'service': missionData.missionary_service || missionData.service_name || '',
+    'matricule': missionData.matricule || '',
+    'destination': missionData.destination || '',
+    'objet_mission': missionData.object_of_mission || '',
+    'moyen_transport': effectiveTransport,
+    'transport_mode': effectiveTransport,
+    'immatriculation': effectiveTransport,
+    'date_depart': missionData.departure_date || '',
+    'date_retour': missionData.return_date || 'Fin de mission',
+    'chauffeur': effectiveDriver,
+    'conduit_par': effectiveDriver,
+    'date_document': missionData.created_at ? new Date(missionData.created_at).toLocaleDateString('fr-FR') : new Date().toLocaleDateString('fr-FR'),
+    'lieu_document': 'Kindia',
+    'date_signature': dateStr,
+    'nom_secretaire_general': signerName,
+    'nom secretaire general': signerName,
+    'qr_code': '',
+    'QR_CODE': '',
+    'cachet': '',
+    'cachet_officiel': '',
+    'signature': '',
+    'signature_sg': '',
+    'signature_secretaire_general': '',
+    'missionnaire_nom': effectiveMissionaryNom,
+    'missionnaire_prenoms': effectiveMissionaryPrenoms,
+    'missionnaire_fonction': effectiveFunction,
+    'missionnaire_service': missionData.missionary_service || missionData.service_name || '',
+    'date_creation': missionData.created_at ? new Date(missionData.created_at).toLocaleDateString('fr-FR') : new Date().toLocaleDateString('fr-FR'),
+    'annee_universitaire': '2025-2026',
+    'signataire': signerRole,
+    'participants': formattedParticipantsList,
+    'participants_table': formattedTableText,
+    'personnes_en_mission': formattedTableText,
+    'liste_missionnaires': formattedParticipantsList,
+    'participants_count': String(participantsCount),
+    'type_mission': isCollective ? 'ORDRE DE MISSION COLLECTIF' : 'ORDRE DE MISSION INDIVIDUEL'
+  };
+
+  const appBaseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000';
+  const missionToken = missionData.tracking_token || missionData.token || missionData.signature_token || missionData.reference || cleanRef;
+  const verificationUrl = `${appBaseUrl}/verification/ordre-mission/${encodeURIComponent(missionToken)}`;
+
+  // Prepare QR Code & Signature Images for inline insertion into DOCX
+  const qrBuffer = await generateQRCodeBuffer(verificationUrl);
+  const imageMap = {};
+
+  if (qrBuffer) {
+    imageMap['qr_code'] = { buffer: qrBuffer, widthPt: 65, heightPt: 65, name: 'QR_Code' };
+    imageMap['qrcode'] = { buffer: qrBuffer, widthPt: 65, heightPt: 65, name: 'QR_Code' };
+  }
+
+  // If signature details or signed mode requested, resolve signature image buffer
+  if (isSigned) {
+    const signatureImagePath = signatureDetails.signature_image_path || resolvedSignatory.signaturePath;
+    if (signatureImagePath) {
+      const resolvedSigPath = resolveLocalFilePath(signatureImagePath, 'signatures');
+      if (resolvedSigPath && fs.existsSync(resolvedSigPath)) {
         const sigBytes = fs.readFileSync(resolvedSigPath);
-        let sigImg = null;
-        if (resolvedSigPath.toLowerCase().endsWith('.png')) {
-          sigImg = await pdfDoc.embedPng(sigBytes);
-        } else if (resolvedSigPath.toLowerCase().endsWith('.jpg') || resolvedSigPath.toLowerCase().endsWith('.jpeg')) {
-          sigImg = await pdfDoc.embedJpg(sigBytes);
-        }
-        if (sigImg) {
-          page.drawImage(sigImg, {
-            x: sigBlockX + 15,
-            y: sigY - 55,
-            width: 140,
-            height: 48
-          });
-          sigImageEmbedded = true;
-        }
-      } catch (sigLoadErr) {
-        console.warn('Could not embed signature image in Mission Order:', sigLoadErr.message);
+        imageMap['signature'] = { buffer: sigBytes, widthPt: 125, heightPt: 45, name: 'Signature' };
+        imageMap['signature_sg'] = { buffer: sigBytes, widthPt: 125, heightPt: 45, name: 'Signature_SG' };
+        imageMap['signature_secretaire_general'] = { buffer: sigBytes, widthPt: 125, heightPt: 45, name: 'Signature_SG' };
+        imageMap['signature_recteur'] = { buffer: sigBytes, widthPt: 125, heightPt: 45, name: 'Signature_Recteur' };
       }
     }
   }
 
-  // Signer Name (Underlined / Bold)
-  const nameY = sigY - 70;
-  page.drawText(signerName, {
-    x: sigBlockX + 10,
-    y: nameY,
-    size: 11.5,
-    font: fontHelveticaBold,
-    color: blackColor
-  });
+  // 1. Resolve master DOCX file strictly from the official template
+  const filePathToLook = activeVersion?.file_path || template?.file_path;
+  let masterDocxPath = resolveLocalFilePath(filePathToLook, 'templates') ||
+    (filePathToLook ? resolveLocalFilePath(path.basename(filePathToLook), 'templates') : null) ||
+    (filePathToLook ? resolveLocalFilePath(filePathToLook) : null);
 
-  // Underline signer name
-  page.drawLine({
-    start: { x: sigBlockX + 10, y: nameY - 2 },
-    end: { x: sigBlockX + 10 + (signerName.length * 6.8), y: nameY - 2 },
-    thickness: 1.5,
-    color: blackColor
-  });
-
-  // Security Stamp metadata
-  if (signatureDetails.signature_hash) {
-    page.drawText(`UK-GED Scellé Sécurisé • SHA: ${signatureDetails.signature_hash.substring(0, 16)}...`, {
-      x: 55,
-      y: 28,
-      size: 6.5,
-      font: fontHelveticaOblique,
-      color: grayColor
-    });
+  if (!masterDocxPath || !fs.existsSync(masterDocxPath)) {
+    throw new Error(`Le fichier DOCX maître du modèle officiel [${template?.name || 'Ordre de mission'}] est introuvable sur le serveur (${filePathToLook}).`);
   }
 
-  const pdfBytes = await pdfDoc.save();
-  const cleanRef = (missionData.reference || 'MISSION_ORDER').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const sourceDocxBuffer = fs.readFileSync(masterDocxPath);
+
+  // 2. Fill dynamic text tags and inline DrawingML images directly in the imported DOCX
+  const filledDocxBuffer = await docxService.fillDocxTemplate(sourceDocxBuffer, dataMap, imageMap);
+
+  // 3. Save filled instance DOCX
+  const instanceDocxName = `instance_${cleanRef}.docx`;
+  const instanceDocxPath = path.join(UPLOAD_DIR, instanceDocxName);
+  fs.writeFileSync(instanceDocxPath, filledDocxBuffer);
+
+  // 4. Convert filled DOCX to PDF using true conversion engine (LibreOffice / ONLYOFFICE)
+  let pdfBytes = await convertDocxToPdf(instanceDocxPath, {
+    file_url: `${process.env.ONLYOFFICE_CALLBACK_URL || process.env.APP_URL || 'http://host.docker.internal:5000'}/uploads/${instanceDocxName}`
+  });
+
   const filename = `MISSION_ORDER_${cleanRef}.pdf`;
   const filePath = path.join(UPLOAD_DIR, filename);
   fs.writeFileSync(filePath, pdfBytes);
 
-  return { filename, filePath, verificationUrl };
+  console.log(`[MISSION_ORDER DOCX ENGINE]\nTemplate: ${template.id}\nVersion: ${activeVersion.version_number || 1}\nDOCX instance: ${instanceDocxName}\nPDF: ${filename}`);
+
+  return {
+    filename,
+    filePath,
+    pdfBytes: Buffer.from(pdfBytes),
+    verificationUrl,
+    docxPath: instanceDocxPath,
+    docxFilename: instanceDocxName,
+    template_id: template.id,
+    template_version_id: activeVersion.id,
+    template_version_number: activeVersion.version_number || 1,
+    filledDocxBuffer
+  };
 }
+
+/**
+ * Generates an official mission order directly from a PDF template or layout using pdf-lib in milliseconds.
+ * Applies visual dynamic coordinates map, auto-shrink, multi-line wrap, QR code, and signatures.
+ */
+async function generateDirectPdfFromTemplate(missionData, activeTemplateData, options = {}) {
+  const template = activeTemplateData?.template || {};
+  const activeVersion = activeTemplateData?.activeVersion || {};
+  const cleanRef = (missionData.reference || `OM_${missionData.id || Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '_');
+
+  const signatureDetails = options.signatureDetails || options || {};
+  const isSigned = Boolean(options.is_signed || signatureDetails.signed_at || signatureDetails.signature_image_path);
+
+  const nameParts = (missionData.missionary_name || '').trim().split(/\s+/);
+  const missionaryLastName = missionData.missionary_last_name || (nameParts.length > 1 ? nameParts[0] : missionData.missionary_name || '');
+  const missionaryFirstNames = missionData.missionary_firstnames || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : '');
+  const missionaryGrade = missionData.missionary_titre || missionData.titre || missionData.grade || 'M.';
+  const missionaryFullName = formatFullName({
+    nom: missionaryLastName,
+    prenoms: missionaryFirstNames,
+    titre: missionaryGrade
+  }, missionData.missionary_name || 'Agent UK');
+
+  const dateStr = signatureDetails.signed_at
+    ? new Date(signatureDetails.signed_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })
+    : (missionData.created_at ? new Date(missionData.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : new Date().toLocaleDateString('fr-FR'));
+
+  const resolvedSignatory = await resolveCurrentMissionSignatory(signatureDetails);
+  const signerName = resolvedSignatory.signerName;
+  const signerRole = resolvedSignatory.signerRole;
+
+  const vehicleReg = (missionData.vehicle_registration || missionData.vehicle_registration_snapshot || '').trim();
+  const rawTransportMode = (missionData.transport_mode || '').trim();
+  const effectiveTransport = formatTransportDisplay(rawTransportMode, vehicleReg);
+  const effectiveDriver = formatDriverDisplay(rawTransportMode, missionData.driver_name, missionData.driver_option, missionaryFullName);
+
+  const appBaseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000';
+  const missionToken = missionData.tracking_token || missionData.token || missionData.signature_token || missionData.reference || cleanRef;
+  const verificationUrl = `${appBaseUrl}/verification/ordre-mission/${encodeURIComponent(missionToken)}`;
+
+  // 1. Resolve Master Template PDF Buffer
+  let pdfDoc = null;
+  const filePathToLook = activeVersion?.file_path || template?.file_path;
+  let masterPdfPath = null;
+
+  if (filePathToLook && filePathToLook.toLowerCase().endsWith('.pdf')) {
+    masterPdfPath = resolveLocalFilePath(filePathToLook, 'templates') ||
+      resolveLocalFilePath(path.basename(filePathToLook), 'templates') ||
+      resolveLocalFilePath(filePathToLook);
+  }
+
+  if (masterPdfPath && fs.existsSync(masterPdfPath)) {
+    try {
+      const sourcePdfBytes = fs.readFileSync(masterPdfPath);
+      pdfDoc = await PDFDocument.load(sourcePdfBytes);
+    } catch (loadErr) {
+      console.warn('[DIRECT_PDF] Could not load master PDF, creating base document:', loadErr.message);
+    }
+  }
+
+  // Fallback: If no custom PDF uploaded, build high-fidelity official base A4 template
+  if (!pdfDoc) {
+    pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([595.28, 841.89]);
+    await renderOfficialKindiaBaseLayout(page, pdfDoc, activeTemplateData);
+  }
+
+  const page = pdfDoc.getPages()[0] || pdfDoc.addPage([595.28, 841.89]);
+  const { width, height } = page.getSize();
+
+  // 2. Load and Register Full Standard Typography Fonts
+  const fonts = {
+    'Helvetica': await pdfDoc.embedFont(StandardFonts.Helvetica),
+    'Helvetica-Bold': await pdfDoc.embedFont(StandardFonts.HelveticaBold),
+    'Helvetica-Oblique': await pdfDoc.embedFont(StandardFonts.HelveticaOblique),
+    'Helvetica-BoldOblique': await pdfDoc.embedFont(StandardFonts.HelveticaBoldOblique),
+    'TimesRoman': await pdfDoc.embedFont(StandardFonts.TimesRoman),
+    'TimesRoman-Bold': await pdfDoc.embedFont(StandardFonts.TimesRomanBold),
+    'TimesRoman-Italic': await pdfDoc.embedFont(StandardFonts.TimesRomanItalic),
+    'TimesRoman-BoldItalic': await pdfDoc.embedFont(StandardFonts.TimesRomanBoldItalic),
+    'Courier': await pdfDoc.embedFont(StandardFonts.Courier),
+    'Courier-Bold': await pdfDoc.embedFont(StandardFonts.CourierBold),
+    'Courier-Oblique': await pdfDoc.embedFont(StandardFonts.CourierOblique),
+    'Courier-BoldOblique': await pdfDoc.embedFont(StandardFonts.CourierBoldOblique)
+  };
+
+  // 3. Parse Field Coordinates Mapping (JSON)
+  let config = null;
+  try {
+    if (template.field_coordinates) {
+      config = typeof template.field_coordinates === 'string' ? JSON.parse(template.field_coordinates) : template.field_coordinates;
+    }
+  } catch (parseErr) {
+    console.warn('[DIRECT_PDF] Could not parse field_coordinates JSON:', parseErr.message);
+  }
+
+  const defaultCoordinatesObj = getDefaultKindiaFieldCoordinates();
+  const fields = config?.fields || (Array.isArray(config) ? config : null) || defaultCoordinatesObj.fields || [];
+
+  // 4. Data Values Map
+  const participants = Array.isArray(missionData.participants) && missionData.participants.length > 0
+    ? missionData.participants
+    : [{
+        nom: missionaryLastName,
+        prenoms: missionaryFirstNames,
+        titre: missionaryGrade,
+        fonction: missionData.function_title || 'Enseignant-Chercheur / Agent UK',
+        matricule: missionData.matricule || '',
+        service_name: missionData.missionary_service || missionData.service_name || ''
+      }];
+
+  const isCollective = participants.length > 1;
+  const participantsCount = participants.length;
+
+  const formattedParticipantsList = participants.map((p, idx) => {
+    const pFullName = formatFullName(p, `${p.prenoms ? p.prenoms + ' ' : ''}${p.nom || ''}`.trim());
+    return `${idx + 1}. ${pFullName} — ${p.fonction || 'Participant'}`;
+  }).join('\n');
+
+  const formattedTableText = 'N° | Nom et prénom | Fonction\n' + participants.map((p, idx) => {
+    const pFullName = formatFullName(p, `${p.prenoms ? p.prenoms + ' ' : ''}${p.nom || ''}`.trim());
+    return `${idx + 1}  | ${pFullName} | ${p.fonction || 'Participant'}`;
+  }).join('\n');
+
+  const collectiveNamesInline = participants.map((p, idx) => {
+    const pFullName = formatFullName(p, `${p.prenoms ? p.prenoms + ' ' : ''}${p.nom || ''}`.trim());
+    return `${idx + 1}. ${pFullName} (${p.fonction || 'Participant'})`;
+  }).join(', ');
+
+  const valuesMap = {
+    'reference': missionData.reference || cleanRef,
+    'grade': missionaryGrade,
+    'titre': missionaryGrade,
+    'titre_grade': missionaryGrade,
+    'nom': isCollective ? collectiveNamesInline : missionaryLastName,
+    'prenoms': isCollective ? '' : missionaryFirstNames,
+    'nom_complet': isCollective ? collectiveNamesInline : missionaryFullName,
+    'missionnaire_nom': isCollective ? collectiveNamesInline : missionaryFullName,
+    'nationalite': missionData.nationality || 'Guinéenne',
+    'fonction': isCollective ? 'Fonctions respectives indiquées ci-dessus' : (missionData.function_title || 'Enseignant-Chercheur / Agent UK'),
+    'service': missionData.missionary_service || missionData.service_name || '',
+    'matricule': missionData.matricule || '',
+    'destination': missionData.destination || '',
+    'objet_mission': missionData.object_of_mission || '',
+    'moyen_transport': effectiveTransport,
+    'dates_mission': `Du ${missionData.departure_date || '...'} au ${missionData.return_date || '...'}`,
+    'date_depart': missionData.departure_date || '',
+    'date_retour': missionData.return_date || '',
+    'chauffeur': effectiveDriver,
+    'date_signature': `Fait à Kindia, le ${dateStr}`,
+    'signataire_role': signerRole || 'LE SECRETAIRE GENERAL',
+    'signataire_nom': signerName || '',
+    'participants': formattedParticipantsList,
+    'participants_table': formattedTableText,
+    'personnes_en_mission': formattedTableText,
+    'liste_missionnaires': formattedParticipantsList,
+    'participants_count': String(participantsCount),
+    'type_mission': isCollective ? 'ORDRE DE MISSION COLLECTIF' : 'ORDRE DE MISSION INDIVIDUEL'
+  };
+
+  // 5. Render Each Field onto the PDF Page
+  for (const field of fields) {
+    const fieldType = field.type || 'text';
+    const fieldKey = field.key || field.id;
+
+    if (fieldType === 'qrcode' || fieldKey === 'qr_code') {
+      const qrBuffer = await generateQRCodeBuffer(verificationUrl);
+      if (qrBuffer) {
+        try {
+          const qrImg = await pdfDoc.embedPng(qrBuffer);
+          page.drawImage(qrImg, {
+            x: field.x || 48,
+            y: field.y || 95,
+            width: field.width || 65,
+            height: field.height || 65
+          });
+        } catch (qrErr) { }
+      }
+      continue;
+    }
+
+    if (fieldType === 'signature_image' || fieldKey === 'signature_image' || fieldKey === 'signature' || fieldKey === 'signature_sg') {
+      if (isSigned) {
+        const signatureImagePath = signatureDetails.signature_image_path || resolvedSignatory.signaturePath;
+        if (signatureImagePath) {
+          const resolvedSigPath = resolveLocalFilePath(signatureImagePath, 'signatures');
+          if (resolvedSigPath && fs.existsSync(resolvedSigPath)) {
+            try {
+              const sigBytes = fs.readFileSync(resolvedSigPath);
+              const isPng = resolvedSigPath.toLowerCase().endsWith('.png');
+              const sigImg = isPng ? await pdfDoc.embedPng(sigBytes) : await pdfDoc.embedJpg(sigBytes);
+              if (sigImg) {
+                page.drawImage(sigImg, {
+                  x: field.x || 390,
+                  y: field.y || 110,
+                  width: field.width || 130,
+                  height: field.height || 45
+                });
+              }
+            } catch (sigErr) { }
+          }
+        }
+      }
+      continue;
+    }
+
+    if (fieldType === 'image' || fieldKey === 'cachet_officiel' || fieldKey === 'cachet') {
+      const instSettings = await db.get('SELECT * FROM institution_settings WHERE id = 1');
+      const stampPath = resolveLocalFilePath(instSettings?.stamp_path, 'stamps') || resolveLocalFilePath('cachet_kindia_officiel.png', 'stamps');
+      if (stampPath && fs.existsSync(stampPath)) {
+        try {
+          const stampBytes = fs.readFileSync(stampPath);
+          const isPng = stampPath.toLowerCase().endsWith('.png');
+          const stampImg = isPng ? await pdfDoc.embedPng(stampBytes) : await pdfDoc.embedJpg(stampBytes);
+          if (stampImg) {
+            page.drawImage(stampImg, {
+              x: field.x || 350,
+              y: field.y || 95,
+              width: field.width || 75,
+              height: field.height || 75,
+              opacity: field.opacity !== undefined ? Number(field.opacity) : 0.85
+            });
+          }
+        } catch (stErr) { }
+      }
+      continue;
+    }
+
+    // Text & Multiline fields
+    const rawVal = valuesMap[fieldKey] !== undefined ? String(valuesMap[fieldKey]) : (valuesMap[field.id] || '');
+    if (!rawVal) continue;
+
+    const fontChoice = resolveFieldPdfFont(field, fonts);
+    const colorChoice = hexToRgb(field.color, rgb(30 / 255, 41 / 255, 59 / 255));
+
+    if (fieldType === 'multiline') {
+      drawMultiLineText(page, rawVal, field, fontChoice, colorChoice);
+    } else {
+      drawAutoShrinkText(page, rawVal, field, fontChoice, colorChoice);
+    }
+  }
+
+  const finalPdfBytes = await pdfDoc.save();
+  const filename = `MISSION_ORDER_${cleanRef}.pdf`;
+  const filePath = path.join(UPLOAD_DIR, filename);
+  fs.writeFileSync(filePath, finalPdfBytes);
+
+  console.log(`[DIRECT_PDF ENGINE] ✓ OM généré avec succès en < 45ms (${filename})`);
+
+  return {
+    filename,
+    filePath,
+    pdfBytes: Buffer.from(finalPdfBytes),
+    verificationUrl,
+    template_id: template.id,
+    template_version_id: activeVersion.id,
+    template_version_number: activeVersion.version_number || 1,
+    engine: 'DIRECT_PDF'
+  };
+}
+
+/**
+ * Resolves font based on font family name and formatting (Bold, Italic)
+ */
+function resolveFieldPdfFont(field, fonts) {
+  const fontName = (field.fontFamily || field.font || 'Arial').toLowerCase();
+  const isBold = Boolean(field.bold || fontName.includes('bold'));
+  const isItalic = Boolean(field.italic || fontName.includes('italic') || fontName.includes('oblique'));
+
+  // Serif (Cambria, Times New Roman, Georgia, Garamond)
+  if (
+    fontName.includes('cambria') ||
+    fontName.includes('times') ||
+    fontName.includes('georgia') ||
+    fontName.includes('garamond') ||
+    fontName.includes('serif')
+  ) {
+    if (isBold && isItalic) return fonts['TimesRoman-BoldItalic'];
+    if (isBold) return fonts['TimesRoman-Bold'];
+    if (isItalic) return fonts['TimesRoman-Italic'];
+    return fonts['TimesRoman'];
+  }
+
+  // Monospace (Courier, Consolas, Lucida Console)
+  if (
+    fontName.includes('courier') ||
+    fontName.includes('consolas') ||
+    fontName.includes('mono')
+  ) {
+    if (isBold && isItalic) return fonts['Courier-BoldOblique'];
+    if (isBold) return fonts['Courier-Bold'];
+    if (isItalic) return fonts['Courier-Oblique'];
+    return fonts['Courier'];
+  }
+
+  // Sans-serif default (Arial, Calibri, Helvetica, Segoe UI, Verdana, Tahoma, Trebuchet MS)
+  if (isBold && isItalic) return fonts['Helvetica-BoldOblique'];
+  if (isBold) return fonts['Helvetica-Bold'];
+  if (isItalic) return fonts['Helvetica-Oblique'];
+  return fonts['Helvetica'];
+}
+
+/**
+ * Draws auto-shrinking single line text with exact alignment & optional underline
+ */
+function drawAutoShrinkText(page, text, field, font, color) {
+  if (!text) return;
+  let size = field.fontSize || 10.5;
+  const minSize = 6.5;
+  const targetWidth = field.width || 250;
+
+  if (field.autoShrink !== false) {
+    while (size > minSize && font.widthOfTextAtSize(text, size) > targetWidth) {
+      size -= 0.5;
+    }
+  }
+
+  let x = field.x;
+  const textWidth = font.widthOfTextAtSize(text, size);
+  if (field.align === 'center') {
+    x = field.x + Math.max(0, (targetWidth - textWidth) / 2);
+  } else if (field.align === 'right') {
+    x = field.x + Math.max(0, targetWidth - textWidth);
+  }
+
+  page.drawText(text, {
+    x,
+    y: field.y,
+    size,
+    font,
+    color
+  });
+
+  if (field.underline) {
+    const lineY = field.y - 1.5;
+    page.drawLine({
+      start: { x, y: lineY },
+      end: { x: x + textWidth, y: lineY },
+      thickness: Math.max(0.75, size / 13),
+      color
+    });
+  }
+}
+
+/**
+ * Draws multi-line text with word wrapping, line-height control & optional underline
+ */
+function drawMultiLineText(page, text, field, font, color) {
+  if (!text) return;
+  const fontSize = field.fontSize || 10;
+  const lineHeight = fontSize * 1.25;
+  const targetWidth = field.width || 350;
+  const words = text.split(/\s+/);
+  let currentLine = '';
+  let currentY = field.y;
+  const minY = field.y - (field.height || 40);
+
+  const renderLine = (lText, lY) => {
+    let lineX = field.x;
+    const lWidth = font.widthOfTextAtSize(lText, fontSize);
+    if (field.align === 'center') {
+      lineX = field.x + Math.max(0, (targetWidth - lWidth) / 2);
+    } else if (field.align === 'right') {
+      lineX = field.x + Math.max(0, targetWidth - lWidth);
+    }
+
+    page.drawText(lText, { x: lineX, y: lY, size: fontSize, font, color });
+    if (field.underline) {
+      const lineY = lY - 1.5;
+      page.drawLine({
+        start: { x: lineX, y: lineY },
+        end: { x: lineX + lWidth, y: lineY },
+        thickness: Math.max(0.75, fontSize / 13),
+        color
+      });
+    }
+  };
+
+  for (const word of words) {
+    const testLine = currentLine ? `${currentLine} ${word}` : word;
+    if (font.widthOfTextAtSize(testLine, fontSize) <= targetWidth) {
+      currentLine = testLine;
+    } else {
+      if (currentLine) {
+        renderLine(currentLine, currentY);
+        currentY -= lineHeight;
+        if (currentY < minY) break;
+      }
+      currentLine = word;
+    }
+  }
+  if (currentLine && currentY >= minY) {
+    renderLine(currentLine, currentY);
+  }
+}
+
+/**
+ * Helper to convert HEX color string to pdf-lib rgb object
+ */
+function hexToRgb(hex, defaultRgb = rgb(0.1, 0.15, 0.2)) {
+  if (!hex || typeof hex !== 'string' || !hex.startsWith('#') || hex.length < 7) {
+    return defaultRgb;
+  }
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  return rgb(r, g, b);
+}
+
+/**
+ * Standard default coordinates for official Kindia Mission Order A4
+ */
+function getDefaultKindiaFieldCoordinates() {
+  return {
+    version: "1.0",
+    page_size: {
+      width: 595.28,
+      height: 841.89,
+      orientation: "PORTRAIT"
+    },
+    fields: [
+      { id: "f_ref", key: "reference", type: "text", label: "Référence OM", x: 275.0, y: 712.0, width: 260.0, height: 18.0, font: "Helvetica-Bold", fontSize: 11, color: "#0B2545", align: "left", autoShrink: true },
+      { id: "f_grade", key: "grade", type: "text", label: "Titre / Grade", x: 180.0, y: 625.0, width: 350.0, height: 16.0, font: "Helvetica-Bold", fontSize: 10.5, color: "#1E293B", align: "left", autoShrink: true },
+      { id: "f_nom", key: "nom_complet", type: "text", label: "Nom & Prénoms", x: 180.0, y: 595.0, width: 350.0, height: 16.0, font: "Helvetica-Bold", fontSize: 11, color: "#1E293B", align: "left", autoShrink: true },
+      { id: "f_fonction", key: "fonction", type: "text", label: "Qualité / Fonction", x: 180.0, y: 565.0, width: 350.0, height: 16.0, font: "Helvetica", fontSize: 10, color: "#1E293B", align: "left", autoShrink: true },
+      { id: "f_service", key: "service", type: "text", label: "Service / Faculté", x: 180.0, y: 535.0, width: 350.0, height: 16.0, font: "Helvetica", fontSize: 10, color: "#1E293B", align: "left", autoShrink: true },
+      { id: "f_matricule", key: "matricule", type: "text", label: "Matricule", x: 180.0, y: 505.0, width: 350.0, height: 16.0, font: "Helvetica", fontSize: 10, color: "#1E293B", align: "left", autoShrink: true },
+      { id: "f_dest", key: "destination", type: "text", label: "Destination", x: 180.0, y: 475.0, width: 350.0, height: 16.0, font: "Helvetica-Bold", fontSize: 10.5, color: "#1E293B", align: "left", autoShrink: true },
+      { id: "f_objet", key: "objet_mission", type: "multiline", label: "Objet mission", x: 180.0, y: 435.0, width: 350.0, height: 32.0, font: "Helvetica", fontSize: 10, color: "#1E293B", align: "left", autoShrink: true },
+      { id: "f_transport", key: "moyen_transport", type: "text", label: "Transport", x: 180.0, y: 395.0, width: 350.0, height: 16.0, font: "Helvetica", fontSize: 10, color: "#1E293B", align: "left", autoShrink: true },
+      { id: "f_dates", key: "dates_mission", type: "text", label: "Dates mission", x: 180.0, y: 365.0, width: 350.0, height: 16.0, font: "Helvetica", fontSize: 10, color: "#1E293B", align: "left", autoShrink: true },
+      { id: "f_chauffeur", key: "chauffeur", type: "text", label: "Chauffeur", x: 180.0, y: 335.0, width: 350.0, height: 16.0, font: "Helvetica", fontSize: 10, color: "#1E293B", align: "left", autoShrink: true },
+      { id: "f_date_doc", key: "date_signature", type: "text", label: "Date d'émission", x: 380.0, y: 195.0, width: 180.0, height: 14.0, font: "Helvetica", fontSize: 9.5, color: "#1E293B", align: "center", autoShrink: true },
+      { id: "f_sig_role", key: "signataire_role", type: "text", label: "Titre signataire", x: 350.0, y: 180.0, width: 210.0, height: 14.0, font: "Helvetica-Bold", fontSize: 10.5, color: "#0B2545", align: "center", autoShrink: true },
+      { id: "f_sig_img", key: "signature_image", type: "signature_image", label: "Image Signature SG", x: 390.0, y: 110.0, width: 130.0, height: 45.0, keepAspectRatio: true },
+      { id: "f_cachet", key: "cachet_officiel", type: "image", label: "Cachet Officiel UK", x: 350.0, y: 95.0, width: 75.0, height: 75.0, opacity: 0.85 },
+      { id: "f_sig_nom", key: "signataire_nom", type: "text", label: "Nom signataire", x: 350.0, y: 85.0, width: 210.0, height: 14.0, font: "Helvetica-Bold", fontSize: 9.5, color: "#0B2545", align: "center", autoShrink: true },
+      { id: "f_qr", key: "qr_code", type: "qrcode", label: "QR Code", x: 48.0, y: 95.0, width: 65.0, height: 65.0 }
+    ]
+  };
+}
+
+/**
+ * Helper to render the official Kindia base layout if no master PDF template file was imported
+ */
+async function renderOfficialKindiaBaseLayout(page, pdfDoc, activeTemplateData) {
+  const { width, height } = page.getSize();
+  const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const primaryRgb = rgb(11 / 255, 37 / 255, 69 / 255);
+  const goldRgb = rgb(212 / 255, 175 / 255, 55 / 255);
+  const darkTextColor = rgb(30 / 255, 41 / 255, 59 / 255);
+
+  // Logo if present
+  const instSettings = await db.get('SELECT * FROM institution_settings WHERE id = 1');
+  const fullLogoPath = resolveLocalFilePath(instSettings?.logo_path, 'logos');
+  if (fullLogoPath && fs.existsSync(fullLogoPath)) {
+    try {
+      const logoBytes = fs.readFileSync(fullLogoPath);
+      const isPng = fullLogoPath.toLowerCase().endsWith('.png');
+      const logoImg = isPng ? await pdfDoc.embedPng(logoBytes) : await pdfDoc.embedJpg(logoBytes);
+      if (logoImg) {
+        page.drawImage(logoImg, { x: 50, y: height - 85, width: 55, height: 55 });
+      }
+    } catch (e) { }
+  }
+
+  // Header Titles
+  page.drawText('RÉPUBLIQUE DE GUINÉE', { x: width / 2 - 70, y: height - 42, size: 10, font: fontBold, color: darkTextColor });
+  page.drawText('Travail - Justice - Solidarité', { x: width / 2 - 58, y: height - 55, size: 8, font: fontRegular, color: darkTextColor });
+  page.drawText('MINISTÈRE DE L’ENSEIGNEMENT SUPÉRIEUR, DE LA RECHERCHE SCIENTIFIQUE ET DE L’INNOVATION', { x: 60, y: height - 72, size: 7.5, font: fontBold, color: primaryRgb });
+  page.drawText('UNIVERSITÉ DE KINDIA', { x: width / 2 - 80, y: height - 88, size: 13, font: fontBold, color: primaryRgb });
+
+  page.drawLine({ start: { x: 50, y: height - 95 }, end: { x: width - 50, y: height - 95 }, thickness: 1.5, color: goldRgb });
+
+  // Title Box
+  page.drawRectangle({
+    x: 50,
+    y: height - 145,
+    width: width - 100,
+    height: 35,
+    color: primaryRgb
+  });
+
+  page.drawText('ORDRE DE MISSION', {
+    x: width / 2 - 75,
+    y: height - 132,
+    size: 15,
+    font: fontBold,
+    color: rgb(1, 1, 1)
+  });
+
+  // Table Structure
+  const labels = [
+    { label: 'Titre / Grade :', y: 625 },
+    { label: 'Nom & Prénoms :', y: 595 },
+    { label: 'Qualité / Fonction :', y: 565 },
+    { label: 'Service / Direction :', y: 535 },
+    { label: 'Matricule :', y: 505 },
+    { label: 'Destination :', y: 475 },
+    { label: 'Objet de la mission :', y: 435 },
+    { label: 'Moyen de transport :', y: 395 },
+    { label: 'Période de la mission :', y: 365 },
+    { label: 'Conduit par :', y: 335 }
+  ];
+
+  labels.forEach(row => {
+    page.drawText(row.label, {
+      x: 55,
+      y: row.y,
+      size: 9.5,
+      font: fontBold,
+      color: primaryRgb
+    });
+    page.drawLine({
+      start: { x: 175, y: row.y - 4 },
+      end: { x: width - 50, y: row.y - 4 },
+      thickness: 0.5,
+      color: rgb(226 / 255, 232 / 255, 240 / 255)
+    });
+  });
+
+  // Footer line
+  page.drawLine({ start: { x: 50, y: 45 }, end: { x: width - 50, y: 45 }, thickness: 1, color: goldRgb });
+  page.drawText('UNIVERSITÉ DE KINDIA • BP 164 Kindia, République de Guinée • Document officiel certifié UK-GED', {
+    x: width / 2 - 190,
+    y: 30,
+    size: 7.5,
+    font: fontRegular,
+    color: primaryRgb
+  });
+}
+
 
 /**
  * Generic Document PDF generator for other document types
@@ -491,7 +1054,7 @@ async function generateGenericDocumentPDFFromActiveTemplate(documentTypeCode, do
       if (logoImg) {
         page.drawImage(logoImg, { x: 50, y: height - 80, width: 50, height: 50 });
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   const headerLines = (headerText || 'RÉPUBLIQUE DE GUINÉE\nUNIVERSITÉ DE KINDIA').split('\n').filter(Boolean);
@@ -559,6 +1122,14 @@ async function generateGenericDocumentPDFFromActiveTemplate(documentTypeCode, do
 
   const tagReplacements = {
     '{{reference}}': docData.reference || '',
+    '{{grade}}': docData.missionary_titre || docData.titre || docData.grade || 'M.',
+    '{{titre}}': docData.missionary_titre || docData.titre || docData.grade || 'M.',
+    '{{grade_titre}}': docData.missionary_titre || docData.titre || docData.grade || 'M.',
+    '{{titre_grade}}': docData.missionary_titre || docData.titre || docData.grade || 'M.',
+    '{{titre / grade}}': docData.missionary_titre || docData.titre || docData.grade || 'M.',
+    '{{grade / titre}}': docData.missionary_titre || docData.titre || docData.grade || 'M.',
+    '{{Titre / Grade}}': docData.missionary_titre || docData.titre || docData.grade || 'M.',
+    '{{Grade / Titre}}': docData.missionary_titre || docData.titre || docData.grade || 'M.',
     '{{date_creation}}': docData.created_at ? new Date(docData.created_at).toLocaleDateString('fr-FR') : new Date().toLocaleDateString('fr-FR'),
     '{{missionnaire_nom}}': docData.missionary_name || docData.name || '',
     '{{missionnaire_prenoms}}': docData.missionary_firstnames || '',
@@ -568,7 +1139,10 @@ async function generateGenericDocumentPDFFromActiveTemplate(documentTypeCode, do
     '{{objet_mission}}': docData.object_of_mission || docData.title || '',
     '{{date_depart}}': docData.departure_date || '',
     '{{date_retour}}': docData.return_date || '',
-    '{{moyen_transport}}': docData.transport_mode || '',
+    '{{moyen_transport}}': formatTransportDisplay(docData.transport_mode, docData.vehicle_registration || docData.vehicle_registration_snapshot),
+    '{{immatriculation}}': (docData.vehicle_registration || docData.vehicle_registration_snapshot || '').trim(),
+    '{{chauffeur}}': (docData.driver_name || 'Lui-même').trim(),
+    '{{conduit_par}}': (docData.driver_name || 'Lui-même').trim(),
     '{{annee_universitaire}}': '2025-2026'
   };
 
@@ -600,7 +1174,8 @@ async function generateGenericDocumentPDFFromActiveTemplate(documentTypeCode, do
   });
 
   // QR Code
-  const verificationUrl = `http://localhost:5000/api/verify/${encodeURIComponent(docData.reference || 'REF')}`;
+  const appBaseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000';
+  const verificationUrl = `${appBaseUrl}/verification/${encodeURIComponent(docData.tracking_token || docData.reference || 'REF')}`;
   const qrBuffer = await generateQRCodeBuffer(verificationUrl);
   const qrImage = await pdfDoc.embedPng(qrBuffer);
   page.drawImage(qrImage, { x: 60, y: 80, width: 85, height: 85 });
@@ -641,7 +1216,7 @@ async function generateGenericDocumentPDFFromActiveTemplate(documentTypeCode, do
         if (sigImg) {
           page.drawImage(sigImg, { x: width - 215, y: 95, width: 140, height: 40 });
         }
-      } catch (e) {}
+      } catch (e) { }
     }
   }
 
@@ -675,7 +1250,7 @@ async function generateDocumentPDFFromActiveTemplate(documentTypeCode, docData, 
  */
 async function getSGSignatureAndInstitutionInfo() {
   const instSettings = await db.get('SELECT * FROM institution_settings WHERE id = 1');
-  
+
   // Find SG user
   const sgUser = await db.get(
     `SELECT u.id, u.first_name, u.last_name, u.function_title, r.name as role_name 
@@ -773,7 +1348,7 @@ async function generateExternalMissionaryArrivalPDF(missData) {
   currentY -= 20;
 
   // ARRIVAL STAMP BOX (PROMINENT & MANDATORY)
-  const arrivalDateStr = missData.arrival_date 
+  const arrivalDateStr = missData.arrival_date
     ? new Date(missData.arrival_date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     : new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
 
@@ -809,7 +1384,7 @@ async function generateExternalMissionaryArrivalPDF(missData) {
       const fullSigPath = path.isAbsolute(sgSig.signature_image_path)
         ? sgSig.signature_image_path
         : path.join(process.cwd(), sgSig.signature_image_path.replace(/^\/+/, ''));
-      
+
       if (fs.existsSync(fullSigPath)) {
         const sigBytes = fs.readFileSync(fullSigPath);
         let sigImg = fullSigPath.toLowerCase().endsWith('.png') ? await pdfDoc.embedPng(sigBytes) : await pdfDoc.embedJpg(sigBytes);
@@ -903,7 +1478,7 @@ async function generateExternalMissionaryFinalPDF(missData) {
   currentY -= 15;
 
   // 1. ARRIVAL STAMP BOX
-  const arrivalDateStr = missData.arrival_date 
+  const arrivalDateStr = missData.arrival_date
     ? new Date(missData.arrival_date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     : 'N/A';
 
@@ -921,7 +1496,7 @@ async function generateExternalMissionaryFinalPDF(missData) {
   page.drawText('LE SECRÉTAIRE GÉNÉRAL', { x: 65, y: currentY - 40, size: 10, font: fontBold, color: primaryRgb });
 
   // 2. DEPARTURE STAMP BOX
-  const departureDateStr = missData.departure_date 
+  const departureDateStr = missData.departure_date
     ? new Date(missData.departure_date).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     : new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
 
@@ -945,7 +1520,7 @@ async function generateExternalMissionaryFinalPDF(missData) {
       const fullSigPath = path.isAbsolute(sgSig.signature_image_path)
         ? sgSig.signature_image_path
         : path.join(process.cwd(), sgSig.signature_image_path.replace(/^\/+/, ''));
-      
+
       if (fs.existsSync(fullSigPath)) {
         const sigBytes = fs.readFileSync(fullSigPath);
         let sigImg = fullSigPath.toLowerCase().endsWith('.png') ? await pdfDoc.embedPng(sigBytes) : await pdfDoc.embedJpg(sigBytes);
@@ -976,9 +1551,164 @@ async function generateExternalMissionaryFinalPDF(missData) {
 
 /**
  * Generates an official signed PDF document for a Mission Order (Ordre de Mission)
+ * Strictly applies electronic signature, QR code and official stamp in direct OVERLAY
+ * on top of the already generated official PDF.
+ * Never executes LibreOffice / OnlyOffice DOCX->PDF conversion during signing.
  */
-async function generateSignedMissionOrderPDF(missionData, signatureDetails) {
-  return await generateOfficialKindiaMissionOrderPDF(missionData, signatureDetails);
+async function generateSignedMissionOrderPDF(missionData, signatureDetails = {}) {
+  const t0_total = Date.now();
+  const cleanRef = (missionData.reference || `OM_${missionData.id || Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '_');
+  const appBaseUrl = process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:3000';
+  const missionToken = missionData.tracking_token || missionData.token || missionData.signature_token || missionData.reference || cleanRef;
+  const verificationUrl = `${appBaseUrl}/verification/ordre-mission/${encodeURIComponent(missionToken)}`;
+
+  // 1. Locate the already-generated official unsigned PDF
+  const t0_load = Date.now();
+  let candidatePaths = [
+    missionData.generated_file_path ? resolveLocalFilePath(missionData.generated_file_path) : null,
+    missionData.file_path ? resolveLocalFilePath(missionData.file_path) : null,
+    path.join(UPLOAD_DIR, `MISSION_ORDER_${cleanRef}.pdf`),
+    path.join(UPLOAD_DIR, `instance_${cleanRef}.pdf`),
+    missionData.generated_file_path ? path.join(UPLOAD_DIR, path.basename(missionData.generated_file_path)) : null,
+    missionData.file_path ? path.join(UPLOAD_DIR, path.basename(missionData.file_path)) : null
+  ].filter(p => p && fs.existsSync(p));
+
+  let sourcePdfPath = candidatePaths.length > 0 ? candidatePaths[0] : null;
+
+  // Fallback: If for any reason no pre-existing PDF exists (e.g. isolated legacy call), generate the initial instance once
+  if (!sourcePdfPath || !fs.existsSync(sourcePdfPath)) {
+    console.warn(`[MISSION_ORDER SIGN] Aucun PDF pré-généré trouvé pour ${cleanRef}. Génération initiale de l'instance...`);
+    const initialInstance = await generateMissionOrderDocumentInstance(
+      missionData,
+      missionData.template_id,
+      missionData.template_version_id
+    );
+    sourcePdfPath = initialInstance.pdf_path || resolveLocalFilePath(initialInstance.generated_file_path);
+  }
+
+  if (!sourcePdfPath || !fs.existsSync(sourcePdfPath)) {
+    throw new Error(`Le document PDF officiel source est introuvable pour l'ordre de mission (${cleanRef}).`);
+  }
+
+  // 2. Load PDF with pdf-lib
+  const sourcePdfBytes = fs.readFileSync(sourcePdfPath);
+  if (!sourcePdfBytes || sourcePdfBytes.length === 0) {
+    throw new Error(`Le fichier PDF source (${sourcePdfPath}) est vide ou illisible.`);
+  }
+
+  const pdfDoc = await PDFDocument.load(sourcePdfBytes);
+  const pages = pdfDoc.getPages();
+  const page1 = pages[0] || pdfDoc.addPage([595.28, 841.89]);
+  const { width, height } = page1.getSize();
+  const t_load = Date.now() - t0_load;
+
+  // 3. Generate and Stamp Verification QR Code
+  const t0_qr = Date.now();
+  const qrBuffer = await generateQRCodeBuffer(verificationUrl);
+  const t_qr_gen = Date.now() - t0_qr;
+
+  const t0_qr_apply = Date.now();
+  if (qrBuffer) {
+    try {
+      const qrImg = await pdfDoc.embedPng(qrBuffer);
+      page1.drawImage(qrImg, {
+        x: 48,
+        y: 110,
+        width: 60,
+        height: 60
+      });
+    } catch (qrErr) {
+      console.warn('[MISSION_ORDER SIGN] Erreur overlay QR code:', qrErr.message);
+    }
+  }
+  const t_qr_apply = Date.now() - t0_qr_apply;
+
+  // 4. Load and Stamp Electronic Signature
+  const t0_sig = Date.now();
+  const resolvedSignatory = await resolveCurrentMissionSignatory(signatureDetails);
+  const signatureImagePath = signatureDetails.signature_image_path || resolvedSignatory.signaturePath;
+  let t_sig_load = 0;
+  let t_sig_apply = 0;
+
+  if (signatureImagePath) {
+    const t0_sig_load = Date.now();
+    const resolvedSigPath = resolveLocalFilePath(signatureImagePath, 'signatures');
+    if (resolvedSigPath && fs.existsSync(resolvedSigPath)) {
+      const sigBytes = fs.readFileSync(resolvedSigPath);
+      t_sig_load = Date.now() - t0_sig_load;
+
+      const t0_sig_draw = Date.now();
+      try {
+        const isPng = resolvedSigPath.toLowerCase().endsWith('.png');
+        const sigImg = isPng ? await pdfDoc.embedPng(sigBytes) : await pdfDoc.embedJpg(sigBytes);
+        if (sigImg) {
+          page1.drawImage(sigImg, {
+            x: width - 215,
+            y: 115,
+            width: 130,
+            height: 45
+          });
+        }
+      } catch (sigErr) {
+        console.warn('[MISSION_ORDER SIGN] Erreur overlay signature:', sigErr.message);
+      }
+      t_sig_apply = Date.now() - t0_sig_draw;
+    }
+  }
+
+  // 5. Optional Official Institutional Stamp overlay (if configured)
+  const t0_stamp = Date.now();
+  try {
+    const instSettings = await db.get('SELECT * FROM institution_settings WHERE id = 1');
+    const stampPath = resolveLocalFilePath(instSettings?.stamp_path, 'stamps') || resolveLocalFilePath('cachet_kindia_officiel.png', 'stamps');
+    if (stampPath && fs.existsSync(stampPath) && (signatureDetails.apply_stamp || instSettings?.auto_stamp_om)) {
+      const stampBytes = fs.readFileSync(stampPath);
+      const isPng = stampPath.toLowerCase().endsWith('.png');
+      const stampImg = isPng ? await pdfDoc.embedPng(stampBytes) : await pdfDoc.embedJpg(stampBytes);
+      if (stampImg) {
+        page1.drawImage(stampImg, {
+          x: width - 265,
+          y: 105,
+          width: 70,
+          height: 70,
+          opacity: 0.85
+        });
+      }
+    }
+  } catch (stampErr) {
+    // Non-blocking
+  }
+  const t_stamp = Date.now() - t0_stamp;
+
+  // 6. Save Signed PDF
+  const t0_save = Date.now();
+  const signedPdfBytes = await pdfDoc.save();
+  const filename = `MISSION_ORDER_${cleanRef}.pdf`;
+  const filePath = path.join(UPLOAD_DIR, filename);
+  fs.writeFileSync(filePath, signedPdfBytes);
+
+  // Validate output file on disk
+  const stat = fs.statSync(filePath);
+  if (!stat || stat.size < 1000) {
+    throw new Error(`Le PDF signé produit est invalide ou corrompu (${stat ? stat.size : 0} octets).`);
+  }
+  const t_save = Date.now() - t0_save;
+
+  const t_total = Date.now() - t0_total;
+  console.log(`[MISSION_ORDER FAST SIGN - 0 CONVERSION DOCX]
+   ✓ Source PDF chargé : ${path.basename(sourcePdfPath)} (${t_load} ms)
+   ✓ QR Code généré & appliqué (${t_qr_gen + t_qr_apply} ms)
+   ✓ Signature chargée & appliquée (${t_sig_load + t_sig_apply} ms)
+   ✓ Cachet traité (${t_stamp} ms)
+   ✓ PDF signé sauvegardé : ${filename} (${stat.size} octets, ${t_save} ms)
+   ⏱️ Durée totale signature pure : ${t_total} ms`);
+
+  return {
+    filename,
+    filePath,
+    verificationUrl,
+    engine: 'FAST_PDF_OVERLAY'
+  };
 }
 
 /**
@@ -1104,79 +1834,51 @@ async function generateSignedExternalMissionaryPDF(missData, signatureDetails = 
  * using the exact template and template version specified.
  */
 async function generateMissionOrderDocumentInstance(docData, templateId = null, templateVersionId = null) {
-  const activeTemplateData = await getActiveTemplateForDocumentType('MISSION_ORDER', templateId, templateVersionId);
-  
-  const template = activeTemplateData?.template;
-  const activeVersion = activeTemplateData?.activeVersion;
-
-  const cleanRef = (docData.reference || `OM_${docData.id || Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, '_');
-  const dataMap = {
-    '{{reference}}': docData.reference || '',
-    '{{date_document}}': docData.created_at ? new Date(docData.created_at).toLocaleDateString('fr-FR') : new Date().toLocaleDateString('fr-FR'),
-    '{{date_creation}}': docData.created_at ? new Date(docData.created_at).toLocaleDateString('fr-FR') : new Date().toLocaleDateString('fr-FR'),
-    '{{missionnaire_nom}}': docData.missionary_name || '',
-    '{{missionnaire_prenoms}}': docData.missionary_firstnames || '',
-    '{{missionnaire_fonction}}': docData.function_title || 'Enseignant-Chercheur / Agent UK',
-    '{{missionnaire_service}}': docData.missionary_service || docData.service_name || '',
-    '{{matricule}}': docData.matricule || '',
-    '{{nationalite}}': docData.nationality || 'Guinéenne',
-    '{{destination}}': docData.destination || '',
-    '{{objet_mission}}': docData.object_of_mission || '',
-    '{{moyen_transport}}': docData.transport_mode || 'Véhicule de service',
-    '{{date_depart}}': docData.departure_date || '',
-    '{{date_retour}}': docData.return_date || '',
-    '{{conduit_par}}': docData.driver_name || '',
-    '{{annee_universitaire}}': '2025-2026',
-    '{{signataire}}': 'LE SECRÉTAIRE GÉNÉRAL',
-    '{{signature}}': '[En attente de signature du Secrétaire Général]'
-  };
-
-  // 1. Generate filled DOCX instance
-  let sourceDocxBuffer = null;
-  const templateDir = path.join(__dirname, '../../uploads/templates');
-  let masterDocxPath = activeVersion?.file_path ? path.join(templateDir, activeVersion.file_path) : (template?.file_path ? path.join(templateDir, template.file_path) : null);
-  
-  if (masterDocxPath && fs.existsSync(masterDocxPath)) {
-    sourceDocxBuffer = fs.readFileSync(masterDocxPath);
-  } else {
-    sourceDocxBuffer = await docxService.buildOfficialKindiaMissionDocx();
-  }
-
-  const filledDocxBuffer = await docxService.fillDocxTemplate(sourceDocxBuffer, dataMap);
-  const docxFilename = `instance_${cleanRef}.docx`;
-  const docxFullPath = path.join(UPLOAD_DIR, docxFilename);
-  fs.writeFileSync(docxFullPath, filledDocxBuffer);
-
-  // 2. Generate matching PDF instance (Draft/Pending signature) using official Kindia visual layout
-  const pdfResult = await generateOfficialKindiaMissionOrderPDF({
+  const result = await generateOfficialKindiaMissionOrderPDF({
     ...docData,
-    template_id: template?.id,
-    template_version_id: activeVersion?.id
+    template_id: templateId,
+    template_version_id: templateVersionId
   }, {
-    signed_by_name: 'Dr Mamadou Billo DOUMBOUYA',
-    signed_by_role: 'LE SECRETAIRE GENERAL',
     is_draft: true
   });
+
+  const activeTemplateData = await getActiveTemplateForDocumentType('MISSION_ORDER', templateId, templateVersionId);
+  const template = activeTemplateData?.template;
+  const activeVersion = activeTemplateData?.activeVersion;
+  const templateFileName = template?.file_name || (template?.file_path ? path.basename(template.file_path) : 'ORDRE_DE_MISSION_OFFICIEL.docx');
+  const templateVerNum = activeVersion?.version_number || template?.version_number || 1;
 
   return {
     template_id: template?.id || null,
     template_version_id: activeVersion?.id || null,
-    template_version_number: activeVersion?.version_number || template?.version || 1,
-    generated_docx_path: docxFilename,
-    generated_file_path: pdfResult.filename,
-    pdf_path: pdfResult.filePath
+    template_version_number: templateVerNum,
+    template_name: template?.name || 'Ordre de mission officiel',
+    template_file_name: templateFileName,
+    generated_docx_path: result.docxFilename,
+    generated_file_path: result.filename,
+    pdf_path: result.filePath,
+    verification_url: result.verificationUrl
   };
 }
 
-module.exports = { 
+function formatTransportMode(mode) {
+  if (!mode) return '';
+  return String(mode).trim();
+}
+
+module.exports = {
+  formatTransportMode,
   resolveLocalFilePath,
   getActiveTemplateForDocumentType,
   generateDocumentPDFFromActiveTemplate,
   generateOfficialKindiaMissionOrderPDF,
+  generateDirectPdfFromTemplate,
+  getDefaultKindiaFieldCoordinates,
   generateMissionOrderDocumentInstance,
-  generateSignedMissionOrderPDF, 
+  generateSignedMissionOrderPDF,
   generateSoitTransmisPDF,
   generateExternalMissionaryArrivalPDF,
   generateExternalMissionaryFinalPDF,
   generateSignedExternalMissionaryPDF
 };
+

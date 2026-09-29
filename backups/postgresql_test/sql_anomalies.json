@@ -1,0 +1,28 @@
+[
+  {
+    "lineNum": 127,
+    "table": "archive_custom_categories",
+    "column": "is_default_for_types_json",
+    "sqlSnippet": "\"is_default_for_types_json\" BOOLEAN DEFAULT '[]'",
+    "sqliteType": "TEXT",
+    "sqliteDefault": "'[]'",
+    "currentPgType": "BOOLEAN",
+    "problem": "BOOLEAN column with non-boolean default: '[]'",
+    "fix": "Change type to JSONB DEFAULT ''[]''::jsonb or TEXT",
+    "reason": "PostgreSQL rejects JSON/array strings for BOOLEAN types (Error 22P02). SQLite stored JSON array text in this column.",
+    "risk": "ÉLEVÉ"
+  },
+  {
+    "lineNum": 127,
+    "table": "archive_custom_categories",
+    "column": "is_default_for_types_json",
+    "sqlSnippet": "\"is_default_for_types_json\" BOOLEAN DEFAULT '[]'",
+    "sqliteType": "TEXT",
+    "sqliteDefault": "'[]'",
+    "currentPgType": "BOOLEAN",
+    "problem": "Column converted to BOOLEAN but SQLite type is TEXT and contains text/json",
+    "fix": "Use TEXT or JSONB",
+    "reason": "Preserve data fidelity without silent conversion or casting failure.",
+    "risk": "ÉLEVÉ"
+  }
+]

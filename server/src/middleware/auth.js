@@ -18,10 +18,13 @@ async function authenticateToken(req, res, next) {
     
     // Fetch fresh user profile with service and role permissions (Supports non-service users & Enseignants-Chercheurs)
     const user = await db.get(
-      `SELECT u.id, u.user_uid, u.matricule, u.first_name, u.last_name, u.email, u.phone, u.function_title, 
+      `SELECT u.id, u.user_uid, u.matricule, u.first_name, u.last_name, 
+              COALESCE(NULLIF(u.titre, ''), st.titre, 'M.') as titre, 
+              u.email, u.phone, u.function_title, u.photo_path,
               u.personnel_category, u.academic_structure, u.service_id, u.role_id, u.status, u.token_version, u.must_change_password,
               s.name as service_name, s.code as service_code, r.code as role_code, r.name as role_name
        FROM users u
+       LEFT JOIN staff st ON (st.user_id = u.id OR (u.matricule IS NOT NULL AND st.matricule = u.matricule))
        LEFT JOIN services s ON u.service_id = s.id
        JOIN roles r ON u.role_id = r.id
        WHERE u.id = ? AND u.status = 'ACTIVE'`,

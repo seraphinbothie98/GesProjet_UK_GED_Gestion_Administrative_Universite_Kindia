@@ -16,10 +16,12 @@ import UserAdmin from './pages/UserAdmin';
 import RoleAdmin from './pages/RoleAdmin';
 import Appointments from './pages/Appointments';
 import InstitutionAdmin from './pages/InstitutionAdmin';
-import TemplateAdmin from './pages/TemplateAdmin';
+import MissionOrderTemplateAdmin from './pages/MissionOrderTemplateAdmin';
 import DocumentTypeAdmin from './pages/DocumentTypeAdmin';
 import SignatureAdmin from './pages/SignatureAdmin';
 import StaffManagement from './pages/StaffManagement';
+import FleetManagement from './pages/FleetManagement';
+import DriverManagement from './pages/DriverManagement';
 import AdminMaintenance from './pages/AdminMaintenance';
 import AdminServiceArchives from './pages/AdminServiceArchives';
 import ExternalMissionaries from './pages/ExternalMissionaries';
@@ -39,11 +41,14 @@ import MobileNavBar from './components/MobileNavBar';
 import MobileDrawer from './components/MobileDrawer';
 import MobileResponsableSpace from './pages/MobileResponsableSpace';
 import ErrorBoundary from './components/ErrorBoundary';
+import { PwaProvider } from './context/PwaContext';
+import PwaInstallModal from './components/PwaInstallModal';
 import { api } from './services/api';
 
 function MainApp() {
   const { user, loading } = useAuth();
   const [currentPage, setCurrentPage] = useState('dashboard');
+  const [pageOptions, setPageOptions] = useState({});
   const [selectedDocumentId, setSelectedDocumentId] = useState(null);
   const [showPublicTracking, setShowPublicTracking] = useState(window.location.pathname === '/suivi-document');
   const [showPublicAppointment, setShowPublicAppointment] = useState(false);
@@ -52,6 +57,15 @@ function MainApp() {
   const [toSignCount, setToSignCount] = useState(0);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
+  // Toujours sélectionner automatiquement le "Tableau de bord" à la connexion de chaque utilisateur
+  React.useEffect(() => {
+    if (user) {
+      setCurrentPage('dashboard');
+      setSelectedDocumentId(null);
+      setPageOptions({});
+    }
+  }, [user?.id]);
+
   React.useEffect(() => {
     if (user) {
       api.getDocumentsToSign()
@@ -59,6 +73,12 @@ function MainApp() {
         .catch(() => setToSignCount(0));
     }
   }, [user, currentPage, selectedDocumentId]);
+
+  const handleNavigate = (page, options = {}) => {
+    setSelectedDocumentId(null);
+    setCurrentPage(page);
+    setPageOptions(options || {});
+  };
 
   if (loading) {
     return (
@@ -71,7 +91,7 @@ function MainApp() {
     );
   }
 
-  if (window.location.pathname.startsWith('/verify/')) {
+  if (window.location.pathname.startsWith('/verify') || window.location.pathname.startsWith('/verification')) {
     return <PublicVerification onBack={user ? () => window.location.href = '/' : null} />;
   }
 
@@ -82,31 +102,11 @@ function MainApp() {
   if (!user) {
     return (
       <div className="relative">
-        <div className="fixed top-3 right-3 sm:top-4 sm:right-4 z-50 flex flex-wrap items-center justify-end gap-2 max-w-[95vw]">
-          <button
-            onClick={() => setShowPublicMissionModal(true)}
-            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-xl transition flex items-center space-x-1.5 border border-emerald-400/30 animate-pulse hover:animate-none"
-            title="Déposer une demande d'ordre de mission au Secrétariat Central"
-          >
-            <span>📝 DEMANDER UN ORDRE DE MISSION</span>
-          </button>
-
-          <button
-            onClick={() => setShowPublicAppointment(true)}
-            className="px-3 py-2 bg-kindia-blue text-white text-xs font-bold rounded-xl shadow-lg hover:bg-kindia-lightBlue transition border border-kindia-gold/40 hidden sm:flex items-center space-x-1"
-          >
-            <span>📅 Rendez-vous</span>
-          </button>
-
-          <button
-            onClick={() => setShowPublicTracking(true)}
-            className="px-3 py-2 bg-kindia-gold text-kindia-blue text-xs font-bold rounded-xl shadow-lg hover:bg-yellow-400 transition flex items-center space-x-1"
-          >
-            <span>🔎 Suivi de document</span>
-          </button>
-        </div>
-
-        <Login onOpenMissionModal={() => setShowPublicMissionModal(true)} />
+        <Login 
+          onOpenMissionModal={() => setShowPublicMissionModal(true)}
+          onOpenAppointment={() => setShowPublicAppointment(true)}
+          onOpenTracking={() => setShowPublicTracking(true)}
+        />
 
         {showPublicAppointment && (
           <PublicAppointmentModal onClose={() => setShowPublicAppointment(false)} />
@@ -150,7 +150,7 @@ function MainApp() {
       return <DocumentDetail documentId={selectedDocumentId} onBack={handleBack} />;
     }
 
-    const strictlySCPages = ['incoming', 'outgoing'];
+    const strictlySCPages = ['incoming', 'outgoing', 'fleet', 'parc-automobile', 'drivers', 'chauffeurs'];
 
     if (strictlySCPages.includes(currentPage) && !isCentralAdminOrSC) {
       return (
@@ -164,7 +164,7 @@ function MainApp() {
               Vous ne disposez pas des permissions nécessaires pour accéder à ce module central. L'accès aux registres administratifs et aux archives est réservé au Secrétariat Central et à l'Administrateur Système.
             </p>
             <button
-              onClick={() => setCurrentPage('dashboard')}
+              onClick={() => handleNavigate('dashboard')}
               className="px-5 py-2.5 bg-kindia-blue hover:bg-kindia-lightBlue text-white text-xs font-bold rounded-xl shadow transition"
             >
               Retour au tableau de bord
@@ -186,7 +186,29 @@ function MainApp() {
               L'accès au module des missionnaires externes est réservé au Secrétariat Central et au Secrétaire Général.
             </p>
             <button
-              onClick={() => setCurrentPage('dashboard')}
+              onClick={() => handleNavigate('dashboard')}
+              className="px-5 py-2.5 bg-kindia-blue hover:bg-kindia-lightBlue text-white text-xs font-bold rounded-xl shadow transition"
+            >
+              Retour au tableau de bord
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (currentPage === 'signatures' && user?.role_code !== 'ADMINISTRATEUR') {
+      return (
+        <div className="min-h-[60vh] flex items-center justify-center p-6">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full border border-red-200 shadow-xl text-center space-y-4">
+            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto">
+              <ShieldAlert className="w-8 h-8" />
+            </div>
+            <h2 className="text-xl font-heading font-extrabold text-slate-800">Accès réservé à l'Administrateur</h2>
+            <p className="text-xs text-slate-600">
+              Le module de configuration des signatures électroniques institutionnelles est strictement réservé à l'Administrateur Système.
+            </p>
+            <button
+              onClick={() => handleNavigate('dashboard')}
               className="px-5 py-2.5 bg-kindia-blue hover:bg-kindia-lightBlue text-white text-xs font-bold rounded-xl shadow transition"
             >
               Retour au tableau de bord
@@ -198,20 +220,20 @@ function MainApp() {
 
     switch (currentPage) {
       case 'dashboard':
-        return <Dashboard onSelectDocument={handleSelectDocument} onNavigate={(p) => setCurrentPage(p)} />;
+        return <Dashboard onSelectDocument={handleSelectDocument} onNavigate={handleNavigate} />;
       case 'dispatching':
-        return <Dispatching onSelectDocument={handleSelectDocument} />;
+        return <Dispatching onSelectDocument={handleSelectDocument} autoOpenCreate={!!pageOptions?.openCreateModal} />;
       case 'appointments':
         return <Appointments />;
       case 'tracking':
         return <DocumentTracking />;
       case 'incoming':
-        return <IncomingMail onSelectDocument={handleSelectDocument} />;
+        return <IncomingMail onSelectDocument={handleSelectDocument} autoOpenCreate={!!pageOptions?.openCreateModal} />;
       case 'outgoing':
         return <OutgoingMail onSelectDocument={handleSelectDocument} />;
       case 'missions':
       case 'mission-requests':
-        return <MissionOrders onSelectDocument={handleSelectDocument} />;
+        return <MissionOrders onSelectDocument={handleSelectDocument} autoOpenCreate={!!pageOptions?.openCreateModal} />;
       case 'external-missionaries':
         return <ExternalMissionaries />;
       case 'transmissions':
@@ -227,19 +249,25 @@ function MainApp() {
       case 'services':
         return <ServiceAdmin />;
       case 'users':
-        return <UserAdmin />;
+      case 'staff':
+        return <StaffManagement />;
+      case 'fleet':
+      case 'parc-automobile':
+        return <FleetManagement />;
+      case 'drivers':
+      case 'chauffeurs':
+        return <DriverManagement />;
       case 'roles':
         return <RoleAdmin />;
       case 'institution':
         return <InstitutionAdmin />;
+      case 'mission-template':
       case 'templates':
-        return <TemplateAdmin />;
+        return <MissionOrderTemplateAdmin />;
       case 'document-types':
         return <DocumentTypeAdmin />;
       case 'signatures':
         return <SignatureAdmin />;
-      case 'staff':
-        return <StaffManagement />;
       case 'maintenance':
         return <AdminMaintenance onSelectDocument={handleSelectDocument} />;
       case 'admin-service-archives':
@@ -248,9 +276,9 @@ function MainApp() {
         return <AccountSettings />;
       case 'mobile-signatures':
       case 'mobile-responsable':
-        return <MobileResponsableSpace onSelectDocument={handleSelectDocument} onNavigate={(p) => setCurrentPage(p)} />;
+        return <MobileResponsableSpace onSelectDocument={handleSelectDocument} onNavigate={handleNavigate} />;
       default:
-        return <Dashboard onSelectDocument={handleSelectDocument} onNavigate={(p) => setCurrentPage(p)} />;
+        return <Dashboard onSelectDocument={handleSelectDocument} onNavigate={handleNavigate} />;
     }
   };
 
@@ -261,6 +289,7 @@ function MainApp() {
         setCurrentPage={(p) => {
           setSelectedDocumentId(null);
           setCurrentPage(p);
+          setPageOptions({});
         }} 
       />
 
@@ -268,7 +297,7 @@ function MainApp() {
         <Header 
           onOpenMobileDrawer={() => setMobileDrawerOpen(true)} 
           onRequestMission={() => setShowConnectedMissionModal(true)}
-          onNavigate={(p) => setCurrentPage(p)}
+          onNavigate={handleNavigate}
         />
         <main className="p-3 md:p-6 flex-1 max-w-7xl w-full mx-auto overflow-x-hidden">
           {renderContent()}
@@ -297,6 +326,7 @@ function MainApp() {
         setCurrentPage={(p) => {
           setSelectedDocumentId(null);
           setCurrentPage(p);
+          setPageOptions({});
         }}
       />
 
@@ -305,6 +335,7 @@ function MainApp() {
         setCurrentPage={(p) => {
           setSelectedDocumentId(null);
           setCurrentPage(p);
+          setPageOptions({});
         }} 
         toSignCount={toSignCount} 
       />
@@ -315,9 +346,13 @@ function MainApp() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <AuthProvider>
-        <MainApp />
-      </AuthProvider>
+      <PwaProvider>
+        <AuthProvider>
+          <MainApp />
+          <PwaInstallModal />
+        </AuthProvider>
+      </PwaProvider>
     </ErrorBoundary>
   );
 }
+

@@ -7,6 +7,7 @@ import {
   Paperclip, ArrowRight, ArrowLeft, CheckCircle2, AlertCircle, Sparkles,
   Plus, Upload, FileUp, Tag, Calendar, Layers, HelpCircle, Eye, RefreshCw, FileCode
 } from 'lucide-react';
+import { formatFullName } from '../utils/userUtils';
 
 export default function NewAdministrativeDocumentModal({ isOpen, onClose, onSuccess }) {
   const { user } = useAuth();
@@ -143,7 +144,7 @@ export default function NewAdministrativeDocumentModal({ isOpen, onClose, onSucc
       '{{DEPARTEMENT}}': user?.service_name || '',
       '{{DESTINATAIRE}}': targetRecipientName || 'Monsieur le Secrétaire Général',
       '{{OBJET}}': objectTitle || '[Objet du document]',
-      '{{RESPONSABLE}}': `${user?.first_name || ''} ${user?.last_name || ''}`.trim(),
+      '{{RESPONSABLE}}': formatFullName(user, 'Responsable'),
       '{{FONCTION_RESPONSABLE}}': user?.function_title || user?.role_name || 'Responsable',
       '{{ANNEE}}': String(now.getFullYear())
     };
@@ -871,14 +872,14 @@ export default function NewAdministrativeDocumentModal({ isOpen, onClose, onSucc
                         onChange={(e) => {
                           setTargetRecipientId(e.target.value);
                           const u = users.find(usr => String(usr.id) === String(e.target.value));
-                          if (u) setTargetRecipientName(`${u.first_name} ${u.last_name}`);
+                          if (u) setTargetRecipientName(formatFullName(u));
                         }}
                         className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-hidden"
                       >
                         <option value="">-- Choisir un utilisateur --</option>
                         {users.map(u => (
                           <option key={u.id} value={u.id}>
-                            {u.first_name} {u.last_name} ({u.service_name || u.role_name})
+                            {formatFullName(u)} ({u.service_name || u.role_name})
                           </option>
                         ))}
                       </select>

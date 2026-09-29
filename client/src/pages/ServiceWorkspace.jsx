@@ -19,6 +19,7 @@ import {
   ArrowLeft, Tag, Folder, Download, Landmark, FolderPlus, Settings,
   Camera, FileUp
 } from 'lucide-react';
+import { formatFullName } from '../utils/userUtils';
 
 export default function ServiceWorkspace({ onSelectDocument }) {
   const { user } = useAuth();
@@ -144,7 +145,7 @@ export default function ServiceWorkspace({ onSelectDocument }) {
               {user?.service_name || 'Espace de Travail Administratif'}
             </h2>
             <p className="text-xs text-slate-200 mt-0.5">
-              Connecté en tant que : <strong className="text-white">{user?.first_name} {user?.last_name}</strong> ({user?.function_title || user?.role_name})
+              Connecté en tant que : <strong className="text-white">{formatFullName(user)}</strong> ({user?.function_title || user?.role_name})
             </p>
           </div>
         </div>

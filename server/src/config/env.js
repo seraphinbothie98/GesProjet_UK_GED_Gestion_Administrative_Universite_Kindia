@@ -34,7 +34,11 @@ const APP_VERSION = process.env.APP_VERSION || pkg.version || '1.0.0';
 // Build environment-specific storage and database paths
 function resolveStorageDir() {
   if (process.env.STORAGE_PATH) {
-    return path.resolve(process.env.STORAGE_PATH);
+    const raw = process.env.STORAGE_PATH;
+    if (raw.startsWith('./') || raw.startsWith('../')) {
+      return path.resolve(serverRoot, raw);
+    }
+    return path.resolve(raw);
   }
   // Isolate uploads per environment
   const subFolder = NODE_ENV === 'production' ? 'prod' : (NODE_ENV === 'staging' ? 'staging' : 'dev');

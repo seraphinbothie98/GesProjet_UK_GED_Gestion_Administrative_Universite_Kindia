@@ -8,6 +8,7 @@ import {
   RotateCw, Maximize2, FileCheck, CheckCircle2, Lock, AlertTriangle, ArrowRight,
   Sparkles, Scan
 } from 'lucide-react';
+import { formatGuineaPhone } from '../utils/phoneUtils';
 
 export default function ExternalMissionaries() {
   const { user } = useAuth();
@@ -1468,14 +1469,14 @@ export default function ExternalMissionaries() {
                 </div>
 
                 <div>
-                  <label className="block text-slate-700 font-bold mb-1">Téléphone</label>
+                  <label className="block text-slate-700 font-bold mb-1">Téléphone (+224)</label>
                   <input
-                    type="text"
+                    type="tel"
                     name="phone"
                     value={formData.phone}
-                    onChange={handleInputChange}
-                    placeholder="+224 ..."
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs"
+                    onChange={(e) => setFormData(prev => ({ ...prev, phone: formatGuineaPhone(e.target.value) }))}
+                    placeholder="+224 6XX XX XX XX"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-semibold"
                   />
                 </div>
 

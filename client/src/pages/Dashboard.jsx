@@ -9,6 +9,7 @@ import {
   MapPin, Briefcase, FileClock, ChevronRight, AlertCircle, Building2, User
 } from 'lucide-react';
 import { formatAction, formatNextAction, formatActionDate } from '../utils/actionFormatter';
+import { formatFullName } from '../utils/userUtils';
 
 export default function Dashboard({ onSelectDocument, onNavigate }) {
   const { user, institution, getLogoUrl } = useAuth();
@@ -89,69 +90,132 @@ export default function Dashboard({ onSelectDocument, onNavigate }) {
     <div className="space-y-6 text-slate-800">
       
       {/* 1. Welcome Banner */}
-      <div className="bg-gradient-to-r from-kindia-blue via-slate-900 to-kindia-blue rounded-3xl p-6 md:p-8 text-white shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-        <div className="flex items-center space-x-4">
-          {showLogo && (
-            <img 
-              src={logoUrl} 
-              alt={institution?.name || "Logo Officiel"} 
-              className="w-16 h-16 object-contain rounded-2xl bg-white p-2 shadow-lg border border-white/20 shrink-0" 
-            />
-          )}
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="text-[11px] font-extrabold text-kindia-gold uppercase tracking-wider bg-white/10 px-3 py-0.5 rounded-full border border-kindia-gold/30">
-                Gouvernance Administrative & GED • {institution?.name || 'Université de Kindia'}
-              </span>
+      <div className="bg-gradient-to-r from-[#07172c] via-[#0b1c34] to-[#07172c] border border-blue-900/60 rounded-3xl p-6 md:p-8 text-white shadow-2xl relative overflow-hidden flex flex-col justify-between gap-6">
+        {/* Subtle decorative background glow */}
+        <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+
+        {/* Top & Profile Identity Section */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10 w-full">
+          <div className="flex items-center space-x-4 md:space-x-5">
+            {showLogo ? (
+              <div className="w-16 h-16 md:w-20 md:h-20 bg-white rounded-2xl p-2 shadow-xl border border-white/20 flex items-center justify-center shrink-0">
+                <img 
+                  src={logoUrl} 
+                  alt={institution?.name || "Logo Officiel"} 
+                  className="w-full h-full object-contain" 
+                />
+              </div>
+            ) : (
+              <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-br from-kindia-gold to-amber-500 rounded-2xl p-2 shadow-xl border border-white/20 flex items-center justify-center shrink-0 text-slate-950 font-black text-2xl">
+                UK
+              </div>
+            )}
+
+            <div>
+              <div className="inline-flex items-center space-x-2 bg-[#12243d] border border-amber-400/50 px-3.5 py-1 rounded-full mb-1.5 shadow-inner">
+                <span className="text-[10px] md:text-[11px] font-extrabold text-amber-400 tracking-wider uppercase font-sans">
+                  GOUVERNANCE ADMINISTRATIVE & GED • {institution?.name || 'UNIVERSITÉ DE KINDIA'}
+                </span>
+              </div>
+              
+              <h2 className="font-heading font-black text-2xl md:text-3xl lg:text-4xl text-white tracking-tight leading-tight mt-1">
+                Bonjour, {formatFullName(user)}
+              </h2>
+
+              <div className="text-xs md:text-sm text-slate-300 mt-1.5 flex flex-wrap items-center gap-2 font-medium">
+                <span>Rôle : <strong className="text-white font-bold">{user?.role_name || (isSC ? 'Agent Secrétariat Central' : 'Utilisateur')}</strong></span>
+                <span className="text-amber-400 font-bold">•</span>
+                <span>Service : <strong className="text-white font-bold">{user?.service_name || (isSC ? 'Secrétariat Central' : 'Administration')}</strong></span>
+              </div>
             </div>
-            <h2 className="font-heading font-extrabold text-2xl md:text-3xl mt-2 text-white">
-              Bonjour, {user?.first_name} {user?.last_name}
-            </h2>
-            <p className="text-xs text-slate-200 mt-1 flex flex-wrap items-center gap-2">
-              <span>Rôle : <strong className="text-white">{user?.role_name}</strong></span>
-              <span>•</span>
-              <span>Service : <strong className="text-white">{user?.service_name}</strong></span>
-            </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2.5">
-          <button 
-            onClick={() => onNavigate('service-workspace')}
-            className="bg-kindia-gold text-kindia-blue hover:bg-amber-400 px-4 py-2.5 rounded-2xl text-xs font-black shadow-md transition flex items-center space-x-2"
-          >
-            <Building2 className="w-4 h-4 stroke-[2.5]" />
-            <span>Mon Espace Service</span>
-          </button>
-
-          {isSC && (
-            <>
+        {/* Action Buttons Bar : Clean full-width grid layout without any horizontal overflow */}
+        {isSC ? (
+          <div className="w-full pt-4 border-t border-white/10 relative z-10">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full">
+              {/* 1. Mon Espace Service */}
               <button 
-                onClick={() => onNavigate('incoming')}
-                className="bg-white/10 hover:bg-white/20 text-white border border-white/20 px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center space-x-2"
+                onClick={() => onNavigate('service-workspace')}
+                className="w-full bg-[#e5a93c] hover:bg-[#d99c2e] text-slate-950 font-bold px-4 py-3 rounded-full text-xs md:text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center space-x-2 border border-amber-300/60 active:scale-95"
+                title="Accéder à Mon Espace Service"
               >
-                <Inbox className="w-4 h-4 text-kindia-gold" />
-                <span>Enregistrer Courrier</span>
+                <Building2 className="w-4 h-4 text-slate-950 stroke-[2.5]" />
+                <span className="truncate">Mon Espace Service</span>
               </button>
 
+              {/* 2. Enregistrer un Courrier Entrant */}
               <button 
-                onClick={() => onNavigate('external-missionaries')}
-                className="bg-white/10 hover:bg-white/20 text-white border border-white/20 px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center space-x-2"
+                onClick={() => onNavigate('incoming', { openCreateModal: true })}
+                className="w-full bg-[#0b1c34] hover:bg-[#122c52] text-white font-bold border border-blue-400/40 hover:border-blue-300 px-4 py-3 rounded-full text-xs md:text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center space-x-2 active:scale-95"
+                title="Ouvrir le formulaire d'enregistrement d'un nouveau courrier entrant"
               >
-                <MapPin className="w-4 h-4 text-kindia-gold" />
-                <span>Ordres Mission Externes</span>
+                <Plus className="w-4 h-4 text-amber-400 stroke-[3]" />
+                <span className="truncate">Enregistrer un Courrier Entrant</span>
               </button>
-            </>
-          )}
 
-          <button 
-            onClick={() => onNavigate('appointments')}
-            className="bg-white/10 hover:bg-white/20 text-white border border-white/20 px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center space-x-2"
-          >
-            <Calendar className="w-4 h-4 text-kindia-gold" />
-            <span>Audiences & RDV</span>
-          </button>
-        </div>
+              {/* 3. NOUVELLE DIFFUSION */}
+              <button 
+                onClick={() => onNavigate('dispatching', { openCreateModal: true })}
+                className="w-full bg-[#e5a93c] hover:bg-[#d99c2e] text-slate-950 font-black px-4 py-3 rounded-full text-xs md:text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center space-x-2 border border-amber-300/60 active:scale-95 uppercase tracking-wide"
+                title="Ouvrir le formulaire de nouvelle diffusion"
+              >
+                <Plus className="w-4 h-4 text-slate-950 stroke-[3]" />
+                <span className="truncate">NOUVELLE DIFFUSION</span>
+              </button>
+
+              {/* 4. Audiences & RDV */}
+              <button 
+                onClick={() => onNavigate('appointments')}
+                className="w-full bg-[#0b1c34] hover:bg-[#122c52] text-white font-bold border border-amber-400/50 hover:border-amber-400 px-4 py-3 rounded-full text-xs md:text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center space-x-2 active:scale-95"
+                title="Consulter les audiences et rendez-vous"
+              >
+                <Calendar className="w-4 h-4 text-amber-400" />
+                <span className="truncate">Audiences & RDV</span>
+              </button>
+
+              {/* 5. ÉTABLIR UN ORDRE DE MISSION (SC) */}
+              <button 
+                onClick={() => onNavigate('missions', { openCreateModal: true })}
+                className="w-full bg-[#0b1c34] hover:bg-[#122c52] text-white font-extrabold border border-blue-400/40 hover:border-blue-300 px-4 py-3 rounded-full text-xs md:text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center space-x-1.5 active:scale-95 uppercase tracking-tight"
+                title="Ouvrir le formulaire de création d'un ordre de mission officiel"
+              >
+                <Plus className="w-4 h-4 text-amber-400 stroke-[3]" />
+                <FileText className="w-4 h-4 text-sky-400" />
+                <span className="truncate">ÉTABLIR UN ORDRE DE MISSION (SC)</span>
+              </button>
+
+              {/* 6. Suivi de document */}
+              <button 
+                onClick={() => onNavigate('tracking')}
+                className="w-full bg-[#e5a93c] hover:bg-[#d99c2e] text-slate-950 font-bold px-4 py-3 rounded-full text-xs md:text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center space-x-2 border border-amber-300/60 active:scale-95"
+                title="Suivi de document par référence ou QR Code"
+              >
+                <Search className="w-4 h-4 text-slate-950 stroke-[2.5]" />
+                <span className="truncate">Suivi de document</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2.5 pt-4 border-t border-white/10 relative z-10">
+            <button 
+              onClick={() => onNavigate('service-workspace')}
+              className="bg-kindia-gold text-kindia-blue hover:bg-amber-400 px-4 py-2.5 rounded-2xl text-xs font-black shadow-md transition flex items-center space-x-2"
+            >
+              <Building2 className="w-4 h-4 stroke-[2.5]" />
+              <span>Mon Espace Service</span>
+            </button>
+
+            <button 
+              onClick={() => onNavigate('appointments')}
+              className="bg-white/10 hover:bg-white/20 text-white border border-white/20 px-4 py-2.5 rounded-2xl text-xs font-bold transition flex items-center space-x-2"
+            >
+              <Calendar className="w-4 h-4 text-kindia-gold" />
+              <span>Audiences & RDV</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 2. Secrétariat Central Specialized Indicators Banner */}
@@ -494,4 +558,3 @@ export default function Dashboard({ onSelectDocument, onNavigate }) {
     </div>
   );
 }
-

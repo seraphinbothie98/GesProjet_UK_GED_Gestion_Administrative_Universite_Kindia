@@ -1,4 +1,80 @@
-const API_BASE = '/api';
+const rawApiUrl = (import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
+export const BACKEND_URL = rawApiUrl ? rawApiUrl.replace(/\/api$/, '') : '';
+export const API_BASE = rawApiUrl 
+  ? (rawApiUrl.endsWith('/api') ? rawApiUrl : `${rawApiUrl}/api`)
+  : '/api';
+
+export function getUploadUrl(path) {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('blob:') || path.startsWith('data:')) {
+    return path;
+  }
+  const clean = path.startsWith('/') ? path : `/${path}`;
+  return BACKEND_URL ? `${BACKEND_URL}${clean}` : clean;
+}
+
+const globalFetch = (typeof window !== 'undefined' ? window.fetch : globalThis.fetch).bind(
+  typeof window !== 'undefined' ? window : globalThis
+);
+
+/**
+ * Enhanced fetch wrapper:
+ * 1. Automatically prepends BACKEND_URL if needed
+ * 2. Prevents SyntaxError: "Unexpected token 'T', The page c... is not valid JSON"
+ *    when Vercel or proxy returns a 404/500 HTML or text page.
+ */
+const safeFetch = async (input, init) => {
+  let url = input;
+  if (typeof url === 'string') {
+    if (url.startsWith('/api') && API_BASE !== '/api') {
+      url = `${API_BASE}${url.slice(4)}`;
+    } else if (url.startsWith('/uploads') && BACKEND_URL) {
+      url = `${BACKEND_URL}${url}`;
+    }
+  }
+
+  const res = await globalFetch(url, init);
+
+  const originalJson = res.json.bind(res);
+  res.json = async () => {
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      try {
+        return await originalJson();
+      } catch (e) {
+        // Fallback to text inspection below
+      }
+    }
+
+    const clone = res.clone();
+    let text = '';
+    try {
+      text = await clone.text();
+    } catch (e) {
+      text = '';
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch (parseErr) {
+      if (!res.ok) {
+        if (res.status === 404 || text.includes('The page c') || text.includes('not found') || text.includes('Cannot POST') || text.includes('Cannot GET')) {
+          return {
+            error: `Serveur API introuvable (${res.status}). Assurez-vous que le serveur backend UK-GED est démarré et que la variable VITE_API_URL est renseignée sur Vercel.`
+          };
+        }
+        return {
+          error: (text && text.length < 250 && !text.includes('<!DOCTYPE')) ? text.trim() : `Erreur serveur (${res.status} ${res.statusText || 'Inconnue'})`
+        };
+      }
+      return { error: 'Réponse serveur non valide (format JSON attendu).' };
+    }
+  };
+
+  return res;
+};
+
+const fetch = safeFetch;
 
 function getAuthHeader() {
   const token = localStorage.getItem('uk_ged_token');
@@ -25,6 +101,13 @@ export const api = {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     return data.user;
+  },
+
+  async getQuickAccounts() {
+    const res = await fetch(`${API_BASE}/auth/quick-accounts`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur chargement comptes.');
+    return data;
   },
 
   // Documents
@@ -405,6 +488,62 @@ export const api = {
     return data;
   },
 
+  async setMissionSignatureMode(id, signature_mode) {
+    const res = await fetch(`${API_BASE}/missions/${id}/signature-mode`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signature_mode })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async markMissionManuscriptSigned(id) {
+    const res = await fetch(`${API_BASE}/missions/${id}/mark-manuscript-signed`, {
+      method: 'POST',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async uploadMissionSignedScan(id, formData) {
+    const headers = { ...getAuthHeader() };
+    delete headers['Content-Type']; // Let browser set boundary
+    const res = await fetch(`${API_BASE}/missions/${id}/upload-signed-scan`, {
+      method: 'POST',
+      headers,
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async printMissionOrder(id, reason = '') {
+    const res = await fetch(`${API_BASE}/missions/${id}/print`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async deliverMissionOrder(id, payload = {}) {
+    const res = await fetch(`${API_BASE}/missions/${id}/deliver`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
   async getMySignature() {
     const res = await fetch(`${API_BASE}/signatures/my-signature`, {
       headers: getAuthHeader()
@@ -474,12 +613,24 @@ export const api = {
   },
 
   async getAvailableTemplates() {
-    const res = await fetch(`${API_BASE}/templates/available-for-user`, {
-      headers: getAuthHeader()
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    return data;
+    try {
+      const activeTpl = await this.getActiveMissionOrderTemplate();
+      if (activeTpl) {
+        return [{
+          id: activeTpl.id,
+          name: activeTpl.name,
+          code: 'ORDRE_001',
+          document_type_code: 'MISSION_ORDER',
+          version: activeTpl.version_number || activeTpl.version || 1,
+          version_number: activeTpl.version_number || activeTpl.version || 1,
+          file_path: activeTpl.file_path,
+          file_name: activeTpl.file_name,
+          is_active: activeTpl.status === 'ACTIVE' ? 1 : 0,
+          is_default: activeTpl.is_default !== undefined ? activeTpl.is_default : 1
+        }];
+      }
+    } catch (e) {}
+    return [];
   },
 
   async getDocumentTypes() {
@@ -781,6 +932,26 @@ export const api = {
     return data;
   },
 
+  async deleteService(id) {
+    const res = await fetch(`${API_BASE}/services/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression de la structure.');
+    return data;
+  },
+
+  async toggleServiceStatus(id) {
+    const res = await fetch(`${API_BASE}/services/${id}/toggle-status`, {
+      method: 'PATCH',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du changement de statut de la structure.');
+    return data;
+  },
+
   async createUser(payload) {
     const res = await fetch(`${API_BASE}/users`, {
       method: 'POST',
@@ -879,6 +1050,58 @@ export const api = {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async uploadUserPhoto(userId, formDataOrFile) {
+    let body = formDataOrFile;
+    if (formDataOrFile instanceof File) {
+      body = new FormData();
+      body.append('photo', formDataOrFile);
+    }
+    const res = await fetch(`${API_BASE}/users/${userId}/photo`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’upload de la photo de profil.');
+    return data;
+  },
+
+  async deleteUserPhoto(userId) {
+    const res = await fetch(`${API_BASE}/users/${userId}/photo`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression de la photo.');
+    return data;
+  },
+
+  async uploadAccountPhoto(formDataOrFile) {
+    let body = formDataOrFile;
+    if (formDataOrFile instanceof File) {
+      body = new FormData();
+      body.append('photo', formDataOrFile);
+    }
+    const res = await fetch(`${API_BASE}/account/photo`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’upload de votre photo de profil.');
+    return data;
+  },
+
+  async deleteAccountPhoto() {
+    const res = await fetch(`${API_BASE}/account/photo`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression de votre photo.');
     return data;
   },
 
@@ -1148,6 +1371,97 @@ export const api = {
     return data;
   },
 
+  async uploadOfficialWatermark(formData) {
+    const res = await fetch(`${API_BASE}/settings/upload-watermark`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async uploadLoginBackground(formData) {
+    const res = await fetch(`${API_BASE}/settings/upload-login-background`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async resetLoginBackground() {
+    const res = await fetch(`${API_BASE}/settings/login-background`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async getPublicBackgrounds() {
+    const res = await fetch(`${API_BASE}/settings/backgrounds`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data.backgrounds || [];
+  },
+
+  async getAdminBackgrounds() {
+    const res = await fetch(`${API_BASE}/settings/admin/backgrounds`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data.backgrounds || [];
+  },
+
+  async createBackgroundSlide(formData) {
+    const res = await fetch(`${API_BASE}/settings/backgrounds`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async updateBackgroundSlide(id, payload) {
+    const res = await fetch(`${API_BASE}/settings/backgrounds/${id}`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async deleteBackgroundSlide(id) {
+    const res = await fetch(`${API_BASE}/settings/backgrounds/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async reorderBackgroundSlides(orderedIds) {
+    const res = await fetch(`${API_BASE}/settings/backgrounds/reorder`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ordered_ids: orderedIds })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
   async previewReference(payload) {
     const type = typeof payload === 'string' ? payload : (payload && payload.type ? payload.type : 'INCOMING_MAIL');
     const res = await fetch(`${API_BASE}/documents/preview-reference?type=${encodeURIComponent(type)}`, {
@@ -1158,9 +1472,9 @@ export const api = {
     return data.reference || data;
   },
 
-  // Document Templates Customization
-  async getDocumentTemplates() {
-    const res = await fetch(`${API_BASE}/templates`, {
+  // Official Mission Order Template Center (Administration -> Ordre de Mission -> Modèle Officiel)
+  async getOfficialMissionTemplate() {
+    const res = await fetch(`${API_BASE}/mission-template`, {
       headers: getAuthHeader()
     });
     const data = await res.json();
@@ -1168,76 +1482,192 @@ export const api = {
     return data;
   },
 
-  async getDocumentTemplates() {
-    const res = await fetch(`${API_BASE}/templates`, {
+  async getActiveMissionOrderTemplate() {
+    const res = await fetch(`${API_BASE}/mission-template/active`, {
       headers: getAuthHeader()
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
-    return data;
+    if (!data.template) return null;
+    return {
+      ...data.template,
+      default_document_format: data.default_document_format || 'WORD_DOCX'
+    };
   },
 
-  async getDocumentTemplate(code) {
-    const res = await fetch(`${API_BASE}/templates/${encodeURIComponent(code)}`, {
-      headers: getAuthHeader()
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    return data;
-  },
-
-  async createDocumentTemplate(payload) {
-    const res = await fetch(`${API_BASE}/templates`, {
-      method: 'POST',
-      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    return data;
-  },
-
-  async uploadTemplateFile(code, formData) {
-    const res = await fetch(`${API_BASE}/templates/${encodeURIComponent(code)}/upload`, {
+  async uploadOfficialMissionTemplate(formData) {
+    const res = await fetch(`${API_BASE}/mission-template/upload`, {
       method: 'POST',
       headers: getAuthHeader(),
       body: formData
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du téléversement du modèle.');
     return data;
   },
 
-  async saveTemplateFields(code, fields) {
-    const res = await fetch(`${API_BASE}/templates/${encodeURIComponent(code)}/fields`, {
-      method: 'POST',
-      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fields })
+  async updateMissionTemplateCoordinates(templateId, fieldCoordinates) {
+    const res = await fetch(`${API_BASE}/mission-template/${templateId}/coordinates`, {
+      method: 'PUT',
+      headers: {
+        ...getAuthHeader(),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ field_coordinates: fieldCoordinates })
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’enregistrement des coordonnées.');
     return data;
   },
 
-  async toggleTemplateStatus(code) {
-    const res = await fetch(`${API_BASE}/templates/${encodeURIComponent(code)}/toggle-status`, {
+  async previewDirectPdfTemplate(templateId, fieldCoordinates, mockData = {}) {
+    const res = await fetch(`${API_BASE}/mission-template/preview-direct-pdf`, {
+      method: 'POST',
+      headers: {
+        ...getAuthHeader(),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        template_id: templateId,
+        field_coordinates: fieldCoordinates,
+        mock_data: mockData
+      })
+    });
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error || 'Erreur lors de la génération de l’aperçu PDF.');
+    }
+    return await res.blob();
+  },
+
+
+  async uploadMissionTemplateRevision(formData) {
+    const res = await fetch(`${API_BASE}/mission-template/upload-revision`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’enregistrement de la révision Word.');
+    return data;
+  },
+
+  async analyzeMissionTemplateDocx(formData) {
+    const res = await fetch(`${API_BASE}/mission-template/analyze`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’analyse du fichier Word.');
+    return data;
+  },
+
+  async setDefaultMissionTemplateVersion(id) {
+    const res = await fetch(`${API_BASE}/mission-template/versions/${id}/set-default`, {
       method: 'PUT',
       headers: getAuthHeader()
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la définition du modèle par défaut.');
     return data;
   },
 
-  async updateDocumentTemplate(code, payload) {
-    const res = await fetch(`${API_BASE}/templates/${encodeURIComponent(code)}`, {
+  async deleteMissionTemplateVersion(id) {
+    const res = await fetch(`${API_BASE}/mission-template/versions/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression de la version.');
+    return data;
+  },
+
+  async toggleOfficialMissionTemplateStatus(id) {
+    const res = await fetch(`${API_BASE}/mission-template/${id}/toggle-status`, {
+      method: 'PUT',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du changement de statut.');
+    return data;
+  },
+
+  async getWordProtocolUri() {
+    const res = await fetch(`${API_BASE}/mission-template/open-word-uri`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la préparation de Microsoft Word.');
+    return data;
+  },
+
+  async uploadMissionLogo(formData) {
+    const res = await fetch(`${API_BASE}/mission-template/branding/logo`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du téléversement du logo officiel.');
+    return data;
+  },
+
+  async uploadMissionWatermark(formData) {
+    const res = await fetch(`${API_BASE}/mission-template/branding/watermark`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du téléversement du filigrane.');
+    return data;
+  },
+
+  async updateMissionWatermarkSettings(payload) {
+    const res = await fetch(`${API_BASE}/mission-template/branding/watermark-settings`, {
       method: 'PUT',
       headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la mise à jour des paramètres du filigrane.');
     return data;
+  },
+
+  async updateMissionDefaultFormat(default_format) {
+    const res = await fetch(`${API_BASE}/mission-template/default-format`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ default_format })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la mise à jour du format par défaut.');
+    return data;
+  },
+
+  async fetchMissionTemplateBlob(id) {
+    const res = await fetch(`${API_BASE}/mission-template/${id}/download`, {
+      headers: getAuthHeader()
+    });
+    if (!res.ok) throw new Error('Impossible de charger le fichier du modèle.');
+    return await res.blob();
+  },
+
+  async downloadOfficialMissionTemplate(id, filename = 'Ordre_de_mission_officiel.docx') {
+    const res = await fetch(`${API_BASE}/mission-template/${id}/download`, {
+      headers: getAuthHeader()
+    });
+    if (!res.ok) throw new Error('Erreur lors du téléchargement du modèle officiel.');
+    const blob = await res.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(blobUrl);
   },
 
   async createSoitTransmis(formData) {
@@ -1272,11 +1702,12 @@ export const api = {
     return data;
   },
 
-  async updateElectronicSignature(id, payload) {
+  async updateElectronicSignature(id, payloadOrFormData) {
+    const isFormData = payloadOrFormData instanceof FormData;
     const res = await fetch(`${API_BASE}/signatures/${id}`, {
       method: 'PUT',
-      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      headers: isFormData ? getAuthHeader() : { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: isFormData ? payloadOrFormData : JSON.stringify(payloadOrFormData)
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
@@ -1303,211 +1734,17 @@ export const api = {
     return data;
   },
 
-  async setDefaultDocumentTemplate(id, force = false) {
-    const res = await fetch(`${API_BASE}/templates/${id}/set-default`, {
-      method: 'PUT',
-      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ force })
-    });
-    const data = await res.json();
-    if (!res.ok && res.status !== 409) throw new Error(data.error);
-    return data;
-  },
-
-  async restoreTemplateVersion(id, versionId) {
-    const res = await fetch(`${API_BASE}/templates/${id}/versions/${versionId}/restore`, {
-      method: 'PUT',
-      headers: getAuthHeader()
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    return data;
-  },
-
-  async deleteDocumentTemplate(id) {
-    const res = await fetch(`${API_BASE}/templates/${id}`, {
-      method: 'DELETE',
-      headers: getAuthHeader()
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    return data;
-  },
-
-  async customizeDocumentTemplate(id, payload) {
-    const res = await fetch(`${API_BASE}/templates/${encodeURIComponent(id)}/customize`, {
-      method: 'POST',
-      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    const text = await res.text();
-    let data = {};
-    try {
-      data = text ? JSON.parse(text) : {};
-    } catch (e) {
-      data = { error: text || 'Erreur inattendue du serveur' };
-    }
-    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’enregistrement de la personnalisation du modèle.');
-    return data;
-  },
-
-  async customizeTemplate(id, payload) {
-    return this.customizeDocumentTemplate(id, payload);
-  },
-
-  async duplicateDocumentTemplate(id) {
-    const res = await fetch(`${API_BASE}/templates/${id}/duplicate`, {
-      method: 'POST',
-      headers: getAuthHeader()
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    return data;
-  },
-
-  async uploadTemplateLogo(id, formData) {
-    const res = await fetch(`${API_BASE}/templates/${id}/logo`, {
-      method: 'POST',
-      headers: getAuthHeader(),
-      body: formData
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    return data;
-  },
-
-  async getTestPreviewPDF(id) {
-    const res = await fetch(`${API_BASE}/templates/${id}/test-preview`, {
-      method: 'POST',
-      headers: getAuthHeader()
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    return data;
-  },
-
-  async downloadTemplateDocx(id) {
-    const res = await fetch(`${API_BASE}/templates/${id}/download-docx`, { headers: getAuthHeader() });
-    if (!res.ok) throw new Error('Erreur lors du téléchargement du fichier Word DOCX.');
-    const blob = await res.blob();
-    const blobUrl = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = blobUrl;
-    a.download = `modele_word_${id}.docx`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.URL.revokeObjectURL(blobUrl);
-  },
-
-  async generateTemplateDocx(id, dataMap) {
-    const res = await fetch(`${API_BASE}/templates/${id}/generate-docx`, {
-      method: 'POST',
-      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
-      body: JSON.stringify(dataMap)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Erreur lors de la génération du document Word.');
-    return data;
-  },
-
-  async uploadTemplateDocxRevision(id, formData) {
-    const res = await fetch(`${API_BASE}/templates/${id}/upload-docx-revision`, {
-      method: 'POST',
-      headers: getAuthHeader(),
-      body: formData
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’importation de la révision Word.');
-    return data;
-  },
-
-  getTemplateVersionFileUrl(templateId, versionId = 'current') {
-    return `${API_BASE}/templates/${encodeURIComponent(templateId)}/versions/${encodeURIComponent(versionId)}/file`;
-  },
-
-  async fetchTemplateVersionBlob(templateId, versionId = 'current') {
-    const url = this.getTemplateVersionFileUrl(templateId, versionId);
-    const res = await fetch(url, { headers: getAuthHeader() });
-    if (!res.ok) {
-      let errText = 'Impossible de charger le fichier de prévisualisation.';
-      try {
-        const errJson = await res.json();
-        if (errJson.error) errText = errJson.error;
-      } catch (e) {}
-      throw new Error(errText);
-    }
-    return await res.blob();
-  },
-
-  async downloadTemplateVersionFile(templateId, versionId = 'current') {
-    const url = `${this.getTemplateVersionFileUrl(templateId, versionId)}?download=1`;
-    const res = await fetch(url, { headers: getAuthHeader() });
-    if (!res.ok) {
-      throw new Error('Erreur lors du téléchargement du fichier.');
-    }
-    const blob = await res.blob();
-    const blobUrl = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = blobUrl;
-    a.download = `template_${templateId}_v${versionId}`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    window.URL.revokeObjectURL(blobUrl);
-  },
-
-  async getTemplateVersionODTPreview(templateId, versionId = 'current') {
-    const res = await fetch(`${API_BASE}/templates/${encodeURIComponent(templateId)}/versions/${encodeURIComponent(versionId)}/preview-odt`, {
-      headers: getAuthHeader()
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Erreur de rendu du fichier ODT.');
-    return data;
-  },
-
-  async getTemplateVersionHTML(templateId, versionId = 'current') {
-    const res = await fetch(`${API_BASE}/templates/${encodeURIComponent(templateId)}/versions/${encodeURIComponent(versionId)}/html`, {
-      headers: getAuthHeader()
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’extraction du contenu éditable.');
-    return data;
-  },
-
-  async getTemplateVersionFile(templateId, versionId = 'current') {
-    const detailData = await this.getDocumentTemplate(templateId);
-    const template = detailData.template;
-    const versions = detailData.versions || [];
-    
-    let selectedVersion = null;
-    if (versionId && versionId !== 'current' && versionId !== 'latest') {
-      selectedVersion = versions.find(v => String(v.id) === String(versionId) || String(v.version_number) === String(versionId));
-    }
-
-    const versionNum = selectedVersion?.version_number || selectedVersion?.version || template?.version || 1;
-    const format = (selectedVersion?.file_type || template?.format || 'DOCX').toUpperCase();
-    const fileUrl = this.getTemplateVersionFileUrl(templateId, selectedVersion?.id || 'current');
-
-    return {
-      template,
-      version: selectedVersion,
-      templateId: template?.id || templateId,
-      templateCode: template?.code || templateId,
-      templateName: template?.name || 'Modèle Officiel',
-      versionId: selectedVersion?.id || 'current',
-      versionNumber: versionNum,
-      format,
-      fileUrl,
-      fields: detailData.fields || [],
-      allVersions: versions
-    };
-  },
-
   // Personnel Directory (Rule 1 & 14)
   async getStaff(params = {}) {
-    const query = new URLSearchParams(params).toString();
-    const res = await fetch(`${API_BASE}/staff?${query}`, {
+    const cleanParams = {};
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null && v !== '') {
+        cleanParams[k] = v;
+      }
+    }
+    const query = new URLSearchParams(cleanParams).toString();
+    const url = query ? `${API_BASE}/staff?${query}` : `${API_BASE}/staff`;
+    const res = await fetch(url, {
       headers: getAuthHeader()
     });
     const data = await res.json();
@@ -1516,8 +1753,32 @@ export const api = {
   },
 
   async checkDuplicateStaff(params = {}) {
-    const query = new URLSearchParams(params).toString();
-    const res = await fetch(`${API_BASE}/staff/check-duplicate?${query}`, {
+    const cleanParams = {};
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null && v !== '') {
+        cleanParams[k] = v;
+      }
+    }
+    const query = new URLSearchParams(cleanParams).toString();
+    const url = query ? `${API_BASE}/staff/check-duplicate?${query}` : `${API_BASE}/staff/check-duplicate`;
+    const res = await fetch(url, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async checkServiceChef(params = {}) {
+    const cleanParams = {};
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null && v !== '') {
+        cleanParams[k] = v;
+      }
+    }
+    const query = new URLSearchParams(cleanParams).toString();
+    const url = query ? `${API_BASE}/staff/check-service-chef?${query}` : `${API_BASE}/staff/check-service-chef`;
+    const res = await fetch(url, {
       headers: getAuthHeader()
     });
     const data = await res.json();
@@ -1534,22 +1795,45 @@ export const api = {
     return data;
   },
 
-  async createStaff(payload) {
-    const res = await fetch(`${API_BASE}/staff`, {
-      method: 'POST',
-      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+  async getStaffSignature(id) {
+    const res = await fetch(`${API_BASE}/staff/${id}/signature`, {
+      headers: getAuthHeader()
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     return data;
   },
 
-  async updateStaff(id, payload) {
+  async createStaff(payloadOrFormData) {
+    const isFormData = payloadOrFormData instanceof FormData;
+    const res = await fetch(`${API_BASE}/staff`, {
+      method: 'POST',
+      headers: isFormData ? getAuthHeader() : { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: isFormData ? payloadOrFormData : JSON.stringify(payloadOrFormData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async updateStaff(id, payloadOrFormData) {
+    const isFormData = payloadOrFormData instanceof FormData;
     const res = await fetch(`${API_BASE}/staff/${id}`, {
       method: 'PUT',
-      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      headers: isFormData ? getAuthHeader() : { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: isFormData ? payloadOrFormData : JSON.stringify(payloadOrFormData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async importStaffCsv(rowsOrFormData) {
+    const isFormData = rowsOrFormData instanceof FormData;
+    const res = await fetch(`${API_BASE}/staff/import-csv`, {
+      method: 'POST',
+      headers: isFormData ? getAuthHeader() : { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: isFormData ? rowsOrFormData : JSON.stringify(rowsOrFormData)
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
@@ -1560,6 +1844,17 @@ export const api = {
     const res = await fetch(`${API_BASE}/staff/${id}/toggle-status`, {
       method: 'PUT',
       headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async recordStaffCareerEvent(id, eventData) {
+    const res = await fetch(`${API_BASE}/staff/${id}/career-events`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(eventData)
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
@@ -1580,7 +1875,105 @@ export const api = {
       if (!res.ok) throw new Error(`Erreur serveur (${res.status}) : Impossible de supprimer ce membre du personnel.`);
       return { success: true };
     }
-    if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression.');
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  // Positions & Assignments (Postes & Affectations)
+  async getPositions(params = {}) {
+    const cleanParams = {};
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null && v !== '') {
+        cleanParams[k] = v;
+      }
+    }
+    const query = new URLSearchParams(cleanParams).toString();
+    const url = query ? `${API_BASE}/positions?${query}` : `${API_BASE}/positions`;
+    const res = await fetch(url, { headers: getAuthHeader() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async getPositionDetail(id) {
+    const res = await fetch(`${API_BASE}/positions/${id}`, { headers: getAuthHeader() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async checkPositionAvailability(params = {}) {
+    const cleanParams = {};
+    for (const [k, v] of Object.entries(params)) {
+      if (v !== undefined && v !== null && v !== '') {
+        cleanParams[k] = v;
+      }
+    }
+    const query = new URLSearchParams(cleanParams).toString();
+    const res = await fetch(`${API_BASE}/positions/check-availability?${query}`, { headers: getAuthHeader() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async createPosition(payload) {
+    const res = await fetch(`${API_BASE}/positions`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async updatePosition(id, payload) {
+    const res = await fetch(`${API_BASE}/positions/${id}`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async deletePosition(id) {
+    const res = await fetch(`${API_BASE}/positions/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async getStaffAssignments(staffId) {
+    const res = await fetch(`${API_BASE}/staff/${staffId}/assignments`, { headers: getAuthHeader() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async assignStaffPosition(staffId, payload) {
+    const res = await fetch(`${API_BASE}/staff/${staffId}/assignments`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async terminateStaffAssignment(staffId, assignmentId, payload = {}) {
+    const res = await fetch(`${API_BASE}/staff/${staffId}/assignments/${assignmentId}/terminate`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
     return data;
   },
 
@@ -1703,6 +2096,28 @@ export const api = {
 
   async cleanupTestData(payload) {
     const res = await fetch(`${API_BASE}/admin/maintenance/cleanup`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async auditUserCleanup(payload = {}) {
+    const res = await fetch(`${API_BASE}/admin/maintenance/users/audit`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    return data;
+  },
+
+  async executeUserCleanup(payload) {
+    const res = await fetch(`${API_BASE}/admin/maintenance/users/reset`, {
       method: 'POST',
       headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -2117,16 +2532,8 @@ export const api = {
     return data;
   },
 
-  // Document Templates & Word/DOCX Editor API
-  async getTemplates(params = {}) {
-    return this.getDocumentTemplates(params);
-  },
-
-  async getAvailableTemplates() {
-    const res = await fetch(`${API_BASE}/templates/available-for-user`, { headers: getAuthHeader() });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Erreur récupération modèles autorisés');
-    return data;
+  async getTemplates() {
+    return this.getActiveMissionOrderTemplate();
   },
 
   async extractTemplateFileContent(formData) {
@@ -3013,6 +3420,643 @@ export const api = {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression');
     return data;
+  },
+
+  // Institution & Visual Identity Settings
+  async getInstitutionSettings() {
+    const res = await fetch(`${API_BASE}/settings/institution`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la récupération des paramètres.');
+    return data;
+  },
+
+  async updateInstitutionSettings(settingsData) {
+    const res = await fetch(`${API_BASE}/settings/institution`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(settingsData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la mise à jour des paramètres.');
+    return data;
+  },
+
+  async uploadUniversityLogo(formData) {
+    const res = await fetch(`${API_BASE}/settings/upload-logo`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’upload du logo.');
+    return data;
+  },
+
+  async uploadOfficialWatermark(formData) {
+    const res = await fetch(`${API_BASE}/settings/upload-watermark`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’upload du filigrane.');
+    return data;
+  },
+
+  async resetOfficialLogo() {
+    const res = await fetch(`${API_BASE}/settings/logo`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la réinitialisation du logo.');
+    return data;
+  },
+
+  async disableOfficialWatermark() {
+    const res = await fetch(`${API_BASE}/settings/watermark`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la désactivation du filigrane.');
+    return data;
+  },
+
+  async uploadRectorPhoto(formData) {
+    const res = await fetch(`${API_BASE}/settings/upload-rector-photo`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’upload de la photo du Recteur.');
+    return data;
+  },
+
+  async resetRectorPhoto() {
+    const res = await fetch(`${API_BASE}/settings/rector-photo`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la réinitialisation de la photo du Recteur.');
+    return data;
+  },
+
+  // Leader & Multi-Speaker Welcome Carousel
+  async getPublicLeaders() {
+    const res = await fetch(`${API_BASE}/settings/leaders`);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du chargement des responsables.');
+    return data.leaders || [];
+  },
+
+  async getAdminLeaders() {
+    const res = await fetch(`${API_BASE}/settings/admin/leaders`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du chargement des responsables.');
+    return data.leaders || [];
+  },
+
+  async createLeader(payload) {
+    const res = await fetch(`${API_BASE}/settings/leaders`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’ajout du responsable.');
+    return data;
+  },
+
+  async updateLeader(id, payload) {
+    const res = await fetch(`${API_BASE}/settings/leaders/${id}`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la mise à jour du responsable.');
+    return data;
+  },
+
+  async uploadLeaderPhoto(id, formData) {
+    const res = await fetch(`${API_BASE}/settings/leaders/${id}/photo`, {
+      method: 'POST',
+      headers: getAuthHeader(),
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’upload de la photo du responsable.');
+    return data;
+  },
+
+  async deleteLeader(id) {
+    const res = await fetch(`${API_BASE}/settings/leaders/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression du responsable.');
+    return data;
+  },
+
+  async reorderLeaders(orderedIds) {
+    const res = await fetch(`${API_BASE}/settings/leaders/reorder`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ordered_ids: orderedIds })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la réorganisation.');
+    return data;
+  },
+
+  // ==========================================
+  // PARC AUTOMOBILE & VÉHICULES
+  // ==========================================
+  async getFleetVehicles(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_BASE}/vehicles?${query}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la récupération du parc automobile.');
+    return data;
+  },
+
+  async getVehicleDetail(id) {
+    const res = await fetch(`${API_BASE}/vehicles/${id}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la récupération du véhicule.');
+    return data;
+  },
+
+  async createFleetVehicle(vehicleData) {
+    const res = await fetch(`${API_BASE}/vehicles`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(vehicleData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’ajout du véhicule au parc.');
+    return data;
+  },
+
+  async updateFleetVehicle(id, vehicleData) {
+    const res = await fetch(`${API_BASE}/vehicles/${id}`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(vehicleData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la mise à jour du véhicule.');
+    return data;
+  },
+
+  async assignFleetVehicle(id, assignmentData) {
+    const res = await fetch(`${API_BASE}/vehicles/${id}/assign`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(assignmentData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’affectation du véhicule.');
+    return data;
+  },
+
+  async unassignFleetVehicle(id, unassignData = {}) {
+    const res = await fetch(`${API_BASE}/vehicles/${id}/unassign`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(unassignData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du retrait d’affectation.');
+    return data;
+  },
+
+  async toggleFleetVehicleStatus(id, status) {
+    const res = await fetch(`${API_BASE}/vehicles/${id}/status`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la mise à jour du statut du véhicule.');
+    return data;
+  },
+
+  async deleteFleetVehicle(id) {
+    const res = await fetch(`${API_BASE}/vehicles/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression du véhicule.');
+    return data;
+  },
+
+  async getVehicleHistory(id) {
+    const res = await fetch(`${API_BASE}/vehicles/${id}/history`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la récupération de l’historique.');
+    return data;
+  },
+
+  // ==========================================
+  // VÉHICULES PERSONNELS
+  // ==========================================
+  async getPersonalVehicles(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_BASE}/vehicles/personal/all?${query}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la récupération des véhicules personnels.');
+    return data;
+  },
+
+  async getStaffPersonalVehicles(staffId, activeOnly = false) {
+    const res = await fetch(`${API_BASE}/staff/${staffId}/personal-vehicles${activeOnly ? '?active_only=true' : ''}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la récupération des véhicules de l’employé.');
+    return data;
+  },
+
+  async getStaffAssignedVehicles(staffId) {
+    const res = await fetch(`${API_BASE}/staff/${staffId}/assigned-vehicles`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la récupération des véhicules affectés.');
+    return data;
+  },
+
+  async createPersonalVehicle(vehicleData) {
+    const res = await fetch(`${API_BASE}/vehicles/personal`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(vehicleData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’ajout du véhicule personnel.');
+    return data;
+  },
+
+  async updatePersonalVehicle(id, vehicleData) {
+    const res = await fetch(`${API_BASE}/vehicles/personal/${id}`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(vehicleData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la modification du véhicule personnel.');
+    return data;
+  },
+
+  async deactivatePersonalVehicle(id) {
+    const res = await fetch(`${API_BASE}/vehicles/personal/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la désactivation du véhicule personnel.');
+    return data;
+  },
+
+  // ==========================================
+  // CHAUFFEURS (DRIVERS)
+  // ==========================================
+  async getDrivers(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_BASE}/drivers?${query}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la récupération des chauffeurs.');
+    return data;
+  },
+
+  async getDriverDetail(id) {
+    const res = await fetch(`${API_BASE}/drivers/${id}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la récupération du chauffeur.');
+    return data;
+  },
+
+  async createDriver(driverData) {
+    const res = await fetch(`${API_BASE}/drivers`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(driverData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’enregistrement du chauffeur.');
+    return data;
+  },
+
+  async updateDriver(id, driverData) {
+    const res = await fetch(`${API_BASE}/drivers/${id}`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(driverData)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la modification du chauffeur.');
+    return data;
+  },
+
+  async deactivateDriver(id) {
+    const res = await fetch(`${API_BASE}/drivers/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la désactivation du chauffeur.');
+    return data;
+  },
+
+  async deleteDriver(id, permanent = true) {
+    const res = await fetch(`${API_BASE}/drivers/${id}?permanent=${permanent}`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression du chauffeur.');
+    return data;
+  },
+
+  // ==========================================
+  // RATTACHEMENT CHAUFFEURS & AFFECTATION VÉHICULES AU PERSONNEL
+  // ==========================================
+  async getStaffDrivers(staffId) {
+    const res = await fetch(`${API_BASE}/staff/${staffId}/drivers`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la récupération des chauffeurs rattachés.');
+    return data;
+  },
+
+  async attachStaffDriver(staffId, payload) {
+    const res = await fetch(`${API_BASE}/staff/${staffId}/drivers`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du rattachement du chauffeur.');
+    return data;
+  },
+
+  async detachStaffDriver(staffId, driverId) {
+    const res = await fetch(`${API_BASE}/staff/${staffId}/drivers/${driverId}`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du détachement du chauffeur.');
+    return data;
+  },
+
+  async assignStaffVehicle(staffId, payload) {
+    const res = await fetch(`${API_BASE}/staff/${staffId}/assigned-vehicles`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de l’affectation du véhicule de service.');
+    return data;
+  },
+
+  async unassignStaffVehicle(staffId, vehicleId, payload = {}) {
+    const res = await fetch(`${API_BASE}/staff/${staffId}/assigned-vehicles/${vehicleId}`, {
+      method: 'DELETE',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du retrait du véhicule de service.');
+    return data;
+  },
+
+  // ==========================================
+  // POSTES INSTITUTIONNELS & AFFECTATIONS / MUTATIONS
+  // ==========================================
+  async getPositions(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_BASE}/positions${query ? `?${query}` : ''}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du chargement des postes institutionnels.');
+    return data;
+  },
+
+  async getPositionDetail(id) {
+    const res = await fetch(`${API_BASE}/positions/${id}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du chargement du poste.');
+    return data;
+  },
+
+  async checkPositionAvailability(params = {}) {
+    const query = new URLSearchParams(params).toString();
+    const res = await fetch(`${API_BASE}/positions/check-availability?${query}`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la vérification du poste.');
+    return data;
+  },
+
+  async createPosition(payload) {
+    const res = await fetch(`${API_BASE}/positions`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la création du poste.');
+    return data;
+  },
+
+  async updatePosition(id, payload) {
+    const res = await fetch(`${API_BASE}/positions/${id}`, {
+      method: 'PUT',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la mise à jour du poste.');
+    return data;
+  },
+
+  async deletePosition(id) {
+    const res = await fetch(`${API_BASE}/positions/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression du poste.');
+    return data;
+  },
+
+  async getStaffAssignments(staffId) {
+    const res = await fetch(`${API_BASE}/staff/${staffId}/assignments`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du chargement des affectations.');
+    return data;
+  },
+
+  async assignStaffPosition(staffId, payload) {
+    const res = await fetch(`${API_BASE}/staff/${staffId}/assignments`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la mutation / affectation.');
+    return data;
+  },
+
+  async terminateStaffAssignment(staffId, assignmentId, payload = {}) {
+    const res = await fetch(`${API_BASE}/staff/${staffId}/assignments/${assignmentId}/terminate`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la clôture de l’affectation.');
+    return data;
+  },
+
+  // Public Verification
+  async verifyMissionOrderPublic(token) {
+    const res = await fetch(`${API_BASE}/verify/mission/${encodeURIComponent(token)}`);
+    const data = await res.json();
+    return data;
+  },
+
+  async verifyDocumentPublic(reference) {
+    const res = await fetch(`${API_BASE}/verify/${encodeURIComponent(reference)}`);
+    const data = await res.json();
+    return data;
+  },
+
+  // Admin Maintenance & Trash API
+  async getTrashDocuments() {
+    const res = await fetch(`${API_BASE}/documents/trash`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la récupération de la corbeille.');
+    return data;
+  },
+
+  async restoreFromTrash(id) {
+    const res = await fetch(`${API_BASE}/documents/${id}/restore`, {
+      method: 'PUT',
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la restauration du document.');
+    return data;
+  },
+
+  async permanentDeleteDocument(id, reason, confirmText) {
+    const res = await fetch(`${API_BASE}/documents/${id}/permanent`, {
+      method: 'DELETE',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason, confirmText })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la suppression définitive.');
+    return data;
+  },
+
+  async getMaintenanceStatus() {
+    const res = await fetch(`${API_BASE}/admin/maintenance/status`, {
+      headers: getAuthHeader()
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors de la récupération du statut de maintenance.');
+    return data;
+  },
+
+  async downloadDatabaseBackup() {
+    const res = await fetch(`${API_BASE}/admin/maintenance/backup`, {
+      method: 'POST',
+      headers: getAuthHeader()
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Erreur lors de la création de la sauvegarde.');
+    }
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `uk_ged_backup_${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    a.remove();
+    return { success: true };
+  },
+
+  async cleanupTestData(payload) {
+    const res = await fetch(`${API_BASE}/admin/maintenance/cleanup`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erreur lors du nettoyage des données de test.');
+    return data;
+  },
+
+  async auditUserCleanup(payload) {
+    const res = await fetch(`${API_BASE}/admin/maintenance/users/audit`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Erreur lors de l'audit des dépendances.");
+    return data;
+  },
+
+  async executeUserCleanup(payload) {
+    const res = await fetch(`${API_BASE}/admin/maintenance/users/reset`, {
+      method: 'POST',
+      headers: { ...getAuthHeader(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Erreur lors de la réinitialisation des utilisateurs.");
+    return data;
   }
 };
+
+
 

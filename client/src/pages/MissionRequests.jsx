@@ -5,6 +5,7 @@ import {
   FileText, Search, Eye, CheckCircle, XCircle, Send, Clock, 
   Building2, User, Phone, Mail, AlertCircle, X, Download, FileCheck, HelpCircle, ArrowRight
 } from 'lucide-react';
+import { formatFullName } from '../utils/userUtils';
 
 export default function MissionRequests({ onSelectDocument }) {
   const { user } = useAuth();
@@ -316,7 +317,14 @@ export default function MissionRequests({ onSelectDocument }) {
                       )}
                     </td>
                     <td className="py-3 px-4">
-                      <div className="font-bold text-slate-800">{req.applicant_last_name} {req.applicant_first_names}</div>
+                      <div className="font-bold text-slate-800 flex items-center space-x-1.5">
+                        <span>{formatFullName({ titre: req.applicant_titre || req.titre, first_name: req.applicant_first_names, last_name: req.applicant_last_name })}</span>
+                        {(req.mission_type === 'COLLECTIF' || (req.participants_count && req.participants_count > 1)) && (
+                          <span className="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.2 rounded font-black">
+                            👥 {req.participants_count || '2+'}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[10px] text-slate-500">{req.applicant_phone}</div>
                     </td>
                     <td className="py-3 px-4">
@@ -405,7 +413,7 @@ export default function MissionRequests({ onSelectDocument }) {
             <div className="p-5 bg-kindia-blue text-white flex items-center justify-between shrink-0">
               <div>
                 <span className="text-[10px] text-kindia-gold uppercase tracking-wider block font-bold">Fiche de Demande d'Ordre de Mission</span>
-                <h3 className="font-heading font-extrabold text-base">{requestDetail.applicant_last_name} {requestDetail.applicant_first_names}</h3>
+                <h3 className="font-heading font-extrabold text-base">{formatFullName({ titre: requestDetail.applicant_titre || requestDetail.titre, first_name: requestDetail.applicant_first_names, last_name: requestDetail.applicant_last_name })}</h3>
                 <span className="text-xs text-slate-300 font-mono">Réf Demande: {requestDetail.reference}</span>
               </div>
               <button onClick={() => setSelectedRequest(null)} className="text-slate-300 hover:text-white">
@@ -487,7 +495,7 @@ export default function MissionRequests({ onSelectDocument }) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-slate-50/50 rounded-xl border border-slate-200">
                 <div className="space-y-2">
                   <h4 className="font-bold text-slate-900 uppercase text-[11px] border-b border-slate-200 pb-1">Identité & Rattachement</h4>
-                  <div><span className="font-bold text-slate-500">Demandeur :</span> <span className="font-bold text-slate-800">{requestDetail.applicant_last_name} {requestDetail.applicant_first_names}</span></div>
+                  <div><span className="font-bold text-slate-500">Demandeur :</span> <span className="font-bold text-slate-800">{formatFullName({ titre: requestDetail.applicant_titre || requestDetail.titre, first_name: requestDetail.applicant_first_names, last_name: requestDetail.applicant_last_name })}</span></div>
                   <div><span className="font-bold text-slate-500">Fonction :</span> <span className="text-slate-800">{requestDetail.applicant_function}</span></div>
                   <div><span className="font-bold text-slate-500">Matricule :</span> <span className="font-mono text-slate-800">{requestDetail.applicant_matricule || 'N/A'}</span></div>
                   <div><span className="font-bold text-slate-500">Service / Département :</span> <span className="text-slate-800">{requestDetail.applicant_service_name}</span></div>
@@ -500,7 +508,75 @@ export default function MissionRequests({ onSelectDocument }) {
                   <div><span className="font-bold text-slate-500">Destination :</span> <span className="font-bold text-slate-800">{requestDetail.destination} ({requestDetail.country || 'Guinée'})</span></div>
                   <div><span className="font-bold text-slate-500">Lieu exact :</span> <span className="text-slate-800">{requestDetail.exact_location || 'N/A'}</span></div>
                   <div><span className="font-bold text-slate-500">Période :</span> <span className="text-slate-800">{new Date(requestDetail.start_date).toLocaleDateString('fr-FR')} au {new Date(requestDetail.end_date).toLocaleDateString('fr-FR')}</span></div>
-                  <div><span className="font-bold text-slate-500">Moyen de transport :</span> <span className="text-slate-800">{requestDetail.transport_means || 'VÉHICULE OFFICIEL'}</span></div>
+                  <div>
+                    <span className="font-bold text-slate-500">Moyen de transport :</span>{' '}
+                    <span className="text-slate-800 font-semibold">
+                      {requestDetail.transport_means || 'Véhicule service/Personnel'}
+                      {requestDetail.vehicle_registration ? ` (Immatriculation: ${requestDetail.vehicle_registration})` : ''}
+                      {requestDetail.driver_option === 'DRIVER' && requestDetail.driver_name ? ` • Chauffeur: ${requestDetail.driver_name}` : ''}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Missionaries / Participants (OM Individuel ou Collectif) */}
+              <div className="p-4 bg-white rounded-xl border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                  <h4 className="font-bold text-slate-900 uppercase text-[11px] flex items-center space-x-1.5">
+                    <span>Membres participant à la mission</span>
+                  </h4>
+                  <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                    (requestDetail.participants?.length > 1 || requestDetail.mission_type === 'COLLECTIF')
+                      ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                      : 'bg-blue-100 text-blue-900 border border-blue-200'
+                  }`}>
+                    {(requestDetail.participants?.length > 1 || requestDetail.mission_type === 'COLLECTIF')
+                      ? `👥 Ordre de Mission Collectif (${requestDetail.participants?.length || requestDetail.participants_count || 2} personnes)`
+                      : '👤 Ordre de Mission Individuel (1 personne)'}
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                      <tr>
+                        <th className="p-2 w-8">#</th>
+                        <th className="p-2">Nom & Prénoms</th>
+                        <th className="p-2">Fonction dans la mission</th>
+                        <th className="p-2">Matricule</th>
+                        <th className="p-2">Service / Faculté</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {(requestDetail.participants && requestDetail.participants.length > 0) ? (
+                        requestDetail.participants.map((p, idx) => (
+                          <tr key={idx} className={p.is_requester ? 'bg-emerald-50/40 font-semibold' : ''}>
+                            <td className="p-2 text-slate-400 font-mono">{idx + 1}</td>
+                            <td className="p-2">
+                              <span className="font-bold text-slate-800">{p.titre ? `${p.titre} ` : ''}{p.prenoms} {p.nom}</span>
+                              {p.is_requester ? (
+                                <span className="ml-2 text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full font-bold">Demandeur</span>
+                              ) : null}
+                            </td>
+                            <td className="p-2 text-kindia-blue font-bold">{p.fonction || 'Membre de mission'}</td>
+                            <td className="p-2 font-mono text-slate-600">{p.matricule || '—'}</td>
+                            <td className="p-2 text-slate-600">{p.service_name || '—'}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td className="p-2 text-slate-400 font-mono">1</td>
+                          <td className="p-2">
+                            <span className="font-bold text-slate-800">{requestDetail.applicant_last_name} {requestDetail.applicant_first_names}</span>
+                            <span className="ml-2 text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded-full font-bold">Demandeur</span>
+                          </td>
+                          <td className="p-2 text-kindia-blue font-bold">{requestDetail.applicant_function || 'Missionnaire'}</td>
+                          <td className="p-2 font-mono text-slate-600">{requestDetail.applicant_matricule || '—'}</td>
+                          <td className="p-2 text-slate-600">{requestDetail.applicant_service_name || '—'}</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 

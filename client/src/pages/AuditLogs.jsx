@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { ShieldAlert, Terminal } from 'lucide-react';
+import { formatFullName } from '../utils/userUtils';
 
 export default function AuditLogs() {
   const [logs, setLogs] = useState([]);
@@ -59,7 +60,7 @@ export default function AuditLogs() {
                       {new Date(log.timestamp).toLocaleString('fr-FR')}
                     </td>
                     <td className="p-3.5 font-bold text-slate-800">
-                      {log.first_name ? `${log.first_name} ${log.last_name}` : 'Système / Anonyme'}
+                      {log.first_name ? formatFullName(log) : 'Système / Anonyme'}
                     </td>
                     <td className="p-3.5 text-kindia-blue font-bold">{log.matricule || 'N/A'}</td>
                     <td className="p-3.5">

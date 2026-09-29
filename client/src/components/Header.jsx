@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { usePwa } from '../context/PwaContext';
 import { api } from '../services/api';
-import { Bell, User, LogOut, RefreshCw, Shield, CheckCircle, Menu, FileText } from 'lucide-react';
+import { Bell, User, LogOut, RefreshCw, Shield, CheckCircle, Menu, FileText, Download } from 'lucide-react';
+import { formatFullName } from '../utils/userUtils';
 
 export default function Header({ onOpenMobileDrawer, onRequestMission, onNavigate }) {
   const { user, login, logout, institution, getLogoUrl } = useAuth();
+  const { isInstalled, promptInstall } = usePwa();
   const logoUrl = getLogoUrl();
   const showLogo = institution?.show_logo_header !== 0 && logoUrl;
 
@@ -13,11 +16,23 @@ export default function Header({ onOpenMobileDrawer, onRequestMission, onNavigat
   const [showNotifs, setShowNotifs] = useState(false);
   const [showPersonaMenu, setShowPersonaMenu] = useState(false);
 
+  const [dynamicAccounts, setDynamicAccounts] = useState(null);
+
   useEffect(() => {
     if (user) {
       loadNotifications();
     }
+    loadQuickAccounts();
   }, [user]);
+
+  const loadQuickAccounts = async () => {
+    try {
+      const data = await api.getQuickAccounts();
+      if (data && data.accounts) {
+        setDynamicAccounts(data.accounts);
+      }
+    } catch (e) {}
+  };
 
   const loadNotifications = async () => {
     try {
@@ -58,12 +73,12 @@ export default function Header({ onOpenMobileDrawer, onRequestMission, onNavigat
 
   // Demo accounts switch helper
   const demoAccounts = [
-    { label: 'Secrétariat Central', email: 'sc@univ-kindia.edu.gn', pass: 'Agent123!' },
-    { label: 'Secrétaire Général', email: 'sg@univ-kindia.edu.gn', pass: 'Sg123!' },
-    { label: 'Recteur', email: 'recteur@univ-kindia.edu.gn', pass: 'Recteur123!' },
-    { label: 'DAF', email: 'daf@univ-kindia.edu.gn', pass: 'Daf123!' },
-    { label: 'Contrôle Financier', email: 'cf@univ-kindia.edu.gn', pass: 'Cf123!' },
-    { label: 'Administrateur', email: 'admin@univ-kindia.edu.gn', pass: 'Admin123!' }
+    { label: dynamicAccounts?.sc?.name ? `1. Secrétariat Central (${dynamicAccounts.sc.name})` : '1. Secrétariat Central', email: dynamicAccounts?.sc?.email || 'sc@univ-kindia.edu.gn', pass: 'Agent123!' },
+    { label: dynamicAccounts?.sg?.name ? `2. Secrétaire Général (${dynamicAccounts.sg.name})` : '2. Secrétaire Général', email: dynamicAccounts?.sg?.email || 'sg@univ-kindia.edu.gn', pass: 'Sg123!' },
+    { label: dynamicAccounts?.recteur?.name ? `3. Recteur (${dynamicAccounts.recteur.name})` : '3. Recteur', email: dynamicAccounts?.recteur?.email || 'recteur@univ-kindia.edu.gn', pass: 'Recteur123!' },
+    { label: '4. DAF', email: 'daf@univ-kindia.edu.gn', pass: 'Daf123!' },
+    { label: '5. Contrôle Financier', email: 'cf@univ-kindia.edu.gn', pass: 'Cf123!' },
+    { label: dynamicAccounts?.admin?.name ? `6. Administrateur (${dynamicAccounts.admin.name})` : '6. Administrateur', email: dynamicAccounts?.admin?.email || 'admin@univ-kindia.edu.gn', pass: 'Admin123!' }
   ];
 
   const switchAccount = async (acc) => {
@@ -108,6 +123,20 @@ export default function Header({ onOpenMobileDrawer, onRequestMission, onNavigat
 
       {/* Right Section: Actions, Persona Switcher, Notifications, User Badge & Logout */}
       <div className="flex items-center space-x-1.5 sm:space-x-2 md:space-x-2.5 lg:space-x-3 shrink-0">
+        {/* PWA Install Button — Discreet & Hidden when already installed */}
+        {!isInstalled && (
+          <button
+            onClick={() => promptInstall()}
+            className="px-2.5 sm:px-3 py-1.5 bg-kindia-blue hover:bg-kindia-lightBlue text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-xs active:scale-95 border border-kindia-gold/40 shrink-0 cursor-pointer"
+            title="Installer UK-GED sur votre appareil (Application)"
+          >
+            <Download className="w-3.5 h-3.5 text-kindia-gold shrink-0 animate-bounce" />
+            <span className="hidden xl:inline whitespace-nowrap">Installer UK-GED</span>
+            <span className="hidden sm:inline xl:hidden whitespace-nowrap">Installer</span>
+            <span className="sm:hidden">App</span>
+          </button>
+        )}
+
         {/* Mission Request Button - Available everywhere EXCEPT Secrétariat Central */}
         {!(user?.service_code === 'SC' || user?.role_code === 'AGENT_SECRÉTARIAT_CENTRAL') && (
           <button
@@ -207,14 +236,24 @@ export default function Header({ onOpenMobileDrawer, onRequestMission, onNavigat
           <button
             onClick={() => onNavigate && onNavigate('account-settings')}
             className="flex items-center space-x-2 text-left hover:bg-slate-50 p-1 md:p-1.5 rounded-xl transition group max-w-[180px] sm:max-w-[240px] md:max-w-[320px] lg:max-w-[400px]"
-            title={`${user?.first_name} ${user?.last_name} — ${user?.service_name || 'Service'} (${user?.role_name || user?.role_code})`}
+            title={`${formatFullName(user)} — ${user?.service_name || 'Service'} (${user?.role_name || user?.role_code})`}
           >
-            <div className="w-8 h-8 rounded-xl bg-kindia-blue text-white font-black text-xs flex items-center justify-center shadow-xs group-hover:ring-2 group-hover:ring-kindia-gold transition shrink-0">
-              {user?.first_name ? user.first_name[0].toUpperCase() : 'U'}
+            <div className="relative w-8 h-8 rounded-xl overflow-hidden shadow-xs shrink-0 group-hover:ring-2 group-hover:ring-kindia-gold transition flex items-center justify-center bg-kindia-blue text-white font-black text-xs">
+              {user?.photo_path ? (
+                <img
+                  src={user.photo_path.split('?')[0]}
+                  alt={formatFullName(user)}
+                  className="w-full h-full object-cover"
+                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                />
+              ) : null}
+              {(!user?.photo_path) && (
+                <span>{user?.first_name ? user.first_name[0].toUpperCase() : 'U'}</span>
+              )}
             </div>
             <div className="hidden sm:flex flex-col text-left min-w-0">
               <span className="text-xs font-black text-slate-900 group-hover:text-kindia-blue transition whitespace-nowrap leading-tight truncate">
-                {user?.first_name} {user?.last_name}
+                {formatFullName(user)}
               </span>
               <span className="text-[10px] font-semibold text-slate-500 leading-tight truncate mt-0.5">
                 {user?.service_name || 'Université de Kindia'} ({user?.role_name || user?.role_code})
@@ -225,10 +264,11 @@ export default function Header({ onOpenMobileDrawer, onRequestMission, onNavigat
           {/* Logout Button */}
           <button 
             onClick={logout}
-            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition flex items-center justify-center shrink-0"
-            title="Se déconnecter"
+            className="flex items-center space-x-1.5 px-2.5 sm:px-3 py-1.5 text-rose-700 bg-rose-50 hover:bg-rose-600 hover:text-white border border-rose-200/80 rounded-xl font-bold text-xs shadow-xs transition-all duration-150 shrink-0 cursor-pointer group"
+            title="Se déconnecter de l'application et retourner à la page de connexion"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-4 h-4 text-rose-600 group-hover:text-white transition shrink-0" />
+            <span className="hidden sm:inline font-bold">Se déconnecter</span>
           </button>
         </div>
       </div>

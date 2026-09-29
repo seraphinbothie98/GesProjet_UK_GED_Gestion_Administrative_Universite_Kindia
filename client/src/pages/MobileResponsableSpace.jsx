@@ -8,6 +8,7 @@ import {
   Award, Inbox, CheckCircle2, Clock, ShieldCheck, Send, 
   UserCheck, RefreshCw, FileText, ArrowRight, Eye, AlertCircle
 } from 'lucide-react';
+import { formatFullName } from '../utils/userUtils';
 
 export default function MobileResponsableSpace({ onSelectDocument, onNavigate }) {
   const { user, getLogoUrl, institution, hasPermission } = useAuth();
@@ -147,7 +148,7 @@ export default function MobileResponsableSpace({ onSelectDocument, onNavigate })
               Espace Responsable • {user?.service_code || 'UK'}
             </span>
             <h2 className="font-heading font-extrabold text-base leading-tight truncate">
-              {user?.first_name} {user?.last_name}
+              {formatFullName(user)}
             </h2>
             <p className="text-[11px] text-slate-200 truncate font-medium mt-0.5">
               {user?.function_title || user?.role_name || user?.service_name}
@@ -287,7 +288,7 @@ export default function MobileResponsableSpace({ onSelectDocument, onNavigate })
                 </div>
 
                 <div>
-                  <h4 className="font-bold text-xs text-slate-900">{m.last_name} {m.first_names}</h4>
+                  <h4 className="font-bold text-xs text-slate-900">{formatFullName(m)}</h4>
                   <p className="text-[11px] text-slate-600"><strong>Inst :</strong> {m.origin_institution} • <strong>OM :</strong> {m.mission_order_ref}</p>
                   <p className="text-[11px] text-slate-600 line-clamp-1 mt-0.5"><strong>Objet :</strong> {m.object_of_mission}</p>
                 </div>

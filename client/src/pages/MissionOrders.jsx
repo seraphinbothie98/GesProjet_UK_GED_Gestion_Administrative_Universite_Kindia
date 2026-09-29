@@ -4,14 +4,17 @@ import { useAuth } from '../context/AuthContext';
 import { 
   FileCheck, Plus, Award, CheckCircle, ShieldCheck, Eye, Download, X, 
   Printer, Send, Archive, Search, Car, User, FileText, AlertCircle, RefreshCw, 
-  XCircle, ArrowRight, Clock, HelpCircle, Building2, Phone, Mail
+  XCircle, ArrowRight, Clock, HelpCircle, Building2, Phone, Mail, UploadCloud, Layers,
+  Users
 } from 'lucide-react';
 import ReceiptSuccessModal from '../components/ReceiptSuccessModal';
 import TemplatePreviewModal from '../components/TemplatePreviewModal';
 import MissionSignatureModal from '../components/MissionSignatureModal';
 import PublicMissionRequestModal from '../components/PublicMissionRequestModal';
+import ManuscriptScanUploadModal from '../components/ManuscriptScanUploadModal';
+import { formatFullName, formatTransportDisplay, formatDriverDisplay } from '../utils/userUtils';
 
-export default function MissionOrders({ onSelectDocument }) {
+export default function MissionOrders({ onSelectDocument, autoOpenCreate = false }) {
   const { user, hasPermission, institution } = useAuth();
 
   // Role detection
@@ -40,7 +43,13 @@ export default function MissionOrders({ onSelectDocument }) {
   const [requestFilter, setRequestFilter] = useState('ACTIVE'); // 'ACTIVE' | 'ALL'
 
   // Modals
-  const [showModal, setShowModal] = useState(false);
+  const [showModal, setShowModal] = useState(autoOpenCreate);
+
+  useEffect(() => {
+    if (autoOpenCreate) {
+      setShowModal(true);
+    }
+  }, [autoOpenCreate]);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showDeliverModal, setShowDeliverModal] = useState(null);
   const [showTimelineModal, setShowTimelineModal] = useState(null);
@@ -51,6 +60,9 @@ export default function MissionOrders({ onSelectDocument }) {
   const [showComplementModal, setShowComplementModal] = useState(null);
   const [previewTemplateModal, setPreviewTemplateModal] = useState(null);
   const [selectedMissionForSign, setSelectedMissionForSign] = useState(null);
+  const [showUploadScanModal, setShowUploadScanModal] = useState(null);
+  const [signatureModeInForm, setSignatureModeInForm] = useState('ELECTRONIC');
+  const [documentFormatInForm, setDocumentFormatInForm] = useState('WORD_DOCX');
 
   const [signingId, setSigningId] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -61,6 +73,9 @@ export default function MissionOrders({ onSelectDocument }) {
 
   // Form State for Official OM Creation
   const [selectedStaffId, setSelectedStaffId] = useState('');
+  const [staffMatriculeSearch, setStaffMatriculeSearch] = useState('');
+  const [showStaffSearchResults, setShowStaffSearchResults] = useState(false);
+  const [missionaryTitre, setMissionaryTitre] = useState('M.');
   const [missionaryName, setMissionaryName] = useState('');
   const [missionaryFirstnames, setMissionaryFirstnames] = useState('');
   const [nationality, setNationality] = useState('Guinéenne');
@@ -70,17 +85,26 @@ export default function MissionOrders({ onSelectDocument }) {
 
   const [destination, setDestination] = useState('');
   const [objectOfMission, setObjectOfMission] = useState('');
-  const [transportMode, setTransportMode] = useState('Véhicule de service');
+  const [transportMode, setTransportMode] = useState('Véhicule service/Personnel');
   const [departureDate, setDepartureDate] = useState('');
   const [returnDate, setReturnDate] = useState('');
   
   const [driverOption, setDriverOption] = useState('SELF'); // SELF or DRIVER
   const [selectedDriverId, setSelectedDriverId] = useState('');
-  const [driverName, setDriverName] = useState('');
+  const [driverName, setDriverName] = useState('Lui-même');
   const [vehicleId, setVehicleId] = useState('');
+  const [selectedPersonalVehicleId, setSelectedPersonalVehicleId] = useState('');
   const [vehicleRegistration, setVehicleRegistration] = useState('');
   const [observations, setObservations] = useState('');
   const [linkedRequestId, setLinkedRequestId] = useState(null);
+  const [formParticipants, setFormParticipants] = useState([]);
+
+  // Multi-vehicles & Autonomous Drivers
+  const [fleetVehicles, setFleetVehicles] = useState([]);
+  const [driversRegistry, setDriversRegistry] = useState([]);
+  const [missionaryPersonalVehicles, setMissionaryPersonalVehicles] = useState([]);
+  const [missionaryAssignedVehicles, setMissionaryAssignedVehicles] = useState([]);
+  const [missionaryAttachedDrivers, setMissionaryAttachedDrivers] = useState([]);
 
   // Modals Input States
   const [recipientName, setRecipientName] = useState('');
@@ -112,16 +136,39 @@ export default function MissionOrders({ onSelectDocument }) {
       const staffPromise = isSC ? api.getStaff({ status: 'ACTIF' }).catch(() => []) : Promise.resolve([]);
       const driversPromise = isSC ? api.getStaff({ status: 'ACTIF', is_driver: true }).catch(() => []) : Promise.resolve([]);
       
-      // 6. Template for Mission Order (Strictly Active Default for ORDRE_DE_MISSION)
-      const templatesPromise = isSC ? api.getDocumentTemplates().catch(() => []) : Promise.resolve([]);
+      // 5b. University Fleet & Drivers Registry
+      const fleetPromise = api.getFleetVehicles().catch(() => []);
+      const driversRegPromise = api.getDrivers({ active_only: 'true' }).catch(() => []);
 
-      const [mList, toSignList, reqList, myReqList, sList, dList, tplsList] = await Promise.all([
+      // 6. Template for Mission Order (Strictly Active Default from Official Mission Order Template)
+      const templatesPromise = api.getActiveMissionOrderTemplate()
+        .then(t => {
+          if (!t) return [];
+          return [{
+            id: t.id,
+            name: t.name,
+            code: 'ORDRE_001',
+            document_type_code: 'MISSION_ORDER',
+            version: t.version_number || t.version || 1,
+            version_number: t.version_number || t.version || 1,
+            file_path: t.file_path,
+            file_name: t.file_name,
+            is_active: t.status === 'ACTIVE' ? 1 : 0,
+            is_default: t.is_default !== undefined ? t.is_default : 1,
+            default_document_format: t.default_document_format || 'WORD_DOCX'
+          }];
+        })
+        .catch(() => []);
+
+      const [mList, toSignList, reqList, myReqList, sList, dList, fleetList, drvRegList, tplsList] = await Promise.all([
         listPromise,
         toSignPromise,
         reqsPromise,
         myReqsPromise,
         staffPromise,
         driversPromise,
+        fleetPromise,
+        driversRegPromise,
         templatesPromise
       ]);
 
@@ -131,31 +178,19 @@ export default function MissionOrders({ onSelectDocument }) {
       setMyRequests(Array.isArray(myReqList) ? myReqList : []);
       setStaffDirectory(Array.isArray(sList) ? sList : []);
       setDriversList(Array.isArray(dList) ? dList : []);
+      setFleetVehicles(Array.isArray(fleetList) ? fleetList : []);
+      setDriversRegistry(Array.isArray(drvRegList) ? drvRegList : []);
 
-      // Filter strictly: active default template for mission order
-      const defaultMissionTpl = Array.isArray(tplsList)
-        ? tplsList.find(t => 
-            (
-              t.document_type_code === 'ORDRE_DE_MISSION' || 
-              t.document_type_code === 'ORDRE_MISSION' || 
-              t.code === 'ORDRE_MISSION' || 
-              t.code === 'ORDRE_001' || 
-              t.code === 'ODRE_001' || 
-              t.code === 'OM' ||
-              t.document_category === 'ORDRE_DE_MISSION' ||
-              (t.document_type_code && t.document_type_code.toUpperCase().includes('MISSION')) ||
-              (t.code && t.code.toUpperCase().includes('MISSION')) ||
-              (t.name && t.name.toLowerCase().includes('mission'))
-            )
-            && t.is_active === 1 
-            && t.is_default === 1
-          ) || tplsList.find(t => t.is_active === 1 && t.is_default === 1)
-        : null;
+      // Set active default template for mission order
+      const defaultMissionTpl = Array.isArray(tplsList) && tplsList.length > 0 ? tplsList[0] : null;
 
       const validTpls = defaultMissionTpl ? [defaultMissionTpl] : [];
       setAvailableTemplates(validTpls);
       if (defaultMissionTpl) {
         setSelectedTemplateId(defaultMissionTpl.id);
+        if (defaultMissionTpl.default_document_format) {
+          setDocumentFormatInForm(defaultMissionTpl.default_document_format);
+        }
       } else {
         setSelectedTemplateId('');
       }
@@ -167,53 +202,216 @@ export default function MissionOrders({ onSelectDocument }) {
     }
   };
 
-  const handleStaffSelect = (staffId) => {
+  const handleStaffSelect = async (staffId) => {
     const s = staffDirectory.find(item => item.id === parseInt(staffId));
     if (s) {
       setSelectedStaffId(s.id);
-      setMissionaryName(s.nom);
-      setMissionaryFirstnames(s.prenoms);
+      setMissionaryTitre(s.titre || s.grade || 'M.');
+      setMissionaryName(s.nom || '');
+      setMissionaryFirstnames(s.prenoms || '');
       setNationality(s.nationality || 'Guinéenne');
-      setFunctionTitle(s.fonction);
+      setFunctionTitle(s.fonction || '');
       setServiceName(s.service_name || '');
       setMatricule(s.matricule || '');
+      setStaffMatriculeSearch(s.matricule ? `[${s.matricule}] ${s.nom} ${s.prenoms}` : `${s.nom} ${s.prenoms}`);
 
-      if (driverOption === 'SELF') {
-        setDriverName(`${s.nom} ${s.prenoms}`);
-        setVehicleRegistration(s.vehicle_registration || '');
+      // 1. Fetch missionary's active personal vehicles
+      try {
+        const pVehs = await api.getStaffPersonalVehicles(s.id, true);
+        const activePV = Array.isArray(pVehs) ? pVehs : [];
+        setMissionaryPersonalVehicles(activePV);
+
+        if (transportMode === 'Véhicule service/Personnel' || transportMode === 'Véhicule personnel' || transportMode === 'Véhicule Personnel') {
+          if (activePV.length > 0) {
+            setSelectedPersonalVehicleId(String(activePV[0].id));
+            setVehicleRegistration(activePV[0].registration_number);
+          } else {
+            setSelectedPersonalVehicleId('');
+            setVehicleRegistration(s.personal_vehicle_registration || '');
+          }
+          setDriverOption('SELF');
+          setDriverName('Lui-même');
+        }
+      } catch (err) {
+        console.warn('Erreur chargement véhicules personnels:', err);
+        setMissionaryPersonalVehicles([]);
       }
+
+      // 2. Fetch missionary's assigned fleet vehicles & attached drivers
+      try {
+        const [assignedVehs, attachedDrvs] = await Promise.all([
+          api.getStaffAssignedVehicles(s.id).catch(() => []),
+          api.getStaffDrivers(s.id).catch(() => [])
+        ]);
+        const activeAssigned = Array.isArray(assignedVehs) ? assignedVehs : [];
+        const activeAttached = Array.isArray(attachedDrvs) ? attachedDrvs : [];
+        setMissionaryAssignedVehicles(activeAssigned);
+        setMissionaryAttachedDrivers(activeAttached);
+
+        if (transportMode === 'Véhicule service/Personnel' || transportMode === 'Véhicule de service' || transportMode === 'Véhicule Officiel de l’Université') {
+          const primaryVeh = activeAssigned.length > 0 
+            ? activeAssigned[0] 
+            : (fleetVehicles.find(v => v.assigned_staff_id === s.id) || null);
+          if (primaryVeh) {
+            setVehicleId(String(primaryVeh.id));
+            setSelectedPersonalVehicleId('');
+            setVehicleRegistration(primaryVeh.registration_number);
+            if (primaryVeh.default_driver_id) {
+              setSelectedDriverId(String(primaryVeh.default_driver_id));
+              setDriverOption('DRIVER');
+              setDriverName(primaryVeh.default_driver_full_name || 'Chauffeur habituel');
+            } else if (activeAttached.length > 0) {
+              const defDrv = activeAttached.find(d => d.is_default) || activeAttached[0];
+              setSelectedDriverId(String(defDrv.id));
+              setDriverOption('DRIVER');
+              setDriverName(formatFullName(defDrv));
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Erreur chargement véhicules de service ou chauffeurs:', err);
+      }
+    } else {
+      setSelectedStaffId('');
+      setMissionaryPersonalVehicles([]);
+      setMissionaryAssignedVehicles([]);
+      setMissionaryAttachedDrivers([]);
+      setSelectedPersonalVehicleId('');
+      setVehicleRegistration('');
+    }
+  };
+
+  const handleTransportModeChange = (mode) => {
+    setTransportMode(mode);
+    if (mode === 'Véhicule service/Personnel' || mode === 'Véhicule de service' || mode === 'Véhicule personnel' || mode === 'Véhicule Personnel' || mode === 'Véhicule Officiel de l’Université') {
+      const assigned = missionaryAssignedVehicles.length > 0
+        ? missionaryAssignedVehicles[0]
+        : (selectedStaffId ? fleetVehicles.find(v => v.assigned_staff_id === parseInt(selectedStaffId)) : null);
+
+      if (assigned) {
+        setSelectedPersonalVehicleId('');
+        setVehicleId(String(assigned.id));
+        setVehicleRegistration(assigned.registration_number);
+        if (assigned.default_driver_id) {
+          setSelectedDriverId(String(assigned.default_driver_id));
+          setDriverOption('DRIVER');
+          setDriverName(assigned.default_driver_full_name || 'Chauffeur habituel');
+        } else if (missionaryAttachedDrivers.length > 0) {
+          const defDrv = missionaryAttachedDrivers.find(d => d.is_default) || missionaryAttachedDrivers[0];
+          setSelectedDriverId(String(defDrv.id));
+          setDriverOption('DRIVER');
+          setDriverName(formatFullName(defDrv));
+        } else {
+          setDriverOption('SELF');
+          setDriverName('Lui-même');
+        }
+      } else if (missionaryPersonalVehicles.length > 0) {
+        const pv = missionaryPersonalVehicles[0];
+        setVehicleId('');
+        setSelectedPersonalVehicleId(String(pv.id));
+        setVehicleRegistration(pv.registration_number);
+        setDriverOption('SELF');
+        setDriverName('Lui-même');
+      } else {
+        const s = staffDirectory.find(item => item.id === parseInt(selectedStaffId));
+        if (s?.personal_vehicle_registration) {
+          setVehicleId('');
+          setSelectedPersonalVehicleId('');
+          setVehicleRegistration(s.personal_vehicle_registration);
+        } else {
+          const availableFleet = fleetVehicles.find(v => v.status === 'DISPONIBLE') || fleetVehicles[0];
+          if (availableFleet) {
+            setVehicleId(String(availableFleet.id));
+            setVehicleRegistration(availableFleet.registration_number);
+          } else {
+            setVehicleId('');
+            setVehicleRegistration('');
+          }
+        }
+        setDriverOption('SELF');
+        setDriverName('Lui-même');
+      }
+    } else {
+      // Transports en commun, Avion, Autre
+      setVehicleId('');
+      setSelectedPersonalVehicleId('');
+      setVehicleRegistration('');
+      setDriverOption('SELF');
+      setDriverName('Lui-même');
     }
   };
 
   const handleDriverSelect = (driverId) => {
-    const d = driversList.find(item => item.id === parseInt(driverId));
+    if (!driverId) {
+      setSelectedDriverId('');
+      setDriverName('');
+      return;
+    }
+    const d = driversRegistry.find(item => item.id === parseInt(driverId)) || driversList.find(item => item.id === parseInt(driverId));
     if (d) {
       setSelectedDriverId(d.id);
-      setDriverName(`${d.nom} ${d.prenoms}`);
-      setVehicleRegistration(d.vehicle_registration || '');
+      setDriverName(formatFullName(d));
     }
   };
 
   // Convert Online Request to Official OM (Pre-fills creation modal)
-  const handleConvertRequestToOM = (reqItem) => {
+  const handleConvertRequestToOM = async (reqItem) => {
     if (reqItem.official_document_id || reqItem.status === 'DEMANDE ACCEPTÉE' || reqItem.status === 'ORDRE DE MISSION EN PRÉPARATION' || reqItem.status === 'EN ATTENTE DE SIGNATURE DU SECRÉTAIRE GÉNÉRAL') {
       alert("Un ordre de mission officiel a déjà été créé pour cette demande ou celle-ci a déjà été traitée.");
       return;
     }
     resetForm();
     setLinkedRequestId(reqItem.id);
+    setMissionaryTitre(reqItem.applicant_titre || reqItem.titre || reqItem.grade || 'M.');
     setMissionaryName(reqItem.applicant_last_name || '');
     setMissionaryFirstnames(reqItem.applicant_first_names || '');
     setFunctionTitle(reqItem.applicant_function || '');
     setServiceName(reqItem.applicant_service_name || '');
     setMatricule(reqItem.applicant_matricule || '');
+    if (reqItem.applicant_matricule) {
+      setStaffMatriculeSearch(`[${reqItem.applicant_matricule}] ${reqItem.applicant_last_name || ''} ${reqItem.applicant_first_names || ''}`.trim());
+    }
     setDestination(reqItem.destination || '');
     setObjectOfMission(reqItem.object_of_mission || '');
     setDepartureDate(reqItem.start_date ? reqItem.start_date.substring(0, 10) : '');
     setReturnDate(reqItem.end_date ? reqItem.end_date.substring(0, 10) : '');
-    setTransportMode(reqItem.transport_means || 'Véhicule de service');
+
+    // Normalize transportMode to official labels
+    const rawMode = reqItem.transport_means || 'Véhicule de service';
+    let normMode = 'Véhicule de service';
+    if (rawMode === 'TRANSPORTS EN COMMUN' || rawMode.includes('commun')) {
+      normMode = 'Transports en commun / Car';
+    } else if (rawMode === 'VÉHICULE PERSONNEL' || rawMode.includes('Personnel') || rawMode.includes('personnel')) {
+      normMode = 'Véhicule personnel';
+    } else if (rawMode === 'AVION' || rawMode.includes('Avion')) {
+      normMode = 'Avion (Vol national / international)';
+    }
+    setTransportMode(normMode);
     setObservations(reqItem.justification_motif || '');
-    setDriverName(`${reqItem.applicant_last_name || ''} ${reqItem.applicant_first_names || ''}`.trim());
+    setDriverOption('SELF');
+    setDriverName('Lui-même');
+
+    // Load participants if collective request
+    if (reqItem.participants && reqItem.participants.length > 0) {
+      setFormParticipants(reqItem.participants);
+    } else {
+      api.getMissionRequestById(reqItem.id)
+        .then(full => {
+          if (full?.participants && full.participants.length > 0) {
+            setFormParticipants(full.participants);
+          }
+        })
+        .catch(() => {});
+    }
+
+    // Lookup matching staff member for vehicle prefill
+    const s = staffDirectory.find(item => 
+      (item.matricule && reqItem.applicant_matricule && item.matricule.trim().toLowerCase() === reqItem.applicant_matricule.trim().toLowerCase()) ||
+      (item.nom && reqItem.applicant_last_name && item.nom.trim().toLowerCase() === reqItem.applicant_last_name.trim().toLowerCase())
+    );
+    if (s) {
+      await handleStaffSelect(s.id);
+    }
     setShowModal(true);
   };
 
@@ -234,6 +432,9 @@ export default function MissionOrders({ onSelectDocument }) {
         linked_request_id: linkedRequestId || null,
         template_id: selectedTemplateId || null,
         staff_id: selectedStaffId || null,
+        missionary_titre: missionaryTitre || 'M.',
+        titre: missionaryTitre || 'M.',
+        grade: missionaryTitre || 'M.',
         missionary_name: fullMissionaryName,
         missionary_firstnames: missionaryFirstnames,
         nationality,
@@ -247,17 +448,25 @@ export default function MissionOrders({ onSelectDocument }) {
         return_date: returnDate,
         driver_option: driverOption,
         driver_id: selectedDriverId || null,
-        driver_name: driverName,
+        driver_name: (driverOption === 'SELF' || !driverName || driverName === 'Lui-même') ? 'Lui-même' : driverName,
         vehicle_id: vehicleId || null,
+        personal_vehicle_id: selectedPersonalVehicleId || null,
         vehicle_registration: vehicleRegistration,
-        observations
+        observations,
+        signature_mode: signatureModeInForm,
+        document_format: documentFormatInForm,
+        participants: formParticipants && formParticipants.length > 0 ? formParticipants : undefined
       });
 
-      setSuccessMsg('Ordre de mission créé avec succès et transmis au Secrétaire Général pour signature.');
+      const modeText = signatureModeInForm === 'MANUSCRIPT' 
+        ? 'Ordre de mission créé avec succès (Mode Manuscrit : prêt pour impression et signature physique du SG).' 
+        : 'Ordre de mission créé avec succès et transmis au Secrétaire Général pour signature électronique.';
+
+      setSuccessMsg(modeText);
       setShowModal(false);
       resetForm();
       await loadAllData();
-      setActiveTab('PENDING_SIGN');
+      setActiveTab(signatureModeInForm === 'MANUSCRIPT' ? 'ALL' : 'PENDING_SIGN');
 
       if (res && res.reference) {
         setCreatedReceiptData({
@@ -288,10 +497,10 @@ export default function MissionOrders({ onSelectDocument }) {
     try {
       const isTeacherUser = user?.personnel_category === 'ENSEIGNANT_CHERCHEUR' || !user?.service_id;
       const res = await api.submitMissionRequest({
-        missionary_name: `${user.first_name} ${user.last_name}`,
-        function_title: user.function_title || (isTeacherUser ? 'Enseignant-Chercheur' : 'Agent Administratif'),
-        personnel_category: user.personnel_category || (isTeacherUser ? 'ENSEIGNANT_CHERCHEUR' : 'PERSONNEL_ADMINISTRATIF'),
-        faculty_dept: user.academic_structure || (user.service_name ? `Service : ${user.service_name}` : 'Non rattaché à un service administratif'),
+        missionary_name: formatFullName(user),
+        function_title: user?.function_title || (isTeacherUser ? 'Enseignant-Chercheur' : 'Agent Administratif'),
+        personnel_category: user?.personnel_category || (isTeacherUser ? 'ENSEIGNANT_CHERCHEUR' : 'PERSONNEL_ADMINISTRATIF'),
+        faculty_dept: user?.academic_structure || (user?.service_name ? `Service : ${user.service_name}` : 'Non rattaché à un service administratif'),
         destination,
         object_of_mission: objectOfMission,
         transport_mode: transportMode,
@@ -315,6 +524,9 @@ export default function MissionOrders({ onSelectDocument }) {
   const resetForm = () => {
     setCreateModalError('');
     setSelectedStaffId('');
+    setStaffMatriculeSearch('');
+    setShowStaffSearchResults(false);
+    setMissionaryTitre('M.');
     setMissionaryName('');
     setMissionaryFirstnames('');
     setNationality('Guinéenne');
@@ -323,16 +535,39 @@ export default function MissionOrders({ onSelectDocument }) {
     setMatricule('');
     setDestination('');
     setObjectOfMission('');
-    setTransportMode('Véhicule de service');
+    setTransportMode('Véhicule service/Personnel');
     setDepartureDate('');
     setReturnDate('');
     setDriverOption('SELF');
     setSelectedDriverId('');
-    setDriverName('');
+    setDriverName('Lui-même');
     setVehicleId('');
+    setSelectedPersonalVehicleId('');
     setVehicleRegistration('');
     setObservations('');
     setLinkedRequestId(null);
+    setFormParticipants([]);
+    setSignatureModeInForm('ELECTRONIC');
+    setMissionaryPersonalVehicles([]);
+    setMissionaryAssignedVehicles([]);
+    setMissionaryAttachedDrivers([]);
+  };
+
+  const openNewMissionModal = () => {
+    resetForm();
+    setShowModal(true);
+  };
+
+  const handleOpenRequestDetail = async (reqItem) => {
+    setSelectedRequestDetail(reqItem);
+    try {
+      const fullDetail = await api.getMissionRequestById(reqItem.id);
+      if (fullDetail) {
+        setSelectedRequestDetail(fullDetail);
+      }
+    } catch (e) {
+      // Keep initial reqItem
+    }
   };
 
   // Secrétaire Général: Signature Action - Opens Full Dedicated Signature Interface
@@ -346,6 +581,29 @@ export default function MissionOrders({ onSelectDocument }) {
       } else {
         setSelectedMissionForSign({ document_id: m });
       }
+    }
+  };
+
+  const handleModeSwitch = async (m, newMode) => {
+    try {
+      const res = await api.setMissionSignatureMode(m.document_id, newMode);
+      setSuccessMsg(res.message || 'Mode de signature mis à jour.');
+      loadAllData();
+    } catch (err) {
+      alert('Erreur lors du changement de mode : ' + err.message);
+    }
+  };
+
+  const handleMarkManuscriptSigned = async (m) => {
+    if (!window.confirm(`Confirmez-vous que l'Ordre de mission ${m.reference} a été signé manuellement et cacheté par le Secrétaire Général ?`)) {
+      return;
+    }
+    try {
+      const res = await api.markMissionManuscriptSigned(m.document_id);
+      setSuccessMsg(res.message || 'Signature manuscrite enregistrée. Prêt pour numérisation.');
+      loadAllData();
+    } catch (err) {
+      alert('Erreur : ' + err.message);
     }
   };
 
@@ -518,7 +776,7 @@ export default function MissionOrders({ onSelectDocument }) {
                   : 'Mes Ordres de Mission & Demandes')}
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Connecté en tant que : <strong className="text-kindia-blue">{user?.first_name} {user?.last_name}</strong> ({user?.role_name || user?.service_name || 'Enseignant'})
+              Connecté en tant que : <strong className="text-kindia-blue">{formatFullName(user)}</strong> ({user?.role_name || user?.service_name || 'Enseignant'})
             </p>
           </div>
         </div>
@@ -527,7 +785,7 @@ export default function MissionOrders({ onSelectDocument }) {
         <div className="flex items-center space-x-2.5 w-full md:w-auto">
           {isSC ? (
             <button
-              onClick={() => { resetForm(); setShowModal(true); }}
+              onClick={openNewMissionModal}
               className="w-full md:w-auto bg-kindia-blue hover:bg-kindia-lightBlue text-white text-xs font-extrabold px-4 py-2.5 rounded-xl shadow transition flex items-center justify-center space-x-2"
             >
               <Plus className="w-4 h-4 text-kindia-gold" />
@@ -843,7 +1101,7 @@ export default function MissionOrders({ onSelectDocument }) {
                       </div>
                     )}
                     <button
-                      onClick={() => setSelectedRequestDetail(r)}
+                      onClick={() => handleOpenRequestDetail(r)}
                       className="flex-1 py-1.5 bg-slate-100 text-slate-700 font-bold rounded-lg text-xs"
                     >
                       👁 Détails
@@ -885,8 +1143,15 @@ export default function MissionOrders({ onSelectDocument }) {
                     <tr key={r.id} className="hover:bg-slate-50 transition">
                       <td className="p-3.5 font-mono font-bold text-kindia-blue">{r.reference}</td>
                       <td className="p-3.5">
-                        <span className="font-bold text-slate-800 block">{r.applicant_last_name} {r.applicant_first_names}</span>
-                        <span className="text-[10px] text-slate-400">{r.applicant_function}</span>
+                        <div className="flex items-center space-x-1.5">
+                          <span className="font-bold text-slate-800">{r.applicant_last_name} {r.applicant_first_names}</span>
+                          {(r.mission_type === 'COLLECTIF' || (r.participants_count && r.participants_count > 1)) && (
+                            <span className="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.2 rounded font-black whitespace-nowrap">
+                              👥 {r.participants_count || '2+'}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-slate-400 block">{r.applicant_function}</span>
                       </td>
                       <td className="p-3.5 text-slate-600">{r.applicant_service_name || 'Enseignant non rattaché'}</td>
                       <td className="p-3.5 font-semibold text-slate-700">{r.destination}</td>
@@ -908,7 +1173,7 @@ export default function MissionOrders({ onSelectDocument }) {
                       </td>
                       <td className="p-3.5 text-right space-x-1.5">
                         <button
-                          onClick={() => setSelectedRequestDetail(r)}
+                          onClick={() => handleOpenRequestDetail(r)}
                           className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-[11px]"
                           title="Voir les pièces et détails"
                         >
@@ -977,17 +1242,26 @@ export default function MissionOrders({ onSelectDocument }) {
                     <span className="font-mono text-xs font-black text-kindia-blue bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">
                       {m.reference}
                     </span>
-                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      m.status === 'ARCHIVÉ' || m.status === 'ARCHIVED'
-                        ? 'bg-slate-200 text-slate-800'
-                        : m.status === 'REMIS AU DEMANDEUR'
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                        : m.is_signed
-                        ? 'bg-blue-100 text-blue-800'
-                        : 'bg-amber-100 text-amber-800'
-                    }`}>
-                      {m.status}
-                    </span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        m.status === 'ARCHIVÉ' || m.status === 'ARCHIVED'
+                          ? 'bg-slate-200 text-slate-800'
+                          : m.status === 'REMIS AU DEMANDEUR'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : m.is_signed
+                          ? 'bg-blue-100 text-blue-800'
+                          : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {m.status}
+                      </span>
+                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                        m.signature_mode === 'MANUSCRIPT'
+                          ? 'bg-amber-50 text-amber-900 border border-amber-200'
+                          : 'bg-indigo-50 text-indigo-900 border border-indigo-200'
+                      }`}>
+                        {m.signature_mode === 'MANUSCRIPT' ? '✍️ Mode Manuscrit' : '⚡ Mode Électronique'}
+                      </span>
+                    </div>
                   </div>
 
                   <div>
@@ -1015,6 +1289,60 @@ export default function MissionOrders({ onSelectDocument }) {
                     >
                       🔎 Cheminement
                     </button>
+
+                    {/* Mode Switcher if unsigned */}
+                    {!m.is_signed && isSC && (
+                      <button
+                        onClick={() => handleModeSwitch(m, m.signature_mode === 'MANUSCRIPT' ? 'ELECTRONIC' : 'MANUSCRIPT')}
+                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-[10px]"
+                        title="Changer le mode de signature"
+                      >
+                        🔄 {m.signature_mode === 'MANUSCRIPT' ? 'Passer en Électronique' : 'Passer en Manuscrit'}
+                      </button>
+                    )}
+
+                    {/* Mode Manuscrit Actions for SC */}
+                    {m.signature_mode === 'MANUSCRIPT' && !m.is_signed && isSC && (
+                      <>
+                        <button
+                          onClick={() => handlePrint(m)}
+                          className="px-2.5 py-1.5 bg-slate-800 text-white font-bold rounded-lg text-center flex items-center space-x-1"
+                          title="Imprimer le document pour signature physique par le SG"
+                        >
+                          <Printer className="w-3 h-3 text-kindia-gold" />
+                          <span>Imprimer pour SG</span>
+                        </button>
+
+                        {m.status === 'EN ATTENTE DE SIGNATURE MANUSCRITE' && (
+                          <button
+                            onClick={() => handleMarkManuscriptSigned(m)}
+                            className="px-2.5 py-1.5 bg-amber-600 text-white font-bold rounded-lg text-center"
+                            title="Confirmer que le SG a signé manuellement"
+                          >
+                            ✍️ Signé par SG
+                          </button>
+                        )}
+
+                        <button
+                          onClick={() => setShowUploadScanModal(m)}
+                          className="px-2.5 py-1.5 bg-emerald-600 text-white font-bold rounded-lg text-center flex items-center space-x-1"
+                          title="Importer le scan signé et cacheté"
+                        >
+                          <UploadCloud className="w-3 h-3 text-white" />
+                          <span>Importer scan</span>
+                        </button>
+                      </>
+                    )}
+
+                    {/* Mode Electronique Actions for SG */}
+                    {m.signature_mode !== 'MANUSCRIPT' && !m.is_signed && isSG && (
+                      <button
+                        onClick={() => handleSign(m)}
+                        className="px-3 py-1.5 bg-kindia-blue text-white font-bold rounded-lg text-center"
+                      >
+                        ✍️ Signer
+                      </button>
+                    )}
 
                     {m.signed_pdf_path && (
                       <button
@@ -1054,10 +1382,11 @@ export default function MissionOrders({ onSelectDocument }) {
               <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
                 <tr>
                   <th className="p-3.5">Référence OM</th>
-                  <th className="p-3.5">Missionnaire</th>
+                  <th className="p-3.5">Missionnaire(s)</th>
                   <th className="p-3.5">Fonction</th>
                   <th className="p-3.5">Destination</th>
-                  <th className="p-3.5">Dates (Départ - Retour)</th>
+                  <th className="p-3.5">Dates</th>
+                  <th className="p-3.5">Mode Signature</th>
                   <th className="p-3.5">Statut / Workflow</th>
                   <th className="p-3.5 text-right">Actions</th>
                 </tr>
@@ -1065,20 +1394,49 @@ export default function MissionOrders({ onSelectDocument }) {
               <tbody className="divide-y divide-slate-100 font-medium">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-400">Chargement...</td>
+                    <td colSpan={8} className="p-8 text-center text-slate-400">Chargement...</td>
                   </tr>
                 ) : filteredMissions.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-400">Aucun ordre de mission dans cette section.</td>
+                    <td colSpan={8} className="p-8 text-center text-slate-400">Aucun ordre de mission dans cette section.</td>
                   </tr>
                 ) : (
                   filteredMissions.map(m => (
                     <tr key={m.document_id} className="hover:bg-slate-50 transition">
                       <td className="p-3.5 font-bold font-mono text-kindia-blue">{m.reference}</td>
-                      <td className="p-3.5 text-slate-800 font-bold">{m.missionary_name}</td>
+                      <td className="p-3.5">
+                        <div className="flex items-center space-x-1.5">
+                          <span className="text-slate-800 font-bold">{m.missionary_name}</span>
+                          {(m.mission_type === 'COLLECTIF' || (m.participants_count && m.participants_count > 1)) && (
+                            <span className="text-[10px] bg-amber-100 text-amber-900 border border-amber-300 px-1.5 py-0.2 rounded font-black whitespace-nowrap">
+                              👥 {m.participants_count} pers.
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="p-3.5 text-slate-600">{m.function_title}</td>
                       <td className="p-3.5 text-slate-700 font-semibold">{m.destination}</td>
                       <td className="p-3.5 text-slate-600">{m.departure_date} au {m.return_date}</td>
+                      <td className="p-3.5">
+                        <div className="flex items-center space-x-1">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            m.signature_mode === 'MANUSCRIPT'
+                              ? 'bg-amber-50 text-amber-900 border border-amber-200'
+                              : 'bg-indigo-50 text-indigo-900 border border-indigo-200'
+                          }`}>
+                            {m.signature_mode === 'MANUSCRIPT' ? '✍️ Manuscrite' : '⚡ Électronique'}
+                          </span>
+                          {!m.is_signed && isSC && (
+                            <button
+                              onClick={() => handleModeSwitch(m, m.signature_mode === 'MANUSCRIPT' ? 'ELECTRONIC' : 'MANUSCRIPT')}
+                              className="p-1 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700 text-[10px]"
+                              title="Basculer le mode de signature"
+                            >
+                              🔄
+                            </button>
+                          )}
+                        </div>
+                      </td>
                       <td className="p-3.5">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                           m.status === 'ARCHIVÉ' || m.status === 'ARCHIVED'
@@ -1092,7 +1450,7 @@ export default function MissionOrders({ onSelectDocument }) {
                           {m.status}
                         </span>
                       </td>
-                      <td className="p-3.5 text-right space-x-1.5">
+                      <td className="p-3.5 text-right space-x-1.5 whitespace-nowrap">
                         <button
                           onClick={() => onSelectDocument(m.document_id)}
                           className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg transition text-[11px]"
@@ -1109,11 +1467,55 @@ export default function MissionOrders({ onSelectDocument }) {
                           🔎 Cheminement
                         </button>
 
+                        {/* MODE MANUSCRIT SPECIFIC BUTTONS */}
+                        {m.signature_mode === 'MANUSCRIPT' && !m.is_signed && isSC && (
+                          <>
+                            <button
+                              onClick={() => handlePrint(m)}
+                              className="px-2 py-1 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg transition text-[11px] inline-flex items-center space-x-1"
+                              title="Imprimer pour signature physique du SG"
+                            >
+                              <Printer className="w-3 h-3 text-kindia-gold" />
+                              <span>Imprimer SG</span>
+                            </button>
+
+                            {m.status === 'EN ATTENTE DE SIGNATURE MANUSCRITE' && (
+                              <button
+                                onClick={() => handleMarkManuscriptSigned(m)}
+                                className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg transition text-[11px]"
+                                title="Déclarer que le SG a signé physiquement sur papier"
+                              >
+                                ✍️ Signé SG
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => setShowUploadScanModal(m)}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition text-[11px] shadow-sm inline-flex items-center space-x-1"
+                              title="Importer le document signé et cacheté scanné"
+                            >
+                              <UploadCloud className="w-3 h-3 text-white" />
+                              <span>📥 Importer Scan</span>
+                            </button>
+                          </>
+                        )}
+
+                        {/* MODE ÉLECTRONIQUE SPECIFIC BUTTON */}
+                        {m.signature_mode !== 'MANUSCRIPT' && !m.is_signed && isSG && (
+                          <button
+                            onClick={() => handleSign(m)}
+                            className="px-2.5 py-1 bg-kindia-blue hover:bg-kindia-lightBlue text-white font-bold rounded-lg transition text-[11px]"
+                            title="Signer électroniquement dans UK-GED"
+                          >
+                            ✍️ Signer
+                          </button>
+                        )}
+
                         {m.signed_pdf_path && (
                           <button
                             onClick={() => handlePrint(m)}
                             className="px-2.5 py-1 bg-kindia-blue hover:bg-kindia-lightBlue text-white font-bold rounded-lg transition inline-flex items-center space-x-1 text-[11px]"
-                            title="Imprimer le PDF officiel"
+                            title="Imprimer le PDF officiel scellé"
                           >
                             <Printer className="w-3 h-3 text-kindia-gold" />
                             <span>🖨️ Imprimer</span>
@@ -1233,29 +1635,38 @@ export default function MissionOrders({ onSelectDocument }) {
 
               {/* 0. MODÈLE DE DOCUMENT OFFICIEL */}
               {availableTemplates.length > 0 ? (
-                <div className="bg-blue-50/80 p-4 rounded-xl border border-blue-200 space-y-3">
+                <div className={`p-4 rounded-xl border space-y-3 transition-colors ${
+                  documentFormatInForm === 'DIRECT_PDF'
+                    ? 'bg-emerald-50/80 border-emerald-300 text-emerald-950'
+                    : 'bg-blue-50/80 border-blue-200 text-slate-900'
+                }`}>
                   <div className="flex justify-between items-center">
-                    <h4 className="font-bold text-xs text-kindia-blue flex items-center">
-                      <FileCheck className="w-4 h-4 mr-1.5 text-kindia-blue" />
-                      MODÈLE DE DOCUMENT OFFICIEL (Par Défaut)
+                    <h4 className="font-bold text-xs flex items-center gap-1.5">
+                      <FileCheck className={`w-4 h-4 ${documentFormatInForm === 'DIRECT_PDF' ? 'text-emerald-700' : 'text-kindia-blue'}`} />
+                      <span className={documentFormatInForm === 'DIRECT_PDF' ? 'text-emerald-950' : 'text-kindia-blue'}>
+                        MODÈLE DE DOCUMENT OFFICIEL PAR DÉFAUT
+                      </span>
                     </h4>
                     {availableTemplates.find(t => t.id === parseInt(selectedTemplateId)) && (
                       <button
                         type="button"
                         onClick={() => {
                           const activeTpl = availableTemplates.find(t => t.id === parseInt(selectedTemplateId));
-                          setPreviewTemplateModal({
-                            template: activeTpl,
-                            version: {
-                              version_number: activeTpl.version || 1,
-                              file_type: activeTpl.format || 'DOCX'
-                            }
-                          });
+                          if (activeTpl?.id) {
+                            const dlName = documentFormatInForm === 'DIRECT_PDF'
+                              ? (activeTpl.file_name || activeTpl.name).replace(/\.docx$/i, '.pdf')
+                              : (activeTpl.file_name || activeTpl.name);
+                            api.downloadOfficialMissionTemplate(activeTpl.id, dlName);
+                          }
                         }}
-                        className="px-2.5 py-1 bg-white hover:bg-slate-100 text-kindia-blue font-bold rounded-lg border border-blue-200 shadow-sm flex items-center space-x-1 text-[11px]"
+                        className={`px-2.5 py-1 bg-white font-bold rounded-lg border shadow-sm flex items-center space-x-1 text-[11px] ${
+                          documentFormatInForm === 'DIRECT_PDF'
+                            ? 'hover:bg-emerald-100 text-emerald-800 border-emerald-300'
+                            : 'hover:bg-slate-100 text-kindia-blue border-blue-200'
+                        }`}
                       >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Prévisualiser le modèle</span>
+                        <Eye className={`w-3.5 h-3.5 ${documentFormatInForm === 'DIRECT_PDF' ? 'text-emerald-700' : 'text-kindia-blue'}`} />
+                        <span>Consulter le fichier officiel</span>
                       </button>
                     )}
                   </div>
@@ -1266,11 +1677,17 @@ export default function MissionOrders({ onSelectDocument }) {
                       <select
                         value={selectedTemplateId}
                         onChange={e => setSelectedTemplateId(e.target.value)}
-                        className="w-full p-2.5 rounded-xl border border-slate-300 font-bold text-kindia-blue bg-white"
+                        className={`w-full p-2.5 rounded-xl border font-bold bg-white ${
+                          documentFormatInForm === 'DIRECT_PDF'
+                            ? 'border-emerald-300 text-emerald-900'
+                            : 'border-slate-300 text-kindia-blue'
+                        }`}
                       >
                         {availableTemplates.map(t => (
                           <option key={t.id} value={t.id}>
-                            {t.name} (v{t.version || 1}) ★ Modèle officiel actif
+                            {documentFormatInForm === 'DIRECT_PDF'
+                              ? `${(t.file_name || t.name).replace(/\.docx$/i, '.pdf')} ★ Modèle PDF Direct actif`
+                              : `${t.name} (v${t.version || 1}) ★ Modèle Word DOCX actif`}
                           </option>
                         ))}
                       </select>
@@ -1278,17 +1695,29 @@ export default function MissionOrders({ onSelectDocument }) {
 
                     {availableTemplates.find(t => t.id === parseInt(selectedTemplateId)) && (
                       <div className="p-2.5 bg-white rounded-xl border border-slate-200 text-[11px] space-y-1">
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Nom :</span>
-                          <span className="font-bold text-slate-800">{availableTemplates.find(t => t.id === parseInt(selectedTemplateId)).name}</span>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500">Document :</span>
+                          <span className="font-bold text-slate-800 truncate max-w-[170px]" title={availableTemplates.find(t => t.id === parseInt(selectedTemplateId)).file_name}>
+                            {documentFormatInForm === 'DIRECT_PDF'
+                              ? (availableTemplates.find(t => t.id === parseInt(selectedTemplateId)).file_name || 'Modèle_Officiel.pdf').replace(/\.docx$/i, '.pdf')
+                              : (availableTemplates.find(t => t.id === parseInt(selectedTemplateId)).file_name || availableTemplates.find(t => t.id === parseInt(selectedTemplateId)).name)}
+                          </span>
                         </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-500">Version :</span>
-                          <span className="font-bold text-kindia-blue font-mono">v{availableTemplates.find(t => t.id === parseInt(selectedTemplateId)).version || 1}</span>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500">Format actif :</span>
+                          {documentFormatInForm === 'DIRECT_PDF' ? (
+                            <span className="font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-1.5 py-0.5 rounded text-[10px]">
+                              ⚡ Format PDF Direct (Rapide)
+                            </span>
+                          ) : (
+                            <span className="font-bold text-blue-800 bg-blue-100 border border-blue-300 px-1.5 py-0.5 rounded text-[10px]">
+                              📝 Modèle Word DOCX
+                            </span>
+                          )}
                         </div>
-                        <div className="flex justify-between">
+                        <div className="flex justify-between items-center">
                           <span className="text-slate-500">Statut :</span>
-                          <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">Modèle actif par défaut</span>
+                          <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded text-[10px]">Configuré par l'Admin</span>
                         </div>
                       </div>
                     )}
@@ -1306,18 +1735,213 @@ export default function MissionOrders({ onSelectDocument }) {
               )}
 
               {/* 1. MISSIONNAIRE */}
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
-                <h4 className="font-bold text-xs text-kindia-blue flex items-center">
-                  <User className="w-4 h-4 mr-1.5" />
-                  1. MISSIONNAIRE (Personnel ou Enseignant-Chercheur)
-                </h4>
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3.5">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-xs text-kindia-blue flex items-center">
+                    <User className="w-4 h-4 mr-1.5" />
+                    1. MISSIONNAIRE (Personnel ou Enseignant-Chercheur)
+                  </h4>
+                  {selectedStaffId && (
+                    <span className="text-[11px] font-bold bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                      <CheckCircle className="w-3 h-3" /> Personnel identifié
+                    </span>
+                  )}
+                </div>
 
+                {/* Information banner if collective mission order */}
+                {formParticipants && formParticipants.length > 1 && (
+                  <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl space-y-2">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-amber-950 text-xs flex items-center gap-1.5">
+                        <Users className="w-4 h-4 text-amber-700" />
+                        <span>ORDRE DE MISSION COLLECTIF ({formParticipants.length} participants)</span>
+                      </span>
+                      <span className="text-[10px] bg-amber-200 text-amber-900 font-extrabold px-2 py-0.5 rounded-full">
+                        Demande en ligne
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      {formParticipants.map((p, idx) => (
+                        <div key={idx} className="flex justify-between items-center text-[11px] bg-white p-2 rounded-lg border border-amber-200">
+                          <div>
+                            <span className="font-bold text-slate-800">{p.nom} {p.prenoms}</span>
+                            {p.is_requester ? <span className="ml-1 text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-full">Demandeur</span> : null}
+                            <span className="text-slate-500 ml-2">({p.matricule || 'Sans matricule'} • {p.service_name || 'UK'})</span>
+                          </div>
+                          <span className="font-bold text-kindia-blue">{p.fonction}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* CHAMP DE RECHERCHE RAPIDE PAR MATRICULE OU NOM */}
+                <div className="bg-white p-3 rounded-xl border-2 border-indigo-200 shadow-sm space-y-2 relative">
+                  <label className="block text-xs font-bold text-slate-800 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-indigo-950 font-bold">
+                      <Search className="w-4 h-4 text-indigo-600" />
+                      Rechercher par Matricule ou Nom / Prénoms :
+                    </span>
+                    <span className="text-[10px] font-normal text-slate-500">
+                      Tapez un matricule (ex: UK-EC-001) pour auto-remplir
+                    </span>
+                  </label>
+
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={staffMatriculeSearch}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setStaffMatriculeSearch(val);
+                        setShowStaffSearchResults(true);
+                        // Auto-lookup exact matricule if typed
+                        const exact = staffDirectory.find(s => s.matricule && s.matricule.trim().toLowerCase() === val.trim().toLowerCase());
+                        if (exact) {
+                          handleStaffSelect(exact.id);
+                        }
+                      }}
+                      onFocus={() => setShowStaffSearchResults(true)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const matches = staffDirectory.filter(s => {
+                            const q = staffMatriculeSearch.toLowerCase().trim();
+                            const mat = (s.matricule || '').toLowerCase();
+                            const nom = (s.nom || '').toLowerCase();
+                            const prenoms = (s.prenoms || '').toLowerCase();
+                            return mat.includes(q) || nom.includes(q) || prenoms.includes(q);
+                          });
+                          if (matches.length > 0) {
+                            handleStaffSelect(matches[0].id);
+                            setShowStaffSearchResults(false);
+                          }
+                        }
+                      }}
+                      placeholder="Saisissez le matricule (ex: UK-EC-001) ou le nom pour rechercher..."
+                      className="w-full pl-9 pr-8 py-2 rounded-lg border border-slate-300 font-medium text-slate-800 text-xs focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                    />
+                    <Search className="w-4 h-4 text-indigo-400 absolute left-2.5 top-2.5 pointer-events-none" />
+
+                    {staffMatriculeSearch && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStaffMatriculeSearch('');
+                          setShowStaffSearchResults(false);
+                        }}
+                        className="absolute right-2 top-2 p-0.5 text-slate-400 hover:text-slate-600 rounded"
+                        title="Effacer la recherche"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {/* Menu flottant des résultats de recherche instantanée */}
+                    {showStaffSearchResults && staffMatriculeSearch.trim().length > 0 && (
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-slate-200 z-50 max-h-56 overflow-y-auto">
+                        {(() => {
+                          const q = staffMatriculeSearch.toLowerCase().trim();
+                          const results = staffDirectory.filter(s => {
+                            const mat = (s.matricule || '').toLowerCase();
+                            const nom = (s.nom || '').toLowerCase();
+                            const prenoms = (s.prenoms || '').toLowerCase();
+                            const fullName = `${nom} ${prenoms}`.toLowerCase();
+                            const func = (s.fonction || '').toLowerCase();
+                            const srv = (s.service_name || '').toLowerCase();
+                            return mat.includes(q) || nom.includes(q) || prenoms.includes(q) || fullName.includes(q) || func.includes(q) || srv.includes(q);
+                          });
+
+                          if (results.length === 0) {
+                            return (
+                              <div className="p-3 text-center text-xs text-slate-500">
+                                Aucun personnel trouvé avec le matricule ou nom <strong className="text-slate-700">"{staffMatriculeSearch}"</strong>. Vous pouvez saisir manuellement les informations ci-dessous.
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div className="py-1 divide-y divide-slate-100">
+                              <div className="px-3 py-1 bg-slate-50 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                {results.length} résultat{results.length > 1 ? 's' : ''} trouvé{results.length > 1 ? 's' : ''} (Cliquez pour sélectionner) :
+                              </div>
+                              {results.map((s) => (
+                                <button
+                                  key={s.id}
+                                  type="button"
+                                  onClick={() => {
+                                    handleStaffSelect(s.id);
+                                    setShowStaffSearchResults(false);
+                                  }}
+                                  className={`w-full text-left px-3 py-2 text-xs hover:bg-indigo-50 transition-colors flex items-center justify-between gap-2 ${
+                                    selectedStaffId === s.id ? 'bg-indigo-50/80 font-bold' : ''
+                                  }`}
+                                >
+                                  <div className="flex flex-col">
+                                    <span className="font-bold text-slate-900">
+                                      {s.nom} {s.prenoms}
+                                    </span>
+                                    <span className="text-[11px] text-slate-500">
+                                      {s.fonction} {s.service_name ? `• ${s.service_name}` : ''}
+                                    </span>
+                                  </div>
+                                  <div className="text-right flex-shrink-0">
+                                    {s.matricule ? (
+                                      <span className="font-mono text-[11px] bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded font-bold border border-indigo-200">
+                                        {s.matricule}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-400 italic">Sans matricule</span>
+                                    )}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Confirmation / Badge du personnel sélectionné */}
+                  {selectedStaffId && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2 flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                        <div className="text-emerald-900 truncate">
+                          <span className="font-bold">{missionaryName} {missionaryFirstnames}</span>
+                          {matricule && <span className="font-mono font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded ml-1.5">Matricule : {matricule}</span>}
+                          {functionTitle && <span className="text-emerald-700 ml-1 text-[11px]">({functionTitle})</span>}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedStaffId('');
+                          setStaffMatriculeSearch('');
+                          setMissionaryName('');
+                          setMissionaryFirstnames('');
+                          setFunctionTitle('');
+                          setMatricule('');
+                          setServiceName('');
+                        }}
+                        className="text-emerald-700 hover:text-red-600 font-bold text-[11px] underline ml-2 flex-shrink-0"
+                      >
+                        Dissocier
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* SÉLECTION CLASSIQUE DANS LE RÉPERTOIRE */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">🔎 Sélectionner un membre du personnel existant (Optionnel si demande libre)</label>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                    Ou sélectionner directement dans la liste déroulante :
+                  </label>
                   <select
                     value={selectedStaffId}
                     onChange={(e) => handleStaffSelect(e.target.value)}
-                    className="w-full p-2.5 rounded-xl border border-slate-300 font-bold text-kindia-blue bg-white"
+                    className="w-full p-2.5 rounded-xl border border-slate-300 font-bold text-kindia-blue bg-white text-xs"
                   >
                     <option value="">-- Choisir dans le répertoire ou saisir manuellement ci-dessous --</option>
                     {staffDirectory.map(s => (
@@ -1328,47 +1952,81 @@ export default function MissionOrders({ onSelectDocument }) {
                   </select>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                {/* CHAMPS DÉTAILLÉS ÉDITABLES */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Nom de famille *</label>
+                    <label className="block font-bold text-slate-700 mb-1 text-xs">Titre / Grade *</label>
+                    <select
+                      value={missionaryTitre}
+                      onChange={e => setMissionaryTitre(e.target.value)}
+                      className="w-full p-2 rounded-xl border border-slate-300 font-bold text-xs bg-white text-kindia-blue"
+                    >
+                      <option value="Pr">Pr (Professeur)</option>
+                      <option value="Pr Titulaire">Pr Titulaire (Professeur Titulaire)</option>
+                      <option value="Dre">Dre (Docteure)</option>
+                      <option value="Dr">Dr (Docteur)</option>
+                      <option value="MCF">MCF (Maître de Conférences)</option>
+                      <option value="MA">MA (Maître-Assistant)</option>
+                      <option value="Ing.">Ing. (Ingénieur)</option>
+                      <option value="M.">M. (Monsieur)</option>
+                      <option value="Mme">Mme (Madame)</option>
+                      <option value="Mlle">Mlle (Mademoiselle)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1 text-xs">Nom de famille *</label>
                     <input
                       type="text"
                       value={missionaryName}
                       onChange={e => setMissionaryName(e.target.value)}
                       placeholder="Ex: DIALLO"
-                      className="w-full p-2 rounded-xl border border-slate-300 font-bold"
+                      className="w-full p-2 rounded-xl border border-slate-300 font-bold text-xs"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Prénoms</label>
+                    <label className="block font-bold text-slate-700 mb-1 text-xs">Prénoms</label>
                     <input
                       type="text"
                       value={missionaryFirstnames}
                       onChange={e => setMissionaryFirstnames(e.target.value)}
                       placeholder="Ex: Mamadou Oury"
-                      className="w-full p-2 rounded-xl border border-slate-300 font-bold"
+                      className="w-full p-2 rounded-xl border border-slate-300 font-bold text-xs"
                     />
                   </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Qualité / Fonction *</label>
+                    <label className="block font-bold text-slate-700 mb-1 text-xs">Qualité / Fonction *</label>
                     <input
                       type="text"
                       value={functionTitle}
                       onChange={e => setFunctionTitle(e.target.value)}
                       placeholder="Ex: Enseignant-Chercheur / Maître de Conférences"
-                      className="w-full p-2 rounded-xl border border-slate-300"
+                      className="w-full p-2 rounded-xl border border-slate-300 text-xs"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Matricule</label>
+                    <label className="block font-bold text-slate-700 mb-1 text-xs flex items-center justify-between">
+                      <span>Matricule</span>
+                      {matricule && <span className="text-[10px] font-normal text-slate-400">Identifiant</span>}
+                    </label>
                     <input
                       type="text"
                       value={matricule}
-                      onChange={e => setMatricule(e.target.value)}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setMatricule(val);
+                        // Auto-link if exact match typed in matricule input
+                        const exact = staffDirectory.find(s => s.matricule && s.matricule.trim().toLowerCase() === val.trim().toLowerCase());
+                        if (exact) {
+                          handleStaffSelect(exact.id);
+                        }
+                      }}
                       placeholder="Ex: UK-EC-001"
-                      className="w-full p-2 rounded-xl border border-slate-300 font-mono"
+                      className="w-full p-2 rounded-xl border border-slate-300 font-mono text-xs font-bold text-indigo-900 bg-indigo-50/30"
                     />
                   </div>
                 </div>
@@ -1395,14 +2053,17 @@ export default function MissionOrders({ onSelectDocument }) {
                   </div>
 
                   <div>
-                    <label className="block font-bold text-slate-700 mb-1">Moyen de Transport</label>
-                    <input
-                      type="text"
+                    <label className="block font-bold text-slate-700 mb-1">Moyen de Transport *</label>
+                    <select
                       value={transportMode}
-                      onChange={(e) => setTransportMode(e.target.value)}
-                      placeholder="Ex: Véhicule de service"
-                      className="w-full p-2.5 rounded-xl border border-slate-300"
-                    />
+                      onChange={(e) => handleTransportModeChange(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-300 font-bold bg-white text-slate-800 focus:ring-2 focus:ring-kindia-blue"
+                    >
+                      <option value="Véhicule service/Personnel">Véhicule service/Personnel</option>
+                      <option value="Transports en commun / Car">Transports en commun / Car</option>
+                      <option value="Avion (Vol national / international)">Avion (Vol national / international)</option>
+                      <option value="Autre">Autre</option>
+                    </select>
                   </div>
 
                   <div className="sm:col-span-2">
@@ -1441,76 +2102,344 @@ export default function MissionOrders({ onSelectDocument }) {
                 </div>
               </div>
 
-              {/* 3. TRANSPORT & CONDUCTEUR */}
-              <div className="bg-amber-50/60 p-4 rounded-xl border border-amber-200 space-y-3">
-                <h4 className="font-bold text-xs text-amber-900 flex items-center">
-                  <Car className="w-4 h-4 mr-1.5 text-amber-700" />
-                  3. TRANSPORT & CONDUCTEUR
-                </h4>
-
-                <div className="flex space-x-6 font-bold text-slate-700">
-                  <label className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="driverOption"
-                      value="SELF"
-                      checked={driverOption === 'SELF'}
-                      onChange={() => {
-                        setDriverOption('SELF');
-                        setDriverName(missionaryName ? `${missionaryName} ${missionaryFirstnames}` : '');
-                      }}
-                      className="text-kindia-blue"
-                    />
-                    <span>○ Lui-même (Le missionnaire conduit)</span>
-                  </label>
-
-                  <label className="flex items-center space-x-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="driverOption"
-                      value="DRIVER"
-                      checked={driverOption === 'DRIVER'}
-                      onChange={() => setDriverOption('DRIVER')}
-                      className="text-kindia-blue"
-                    />
-                    <span>○ Chauffeur désigné</span>
-                  </label>
+              {/* 3. TRANSPORT & CONDUCTEUR DÉTAILLÉS */}
+              <div className="bg-amber-50/60 p-4 rounded-xl border border-amber-200 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-xs text-amber-900 flex items-center">
+                    <Car className="w-4 h-4 mr-1.5 text-amber-700" />
+                    3. VÉHICULE & CONDUCTEUR ({transportMode})
+                  </h4>
+                  <span className="text-[10px] font-mono bg-amber-100 text-amber-900 px-2 py-0.5 rounded font-bold border border-amber-200">
+                    {vehicleRegistration ? `Immatriculation : ${vehicleRegistration}` : transportMode}
+                  </span>
                 </div>
 
-                {driverOption === 'DRIVER' && (
-                  <div className="space-y-2 pt-2 border-t border-amber-200">
-                    <label className="block font-bold text-amber-900">Sélectionner un chauffeur autorisé *</label>
-                    <select
-                      value={selectedDriverId}
-                      onChange={(e) => handleDriverSelect(e.target.value)}
-                      className="w-full p-2.5 rounded-xl border border-amber-300 bg-white font-bold text-amber-900"
-                    >
-                      <option value="">-- Sélectionner un chauffeur --</option>
-                      {driversList.map(d => (
-                        <option key={d.id} value={d.id}>
-                          {d.nom} {d.prenoms} ({d.service_name || 'Service Technique'}) — Véhicule: {d.vehicle_registration || 'Aucun'}
-                        </option>
-                      ))}
-                    </select>
+                {/* VÉHICULE SERVICE / PERSONNEL */}
+                {(transportMode === 'Véhicule service/Personnel' || transportMode === 'Véhicule de service' || transportMode === 'Véhicule personnel' || transportMode === 'Véhicule Personnel' || transportMode === 'Véhicule Officiel de l’Université') && (
+                  <div className="space-y-3.5 bg-white p-3.5 rounded-xl border border-amber-200">
+                    <div>
+                      <label className="block font-bold text-slate-800 text-xs mb-1">
+                        Sélectionner le Véhicule (Attribué, Parc UK ou Personnel) :
+                      </label>
+                      <select
+                        value={vehicleId ? `FLEET_${vehicleId}` : (selectedPersonalVehicleId ? `PV_${selectedPersonalVehicleId}` : '')}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val.startsWith('FLEET_')) {
+                            const vId = val.replace('FLEET_', '');
+                            setVehicleId(vId);
+                            setSelectedPersonalVehicleId('');
+                            const veh = missionaryAssignedVehicles.find(v => String(v.id) === String(vId)) || fleetVehicles.find(v => String(v.id) === String(vId));
+                            if (veh) {
+                              setVehicleRegistration(veh.registration_number);
+                              if (veh.default_driver_id) {
+                                setSelectedDriverId(String(veh.default_driver_id));
+                                setDriverOption('DRIVER');
+                                setDriverName(veh.default_driver_full_name || 'Chauffeur habituel');
+                              } else if (missionaryAttachedDrivers.length > 0) {
+                                const defDrv = missionaryAttachedDrivers.find(d => d.is_default) || missionaryAttachedDrivers[0];
+                                setSelectedDriverId(String(defDrv.id));
+                                setDriverOption('DRIVER');
+                                setDriverName(formatFullName(defDrv));
+                              }
+                            }
+                          } else if (val.startsWith('PV_')) {
+                            const pvId = val.replace('PV_', '');
+                            setSelectedPersonalVehicleId(pvId);
+                            setVehicleId('');
+                            const pv = missionaryPersonalVehicles.find(v => String(v.id) === String(pvId));
+                            if (pv) {
+                              setVehicleRegistration(pv.registration_number);
+                            }
+                            setDriverOption('SELF');
+                            setDriverName('Lui-même');
+                          } else {
+                            setVehicleId('');
+                            setSelectedPersonalVehicleId('');
+                          }
+                        }}
+                        className="w-full p-2.5 rounded-xl border border-slate-300 font-bold text-kindia-blue bg-slate-50"
+                      >
+                        <option value="">-- Sélectionner un véhicule ou saisir l'immatriculation ci-dessous --</option>
+                        {missionaryAssignedVehicles.length > 0 && (
+                          <optgroup label="⭐ Véhicules de service attribués au missionnaire">
+                            {missionaryAssignedVehicles.map(v => (
+                              <option key={`FLEET_${v.id}`} value={`FLEET_${v.id}`}>
+                                🚙 {v.registration_number} — {v.brand} {v.model || ''} {v.default_driver_full_name ? `(Chauffeur: ${v.default_driver_full_name})` : ''}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {missionaryPersonalVehicles.length > 0 && (
+                          <optgroup label="🚗 Véhicules personnels du missionnaire">
+                            {missionaryPersonalVehicles.map(pv => (
+                              <option key={`PV_${pv.id}`} value={`PV_${pv.id}`}>
+                                🚗 {pv.registration_number} — {pv.brand} {pv.model || ''} ({pv.vehicle_type || 'Voiture'}{pv.color ? `, ${pv.color}` : ''})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {fleetVehicles.filter(v => !missionaryAssignedVehicles.some(av => av.id === v.id)).length > 0 && (
+                          <optgroup label="🏢 Autres véhicules de service du parc de l'Université">
+                            {fleetVehicles.filter(v => !missionaryAssignedVehicles.some(av => av.id === v.id)).map(v => (
+                              <option key={`FLEET_${v.id}`} value={`FLEET_${v.id}`}>
+                                🚙 {v.registration_number} — {v.brand} {v.model || ''} [{v.status}] {v.assigned_staff_name ? `(Affecté à: ${v.assigned_staff_name})` : ''} {v.default_driver_full_name ? `• Chauffeur: ${v.default_driver_full_name}` : ''}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                    </div>
+
+                    {/* Numéro d'immatriculation dynamique */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Numéro d'Immatriculation du Véhicule *
+                        </label>
+                        <input
+                          type="text"
+                          value={vehicleRegistration}
+                          onChange={(e) => setVehicleRegistration(e.target.value)}
+                          placeholder="Ex : RC-1234-A ou VA-4421-GN"
+                          className="w-full p-2.5 rounded-xl border border-slate-300 font-mono font-bold uppercase bg-white focus:ring-2 focus:ring-kindia-blue outline-hidden"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                          Aperçu Dynamique du Moyen de Transport
+                        </label>
+                        <div className="p-2.5 rounded-xl bg-slate-100 border border-slate-200 text-xs font-bold text-slate-800 truncate">
+                          {formatTransportDisplay(transportMode, vehicleRegistration)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Choix du Conducteur : Lui-même vs Chauffeur */}
+                    <div className="space-y-2 pt-2 border-t border-slate-100">
+                      <label className="block text-xs font-bold text-slate-700">Option de Conduite :</label>
+                      <div className="flex flex-wrap gap-6 font-bold text-slate-700">
+                        <label className="flex items-center space-x-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="driverOption"
+                            value="SELF"
+                            checked={driverOption === 'SELF'}
+                            onChange={() => {
+                              setDriverOption('SELF');
+                              setDriverName('Lui-même');
+                            }}
+                            className="text-kindia-blue"
+                          />
+                          <span>○ Lui-même (Le missionnaire conduit)</span>
+                        </label>
+
+                        <label className="flex items-center space-x-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="driverOption"
+                            value="DRIVER"
+                            checked={driverOption === 'DRIVER'}
+                            onChange={() => {
+                              setDriverOption('DRIVER');
+                              if (selectedDriverId) {
+                                const d = driversRegistry.find(item => String(item.id) === String(selectedDriverId)) || driversList.find(item => String(item.id) === String(selectedDriverId)) || missionaryAttachedDrivers.find(item => String(item.id) === String(selectedDriverId));
+                                setDriverName(d ? formatFullName(d) : '');
+                              } else if (missionaryAttachedDrivers.length > 0) {
+                                const defDrv = missionaryAttachedDrivers.find(d => d.is_default) || missionaryAttachedDrivers[0];
+                                setSelectedDriverId(String(defDrv.id));
+                                setDriverName(formatFullName(defDrv));
+                              } else {
+                                setDriverName('');
+                              }
+                            }}
+                            className="text-kindia-blue"
+                          />
+                          <span>○ Chauffeur désigné</span>
+                        </label>
+                      </div>
+
+                      {driverOption === 'DRIVER' && (
+                        <div className="mt-3 p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                          <label className="block text-xs font-bold text-slate-700">
+                            Sélectionner le Chauffeur Professionnel :
+                          </label>
+                          <select
+                            value={selectedDriverId}
+                            onChange={(e) => handleDriverSelect(e.target.value)}
+                            className="w-full p-2.5 rounded-xl border border-slate-300 font-semibold bg-white"
+                          >
+                            <option value="">-- Choisir un chauffeur dans le registre --</option>
+                            {missionaryAttachedDrivers.length > 0 && (
+                              <optgroup label="⭐ Chauffeurs habituels rattachés au missionnaire">
+                                {missionaryAttachedDrivers.map(d => (
+                                  <option key={`att-${d.id}`} value={d.id}>
+                                    ⭐ {formatFullName(d)} {d.is_default ? '(Habituel)' : ''} {d.telephone ? `(Tél: ${d.telephone})` : ''}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                            <optgroup label="Tous les chauffeurs de l'Université">
+                              {driversRegistry.map(d => (
+                                <option key={d.id} value={d.id}>
+                                  👨‍✈️ {d.matricule ? `[${d.matricule}] ` : ''}{formatFullName(d)} {d.telephone ? `(Tél: ${d.telephone})` : ''}
+                                </option>
+                              ))}
+                            </optgroup>
+                          </select>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-3 pt-2">
+                {/* CAS C: TRANSPORTS EN COMMUN / AVION / AUTRE */}
+                {transportMode !== 'Véhicule service/Personnel' && transportMode !== 'Véhicule personnel' && transportMode !== 'Véhicule Personnel' && transportMode !== 'Véhicule de service' && transportMode !== 'Véhicule Officiel de l’Université' && (
+                  <div className="bg-white p-3 rounded-xl border border-slate-200 text-xs text-slate-600 flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-kindia-blue shrink-0" />
+                    <span>Déplacement via transport externe. Aucune immatriculation ni chauffeur officiel du parc n'est requis.</span>
+                  </div>
+                )}
+
+                {/* RÉCAPITULATIF INJECTION DOCUMENT OFFICIEL */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 bg-amber-100/70 p-3 rounded-xl border border-amber-300/80">
                   <div>
-                    <span className="block text-[10px] font-bold text-slate-500">Conducteur désigné :</span>
-                    <span className="font-bold text-slate-800">{driverName || '---'}</span>
+                    <span className="block text-[10px] font-bold text-amber-900 uppercase">Conducteur injecté :</span>
+                    <span className="font-extrabold text-xs text-slate-900">
+                      {formatDriverDisplay(transportMode, driverName, driverOption, missionaryName)}
+                    </span>
                   </div>
 
                   <div>
-                    <span className="block text-[10px] font-bold text-slate-500">Immatriculation Véhicule :</span>
-                    <span className="font-mono font-bold text-kindia-blue">{vehicleRegistration || '---'}</span>
+                    <span className="block text-[10px] font-bold text-amber-900 uppercase">Transport / Immatriculation :</span>
+                    <span className="font-mono font-extrabold text-xs text-kindia-blue">
+                      {formatTransportDisplay(transportMode, vehicleRegistration)}
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {/* 4. OBSERVATIONS */}
+              {/* 4. FORMAT DE GÉNÉRATION DU DOCUMENT */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                <h4 className="font-bold text-xs text-slate-800 flex items-center justify-between">
+                  <span className="flex items-center">
+                    <FileText className="w-4 h-4 mr-1.5 text-kindia-blue" />
+                    4. FORMAT DE GÉNÉRATION DU DOCUMENT
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-normal">Choix du moteur de rendu</span>
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className={`p-3 rounded-xl border-2 cursor-pointer transition flex items-start space-x-2.5 ${
+                    documentFormatInForm === 'DIRECT_PDF'
+                      ? 'border-emerald-500 bg-emerald-50/50 shadow-sm ring-1 ring-emerald-400'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="formDocumentFormat"
+                      value="DIRECT_PDF"
+                      checked={documentFormatInForm === 'DIRECT_PDF'}
+                      onChange={() => setDocumentFormatInForm('DIRECT_PDF')}
+                      className="mt-0.5 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-extrabold text-xs text-emerald-950 block">
+                          ⚡ Format PDF Direct
+                        </span>
+                        <span className="px-1.5 py-0.2 bg-emerald-200 text-emerald-900 rounded text-[9px] font-black">Recommandé</span>
+                      </div>
+                      <span className="text-[11px] text-slate-500 block mt-0.5">
+                        Génération vectorielle haute fidélité ultra-rapide (&lt; 50ms) avec scellement direct
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className={`p-3 rounded-xl border-2 cursor-pointer transition flex items-start space-x-2.5 ${
+                    documentFormatInForm === 'WORD_DOCX'
+                      ? 'border-blue-500 bg-blue-50/50 shadow-sm ring-1 ring-blue-400'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="formDocumentFormat"
+                      value="WORD_DOCX"
+                      checked={documentFormatInForm === 'WORD_DOCX'}
+                      onChange={() => setDocumentFormatInForm('WORD_DOCX')}
+                      className="mt-0.5 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div>
+                      <span className="font-extrabold text-xs text-slate-800 block">
+                        📄 Format Word (DOCX)
+                      </span>
+                      <span className="text-[11px] text-slate-500 block mt-0.5">
+                        Modèle Word historique OpenXML avec conversion PDF standard
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* 5. MODE DE SIGNATURE DU SECRÉTAIRE GÉNÉRAL */}
+              <div className="bg-indigo-50/70 p-4 rounded-xl border border-indigo-200 space-y-3">
+                <h4 className="font-bold text-xs text-kindia-blue flex items-center">
+                  <Award className="w-4 h-4 mr-1.5 text-kindia-blue" />
+                  5. MODE DE SIGNATURE DU SECRÉTAIRE GÉNÉRAL
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className={`p-3 rounded-xl border-2 cursor-pointer transition flex items-start space-x-2.5 ${
+                    signatureModeInForm === 'ELECTRONIC'
+                      ? 'border-kindia-blue bg-white shadow-sm ring-1 ring-kindia-blue'
+                      : 'border-slate-200 bg-white/60 hover:border-slate-300'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="formSignatureMode"
+                      value="ELECTRONIC"
+                      checked={signatureModeInForm === 'ELECTRONIC'}
+                      onChange={() => setSignatureModeInForm('ELECTRONIC')}
+                      className="mt-0.5 text-kindia-blue"
+                    />
+                    <div>
+                      <span className="font-extrabold text-xs text-slate-800 block">
+                        ⚡ Signature Électronique
+                      </span>
+                      <span className="text-[11px] text-slate-500 block mt-0.5">
+                        SG en déplacement • Signature numérique directement dans UK-GED
+                      </span>
+                    </div>
+                  </label>
+
+                  <label className={`p-3 rounded-xl border-2 cursor-pointer transition flex items-start space-x-2.5 ${
+                    signatureModeInForm === 'MANUSCRIPT'
+                      ? 'border-amber-600 bg-white shadow-sm ring-1 ring-amber-600'
+                      : 'border-slate-200 bg-white/60 hover:border-slate-300'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="formSignatureMode"
+                      value="MANUSCRIPT"
+                      checked={signatureModeInForm === 'MANUSCRIPT'}
+                      onChange={() => setSignatureModeInForm('MANUSCRIPT')}
+                      className="mt-0.5 text-amber-600"
+                    />
+                    <div>
+                      <span className="font-extrabold text-xs text-amber-900 block">
+                        ✍️ Signature Manuscrite & Scan
+                      </span>
+                      <span className="text-[11px] text-slate-500 block mt-0.5">
+                        SG au bureau • Impression papier, signature & cachet manuels, puis réintégration du scan par le SC
+                      </span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* 6. OBSERVATIONS */}
               <div>
-                <label className="block font-bold text-slate-700 mb-1">4. Observations Particulières</label>
+                <label className="block font-bold text-slate-700 mb-1">6. Observations Particulières</label>
                 <textarea
                   rows={2}
                   value={observations}
@@ -1720,6 +2649,35 @@ export default function MissionOrders({ onSelectDocument }) {
               </div>
             </div>
 
+            {/* Participants list if present or collective */}
+            {selectedRequestDetail.participants && selectedRequestDetail.participants.length > 0 && (
+              <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex justify-between items-center border-b border-slate-100 pb-1.5">
+                  <span className="font-bold text-slate-800 text-[11px] uppercase flex items-center space-x-1">
+                    <Users className="w-3.5 h-3.5 text-kindia-gold" />
+                    <span>Participants à la mission ({selectedRequestDetail.participants.length})</span>
+                  </span>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                    selectedRequestDetail.participants.length > 1 ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-blue-100 text-blue-900'
+                  }`}>
+                    {selectedRequestDetail.participants.length > 1 ? 'OM Collectif' : 'OM Individuel'}
+                  </span>
+                </div>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {selectedRequestDetail.participants.map((p, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-xs p-2 bg-slate-50 rounded-lg border border-slate-100">
+                      <div>
+                        <span className="font-bold text-slate-800">{p.nom} {p.prenoms}</span>
+                        {p.is_requester ? <span className="ml-1.5 text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-full">Demandeur</span> : null}
+                        <div className="text-[10px] text-slate-500 font-medium">{p.service_name || ''} {p.matricule ? `• Matr: ${p.matricule}` : ''}</div>
+                      </div>
+                      <span className="text-[11px] font-bold text-kindia-blue">{p.fonction}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex justify-end space-x-2 pt-3 border-t border-slate-100">
               <button
                 onClick={() => setSelectedRequestDetail(null)}
@@ -1771,6 +2729,19 @@ export default function MissionOrders({ onSelectDocument }) {
           onSuccess={() => {
             setSelectedMissionForSign(null);
             setSuccessMsg('Ordre de mission signé numériquement avec succès et retourné au Secrétariat Central !');
+            loadAllData();
+          }}
+        />
+      )}
+
+      {/* Manuscript Signed & Stamped Scan Upload Modal (Secrétariat Central) */}
+      {showUploadScanModal && (
+        <ManuscriptScanUploadModal
+          mission={showUploadScanModal}
+          onClose={() => setShowUploadScanModal(null)}
+          onSuccess={(res) => {
+            setShowUploadScanModal(null);
+            setSuccessMsg(res?.message || 'Document scanné réintégré avec succès dans UK-GED.');
             loadAllData();
           }}
         />

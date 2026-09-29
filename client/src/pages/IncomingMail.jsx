@@ -9,18 +9,32 @@ import ReceiptSuccessModal from '../components/ReceiptSuccessModal';
 import NewArchiveCategoryModal from '../components/NewArchiveCategoryModal';
 import { FolderPlus, Sparkles, Check, Tag } from 'lucide-react';
 
-export default function IncomingMail({ onSelectDocument }) {
+export default function IncomingMail({ onSelectDocument, autoOpenCreate = false }) {
   const { hasPermission, user } = useAuth();
   const [documents, setDocuments] = useState([]);
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
+  const [showModal, setShowModal] = useState(autoOpenCreate);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    if (autoOpenCreate) {
+      setShowModal(true);
+    }
+  }, [autoOpenCreate]);
+
+  // Helper to identify Arrivée category
+  const isArriveeCategory = (cat) => {
+    if (!cat) return false;
+    const code = (cat.code || '').toUpperCase();
+    const name = (cat.name || '').toLowerCase();
+    return code === 'ARRIVE' || code === 'ARRIVEE' || code.includes('ARRIVE') || name.startsWith('arriv');
+  };
+
   // New Mail / Document Form State
   const [processingMode, setProcessingMode] = useState('NORMAL'); // 'NORMAL' | 'DIRECT_ARCHIVE'
-  const [officialType, setOfficialType] = useState('COURRIER_ENTRANT');
+  const [officialType, setOfficialType] = useState('DEMANDE');
   const [documentTypes, setDocumentTypes] = useState([]);
   const [archiveCategories, setArchiveCategories] = useState([]);
   const [archiveCategoryId, setArchiveCategoryId] = useState('');
@@ -61,7 +75,18 @@ export default function IncomingMail({ onSelectDocument }) {
       const dTypes = await api.getDocumentTypes();
       setDocumentTypes(dTypes);
       const catsRes = await api.getArchiveCategories();
-      setArchiveCategories(catsRes.customs || catsRes.all || []);
+      const cats = catsRes.customs || catsRes.all || [];
+      setArchiveCategories(cats);
+      
+      // Auto-select Arrivée category if in NORMAL mode with DEMANDE
+      const arriveeCat = cats.find(isArriveeCategory);
+      if (arriveeCat) {
+        setArchiveCategoryId(arriveeCat.id);
+        setArchiveCategoryName(arriveeCat.name);
+      } else {
+        setArchiveCategoryId('ARRIVEE');
+        setArchiveCategoryName('Arrivée');
+      }
     } catch (err) {
       console.error('Error loading incoming mail:', err);
     } finally {
@@ -74,7 +99,28 @@ export default function IncomingMail({ onSelectDocument }) {
     setOfficialType(newType);
     if (!newType) return;
 
-    // Look for matching category in archiveCategories
+    if (processingMode === 'NORMAL') {
+      if (newType === 'DEMANDE') {
+        const arriveeCat = archiveCategories.find(isArriveeCategory);
+        if (arriveeCat) {
+          setArchiveCategoryId(arriveeCat.id);
+          setArchiveCategoryName(arriveeCat.name);
+        } else {
+          setArchiveCategoryId('ARRIVEE');
+          setArchiveCategoryName('Arrivée');
+        }
+      } else {
+        // 'AUTRE' / 'Autres documents'
+        const currentCat = archiveCategories.find(c => String(c.id) === String(archiveCategoryId));
+        if (isArriveeCategory(currentCat) || (archiveCategoryName && archiveCategoryName.toLowerCase().startsWith('arriv'))) {
+          setArchiveCategoryId('');
+          setArchiveCategoryName('');
+        }
+      }
+      return;
+    }
+
+    // Mode DIRECT_ARCHIVE
     const directMatch = archiveCategories.find(c => 
       (c.is_default_for_types && c.is_default_for_types.includes(newType)) ||
       (c.associated_types && c.associated_types.includes(newType)) ||
@@ -93,7 +139,7 @@ export default function IncomingMail({ onSelectDocument }) {
     const cat = archiveCategories.find(c => String(c.id) === String(catId));
     if (cat) {
       setArchiveCategoryName(cat.name);
-      if (cat.associated_types && cat.associated_types.length > 0) {
+      if (processingMode === 'DIRECT_ARCHIVE' && cat.associated_types && cat.associated_types.length > 0) {
         if (!cat.associated_types.includes(officialType)) {
           // Auto select first associated type or default
           const defType = cat.is_default_for_types?.[0] || cat.associated_types[0];
@@ -132,7 +178,16 @@ export default function IncomingMail({ onSelectDocument }) {
         handleOfficialTypeChange(t);
       }
     } else {
-      handleOfficialTypeChange('COURRIER_ENTRANT');
+      // Mode NORMAL : "À traiter / Orienter"
+      setOfficialType('DEMANDE');
+      const arriveeCat = archiveCategories.find(isArriveeCategory);
+      if (arriveeCat) {
+        setArchiveCategoryId(arriveeCat.id);
+        setArchiveCategoryName(arriveeCat.name);
+      } else {
+        setArchiveCategoryId('ARRIVEE');
+        setArchiveCategoryName('Arrivée');
+      }
     }
   };
 
@@ -218,9 +273,15 @@ export default function IncomingMail({ onSelectDocument }) {
 
   const resetForm = () => {
     setProcessingMode('NORMAL');
-    setOfficialType('COURRIER_ENTRANT');
-    setArchiveCategoryId('');
-    setArchiveCategoryName('');
+    setOfficialType('DEMANDE');
+    const arriveeCat = archiveCategories.find(isArriveeCategory);
+    if (arriveeCat) {
+      setArchiveCategoryId(arriveeCat.id);
+      setArchiveCategoryName(arriveeCat.name);
+    } else {
+      setArchiveCategoryId('ARRIVEE');
+      setArchiveCategoryName('Arrivée');
+    }
     setTitle('');
     setDescription('');
     setSenderName('');
@@ -427,14 +488,20 @@ export default function IncomingMail({ onSelectDocument }) {
                       processingMode === 'DIRECT_ARCHIVE' ? 'border-amber-400 bg-amber-50/30 font-bold text-amber-900 focus:ring-amber-500' : 'border-slate-300'
                     }`}
                   >
-                    {(processingMode === 'DIRECT_ARCHIVE'
-                      ? documentTypes.filter(dt => dt.allow_direct_archive === 1)
-                      : documentTypes
-                    ).map(dt => (
-                      <option key={dt.code} value={dt.code}>
-                        {dt.label} {processingMode !== 'DIRECT_ARCHIVE' && dt.allow_direct_archive ? '(Archivage direct 🗸)' : ''}
-                      </option>
-                    ))}
+                    {processingMode === 'NORMAL' ? (
+                      <>
+                        <option value="DEMANDE">Demande</option>
+                        <option value="AUTRE">Autres documents</option>
+                      </>
+                    ) : (
+                      documentTypes
+                        .filter(dt => dt.allow_direct_archive === 1)
+                        .map(dt => (
+                          <option key={dt.code} value={dt.code}>
+                            {dt.label}
+                          </option>
+                        ))
+                    )}
                   </select>
                   {processingMode === 'DIRECT_ARCHIVE' && (
                     <span className="text-[10px] text-amber-700 font-semibold block mt-1">
@@ -462,12 +529,29 @@ export default function IncomingMail({ onSelectDocument }) {
                     onChange={(e) => handleCategoryChange(e.target.value)}
                     className="w-full text-xs p-2.5 rounded-xl border border-slate-300 bg-white font-medium focus:ring-2 focus:ring-kindia-blue"
                   >
-                    <option value="">-- Sélection automatique / Choisir --</option>
-                    {archiveCategories.map(cat => (
-                      <option key={cat.id} value={cat.id}>
-                        📁 {cat.name} {cat.is_default ? '(Défaut)' : ''}
-                      </option>
-                    ))}
+                    {processingMode === 'NORMAL' && officialType === 'DEMANDE' ? (
+                      <>
+                        {archiveCategories.find(isArriveeCategory) ? (
+                          <option value={archiveCategories.find(isArriveeCategory).id}>
+                            📁 {archiveCategories.find(isArriveeCategory).name}
+                          </option>
+                        ) : (
+                          <option value="ARRIVEE">📁 Arrivée</option>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <option value="">-- Sélection automatique / Choisir --</option>
+                        {(processingMode === 'NORMAL' && officialType === 'AUTRE'
+                          ? archiveCategories.filter(c => !isArriveeCategory(c))
+                          : archiveCategories
+                        ).map(cat => (
+                          <option key={cat.id} value={cat.id}>
+                            📁 {cat.name} {cat.is_default ? '(Défaut)' : ''}
+                          </option>
+                        ))}
+                      </>
+                    )}
                   </select>
                   {archiveCategoryName && (
                     <span className="text-[10px] text-emerald-700 font-semibold flex items-center space-x-1 mt-1">

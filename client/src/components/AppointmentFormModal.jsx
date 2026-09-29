@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { X, Calendar, Clock, MapPin, CheckCircle, AlertCircle, FileText, User, Building, Phone, Mail } from 'lucide-react';
+import { formatGuineaPhone } from '../utils/phoneUtils';
 
 export default function AppointmentFormModal({ isOpen, onClose, onSuccess, initialUser }) {
   const [responsibles, setResponsibles] = useState([]);
@@ -152,15 +153,15 @@ export default function AppointmentFormModal({ isOpen, onClose, onSuccess, initi
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Téléphone <span className="text-red-500">*</span></label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Téléphone (+224) <span className="text-red-500">*</span></label>
                 <input
-                  type="text"
+                  type="tel"
                   name="requester_phone"
                   required
                   value={formData.requester_phone}
-                  onChange={handleChange}
+                  onChange={(e) => setFormData(prev => ({ ...prev, requester_phone: formatGuineaPhone(e.target.value) }))}
                   placeholder="+224 6XX XX XX XX"
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 focus:ring-2 focus:ring-kindia-blue focus:border-transparent"
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 font-mono font-semibold focus:ring-2 focus:ring-kindia-blue focus:border-transparent"
                 />
               </div>
 

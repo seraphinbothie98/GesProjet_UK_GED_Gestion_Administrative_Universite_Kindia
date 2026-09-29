@@ -6,6 +6,7 @@ import {
   X, Calendar, Clock, MapPin, Building, User, FileText, 
   CheckCircle, AlertCircle, QrCode, MessageSquare, History, UserCheck, CheckSquare
 } from 'lucide-react';
+import { formatFullName } from '../utils/userUtils';
 
 export default function AppointmentDetailModal({ isOpen, onClose, appointmentId, currentUser, onRefresh }) {
   const [appointment, setAppointment] = useState(null);
@@ -185,7 +186,7 @@ export default function AppointmentDetailModal({ isOpen, onClose, appointmentId,
                     {appointment.requester_first_name[0]}{appointment.requester_last_name[0]}
                   </div>
                   <div>
-                    <h4 className="font-bold text-sm text-slate-900">{appointment.requester_first_name} {appointment.requester_last_name}</h4>
+                    <h4 className="font-bold text-sm text-slate-900">{formatFullName({ titre: appointment.requester_titre, first_name: appointment.requester_first_name, last_name: appointment.requester_last_name })}</h4>
                     <span className="block text-xs text-slate-600 font-medium">{appointment.requester_organization}</span>
                     <span className="block text-[11px] text-slate-500">📞 {appointment.requester_phone} • ✉️ {appointment.requester_email}</span>
                   </div>
@@ -200,7 +201,7 @@ export default function AppointmentDetailModal({ isOpen, onClose, appointmentId,
                     🏛️
                   </div>
                   <div>
-                    <h4 className="font-bold text-sm text-kindia-blue">{appointment.resp_first_name} {appointment.resp_last_name}</h4>
+                    <h4 className="font-bold text-sm text-kindia-blue">{formatFullName({ titre: appointment.resp_titre, first_name: appointment.resp_first_name, last_name: appointment.resp_last_name })}</h4>
                     <span className="block text-xs font-semibold text-slate-700">{appointment.resp_function}</span>
                     <span className="block text-[11px] text-slate-500">{appointment.resp_service_name}</span>
                   </div>
@@ -303,7 +304,7 @@ export default function AppointmentDetailModal({ isOpen, onClose, appointmentId,
                       </div>
                       <p className="text-slate-600 text-[11px] mt-0.5">{h.comment}</p>
                       {h.first_name && (
-                        <span className="text-[10px] text-slate-400 block mt-0.5">Par : {h.first_name} {h.last_name} ({h.function_title})</span>
+                        <span className="text-[10px] text-slate-400 block mt-0.5">Par : {formatFullName(h)} ({h.function_title})</span>
                       )}
                     </div>
                   </div>

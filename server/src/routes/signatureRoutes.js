@@ -35,8 +35,11 @@ const uploadSig = multer({
   }
 });
 
-// 1. GET /api/signatures - List all electronic signatures (Rules 12 & 26)
+// 1. GET /api/signatures - List all electronic signatures (Strictly Admin)
 router.get('/', authenticateToken, async (req, res) => {
+  if (req.user?.role_code !== 'ADMINISTRATEUR') {
+    return res.status(403).json({ error: 'Accès réservé exclusivement à l’Administrateur Système.' });
+  }
   try {
     const signatures = await db.all(
       `SELECT us.*, u.first_name, u.last_name, u.email, u.matricule, u.function_title as user_function,
@@ -183,6 +186,73 @@ router.put('/:id/toggle', authenticateToken, requirePermission('signatures.manag
   }
 });
 
+// 4b. PUT /api/signatures/:id - Update signature metadata and/or replace image
+router.put('/:id', authenticateToken, requirePermission('signatures.manage'), uploadSig.single('signature'), async (req, res) => {
+  const { id } = req.params;
+  const { function_title, service_id, activation_date, expiration_date, is_active, status } = req.body;
+
+  try {
+    const existing = await db.get('SELECT * FROM user_signatures WHERE id = ?', [id]);
+    if (!existing) return res.status(404).json({ error: 'Signature non trouvée.' });
+
+    let signaturePath = existing.signature_image_path;
+    let versionNum = existing.version_number || 1;
+
+    if (req.file) {
+      signaturePath = `/uploads/signatures/${req.file.filename}`;
+      versionNum += 1;
+      await db.run('UPDATE signature_versions SET is_active = 0 WHERE signature_id = ?', [id]);
+      await db.run(
+        `INSERT INTO signature_versions (signature_id, version_number, signature_image_path, change_description, is_active, created_by)
+         VALUES (?, ?, ?, 'Mise à jour / Remplacement de signature', 1, ?)`,
+        [id, versionNum, signaturePath, req.user.id]
+      );
+    }
+
+    const newActive = is_active !== undefined ? (is_active === '1' || is_active === 1 || is_active === true || is_active === 'true' ? 1 : 0) : existing.is_active;
+    const newStatus = status || (newActive === 1 ? 'ACTIVE' : 'INACTIVE');
+
+    if (newActive === 1 && existing.is_active === 0) {
+      // Deactivate any other active signature for this user (Rule 21)
+      await db.run("UPDATE user_signatures SET status = 'INACTIVE', is_active = 0 WHERE user_id = ? AND id != ?", [existing.user_id, id]);
+    }
+
+    await db.run(
+      `UPDATE user_signatures SET
+         function_title = ?, service_id = ?, signature_image_path = ?, version_number = ?,
+         activation_date = ?, expiration_date = ?, status = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [
+        function_title !== undefined && function_title !== null ? function_title : existing.function_title,
+        service_id !== undefined ? (service_id || null) : existing.service_id,
+        signaturePath,
+        versionNum,
+        activation_date || existing.activation_date,
+        expiration_date !== undefined ? expiration_date : existing.expiration_date,
+        newStatus,
+        newActive,
+        id
+      ]
+    );
+
+    await logAuditAction(req.user.id, 'UPDATE_ELECTRONIC_SIGNATURE', 'SIGNATURE', id, req, {
+      function_title,
+      versionNum,
+      newActive
+    });
+
+    res.json({
+      success: true,
+      message: 'Signature électronique mise à jour avec succès.',
+      signature_url: signaturePath,
+      version_number: versionNum
+    });
+  } catch (err) {
+    console.error('Update signature error:', err);
+    res.status(500).json({ error: 'Erreur lors de la mise à jour de la signature.' });
+  }
+});
+
 // 5. POST /api/signatures/:id/versions - Add new signature version (Rule 18)
 router.post('/:id/versions', authenticateToken, requirePermission('signatures.manage'), uploadSig.single('signature'), async (req, res) => {
   const { id } = req.params;
@@ -227,7 +297,7 @@ router.post('/:id/versions', authenticateToken, requirePermission('signatures.ma
   }
 });
 
-// 6. DELETE /api/signatures/:id - Protected Deletion Check (Rule 19 & 20)
+// 6. DELETE /api/signatures/:id - Safe Deletion (Historical signed documents retain their embedded signatures)
 router.delete('/:id', authenticateToken, requirePermission('signatures.manage'), async (req, res) => {
   const { id } = req.params;
 
@@ -235,25 +305,28 @@ router.delete('/:id', authenticateToken, requirePermission('signatures.manage'),
     const sig = await db.get('SELECT * FROM user_signatures WHERE id = ?', [id]);
     if (!sig) return res.status(404).json({ error: 'Signature non trouvée.' });
 
-    // Check if signature has been used on historic documents (Rule 19)
-    const usage = await db.get('SELECT COUNT(*) as count FROM document_signatures WHERE signature_id = ?', [id]);
-    if (usage && usage.count > 0) {
-      return res.status(400).json({
-        is_used: true,
-        error: "⚠️ Cette signature est liée à des documents historiques. Elle ne peut pas être supprimée. Seule la désactivation est autorisée."
-      });
+    // Unlink from document_signatures foreign key without breaking historical documents
+    try {
+      await db.run('UPDATE document_signatures SET signature_id = NULL WHERE signature_id = ?', [id]);
+    } catch (e) {
+      console.warn('Notice unlinking document_signatures:', e.message);
     }
 
-    // Physical deletion allowed if never used
-    if (sig.signature_image_path) {
-      const fullPath = path.join(__dirname, '../../', sig.signature_image_path);
-      if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-    }
+    // Delete child versions
+    await db.run('DELETE FROM signature_versions WHERE signature_id = ?', [id]);
 
+    // Delete signature record
     await db.run('DELETE FROM user_signatures WHERE id = ?', [id]);
-    await logAuditAction(req.user.id, 'DELETE_ELECTRONIC_SIGNATURE', 'SIGNATURE', id, req);
 
-    res.json({ success: true, message: 'Signature électronique supprimée avec succès.' });
+    await logAuditAction(req.user.id, 'DELETE_ELECTRONIC_SIGNATURE', 'SIGNATURE', id, req, {
+      user_id: sig.user_id,
+      function_title: sig.function_title
+    });
+
+    res.json({
+      success: true,
+      message: 'Signature électronique supprimée avec succès. Les documents déjà signés restent intacts avec leur signature.'
+    });
   } catch (err) {
     console.error('Delete signature error:', err);
     res.status(500).json({ error: 'Erreur lors de la suppression de la signature.' });

@@ -10,6 +10,9 @@ const { UPLOAD_DIR, JWT_SECRET, JWT_EXPIRES_IN } = require('../config/constants'
 const { authenticateToken, requireCentralAdminOrSC } = require('../middleware/auth');
 const { generateReference } = require('../services/numberGenerator');
 const { logAuditAction } = require('../middleware/audit');
+const { generateMissionOrderDocumentInstance } = require('../services/pdfService');
+const { formatFullName } = require('../utils/userUtils');
+const { validateMissionParticipants } = require('../utils/missionUtils');
 
 // Configure Multer for attachments upload
 const reqsDir = path.join(UPLOAD_DIR, 'mission_requests');
@@ -61,12 +64,23 @@ async function notifySecretariatCentral(title, message, requestId = null) {
   }
 }
 
-// Helper to lookup worker in staff / users
-async function lookupWorkerByMatricule(rawMatricule) {
-  if (!rawMatricule || !rawMatricule.trim()) return null;
-  const cleanMat = rawMatricule.trim();
+// Helper to lookup worker in staff / users by matricule, phone, or email
+async function lookupWorkerByIdentifier(rawIdentifier) {
+  if (!rawIdentifier || !rawIdentifier.trim()) return null;
+  const cleanId = rawIdentifier.trim();
+  const lowerId = cleanId.toLowerCase();
+  
+  // Normalized phone representations
+  const strippedPhone = cleanId.replace(/[\s\-\.\(\)\+]/g, '');
+  let phone9 = strippedPhone;
+  let phone12 = strippedPhone;
+  if (strippedPhone.startsWith('224') && strippedPhone.length === 12) {
+    phone9 = strippedPhone.substring(3);
+  } else if (strippedPhone.length === 9) {
+    phone12 = '224' + strippedPhone;
+  }
 
-  // 1. Check in staff directory
+  // 1. Check in staff directory (and join linked user)
   let worker = await db.get(
     `SELECT st.id as staff_id, st.matricule, st.nom, st.prenoms, st.fonction, st.service_id,
             st.telephone, st.email, st.status, st.is_driver, st.nationality,
@@ -78,11 +92,23 @@ async function lookupWorkerByMatricule(rawMatricule) {
      LEFT JOIN services s ON st.service_id = s.id
      LEFT JOIN users u ON st.user_id = u.id
      LEFT JOIN roles r ON u.role_id = r.id
-     WHERE LOWER(TRIM(st.matricule)) = LOWER(?)`,
-    [cleanMat]
+     WHERE LOWER(TRIM(COALESCE(st.matricule, ''))) = ?
+        OR LOWER(TRIM(COALESCE(st.email, ''))) = ?
+        OR LOWER(TRIM(COALESCE(u.matricule, ''))) = ?
+        OR LOWER(TRIM(COALESCE(u.email, ''))) = ?
+        OR st.telephone = ?
+        OR u.phone = ?
+        OR REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(st.telephone, ''), ' ', ''), '-', ''), '+', ''), '.', '') IN (?, ?)
+        OR REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(u.phone, ''), ' ', ''), '-', ''), '+', ''), '.', '') IN (?, ?)`,
+    [
+      lowerId, lowerId, lowerId, lowerId,
+      cleanId, cleanId,
+      phone9, phone12,
+      phone9, phone12
+    ]
   );
 
-  // 2. If not found in staff, check in users by matricule or email
+  // 2. If not found in staff, check directly in users table by matricule, email, or phone
   if (!worker) {
     const user = await db.get(
       `SELECT u.id as linked_user_id, u.matricule, u.last_name as nom, u.first_name as prenoms,
@@ -94,15 +120,25 @@ async function lookupWorkerByMatricule(rawMatricule) {
        FROM users u
        LEFT JOIN services s ON u.service_id = s.id
        LEFT JOIN roles r ON u.role_id = r.id
-       WHERE LOWER(TRIM(u.matricule)) = LOWER(?) OR LOWER(TRIM(u.email)) = LOWER(?)`,
-      [cleanMat, cleanMat]
+       WHERE LOWER(TRIM(COALESCE(u.matricule, ''))) = ?
+          OR LOWER(TRIM(COALESCE(u.email, ''))) = ?
+          OR u.phone = ?
+          OR REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(u.phone, ''), ' ', ''), '-', ''), '+', ''), '.', '') IN (?, ?)`,
+      [
+        lowerId, lowerId,
+        cleanId,
+        phone9, phone12
+      ]
     );
 
     if (user) {
-      const st = await db.get('SELECT id, status, is_driver FROM staff WHERE user_id = ? OR LOWER(matricule) = LOWER(?)', [user.linked_user_id, cleanMat]);
+      const st = await db.get(
+        'SELECT id, status, is_driver, matricule FROM staff WHERE user_id = ? OR LOWER(matricule) = ?',
+        [user.linked_user_id, lowerId]
+      );
       worker = {
         staff_id: st ? st.id : null,
-        matricule: user.matricule || cleanMat,
+        matricule: (st && st.matricule) || user.matricule || cleanId,
         nom: user.nom,
         prenoms: user.prenoms,
         fonction: user.fonction,
@@ -133,20 +169,21 @@ async function lookupWorkerByMatricule(rawMatricule) {
 
 // 0. POST /api/mission-requests/verify-applicant - Universal Applicant Identity Verification
 router.post('/verify-applicant', async (req, res) => {
-  const { matricule, password } = req.body;
+  const { identifier, matricule, password } = req.body;
+  const searchKey = (identifier || matricule || '').trim();
 
-  if (!matricule || !matricule.trim()) {
-    return res.status(400).json({ error: 'Le matricule est obligatoire pour être identifié.' });
+  if (!searchKey) {
+    return res.status(400).json({ error: 'Veuillez saisir votre matricule, numéro de téléphone ou adresse email.' });
   }
 
   try {
-    const worker = await lookupWorkerByMatricule(matricule);
+    const worker = await lookupWorkerByIdentifier(searchKey);
 
     if (!worker) {
       return res.status(404).json({
         success: false,
-        code: 'MATRICULE_NOT_FOUND',
-        message: 'Le matricule saisi n’est pas reconnu dans le répertoire officiel des travailleurs de l’Université de Kindia.'
+        code: 'WORKER_NOT_FOUND',
+        message: 'Aucun travailleur trouvé avec ce matricule, numéro de téléphone ou email dans le répertoire officiel de l’Université de Kindia.'
       });
     }
 
@@ -165,6 +202,40 @@ router.post('/verify-applicant', async (req, res) => {
 
     const defaultServiceName = worker.service_name || 
       (worker.personnel_category === 'ENSEIGNANT_CHERCHEUR' ? (worker.academic_structure || 'Enseignement / Recherche') : 'Services Généraux / Université de Kindia');
+
+    // Load worker's assigned and personal vehicles
+    const vehiclesData = await (async () => {
+      if (!worker.staff_id) return { assigned_vehicles: [], personal_vehicles: [] };
+      try {
+        const assignedVehs = await db.all(`
+          SELECT v.*, srv.name AS service_name, srv.code AS service_code,
+                 d.nom AS default_driver_nom, d.prenoms AS default_driver_prenoms, d.telephone AS default_driver_telephone
+          FROM vehicles v
+          LEFT JOIN services srv ON v.assigned_service_id = srv.id
+          LEFT JOIN drivers d ON v.default_driver_id = d.id
+          WHERE v.assigned_staff_id = ?
+          ORDER BY v.registration_number ASC
+        `, [worker.staff_id]);
+
+        const formattedAssigned = (assignedVehs || []).map(v => ({
+          ...v,
+          default_driver_full_name: v.default_driver_nom ? `${v.default_driver_prenoms || ''} ${v.default_driver_nom}`.trim() : null
+        }));
+
+        const personalVehs = await db.all(`
+          SELECT * FROM personal_vehicles
+          WHERE staff_id = ? AND (status IS NULL OR status = 'ACTIF')
+          ORDER BY registration_number ASC
+        `, [worker.staff_id]);
+
+        return {
+          assigned_vehicles: formattedAssigned || [],
+          personal_vehicles: personalVehs || []
+        };
+      } catch (e) {
+        return { assigned_vehicles: [], personal_vehicles: [] };
+      }
+    })();
 
     // Case 1: Worker has a UK-GED account
     if (worker.linked_user_id && worker.user_password_hash) {
@@ -198,6 +269,8 @@ router.post('/verify-applicant', async (req, res) => {
           authenticated: true,
           identification_mode: 'UK_GED_ACCOUNT',
           token,
+          assigned_vehicles: vehiclesData.assigned_vehicles,
+          personal_vehicles: vehiclesData.personal_vehicles,
           user: {
             id: worker.linked_user_id,
             staff_id: worker.staff_id,
@@ -210,7 +283,9 @@ router.post('/verify-applicant', async (req, res) => {
             phone: worker.telephone || '',
             email: worker.user_email || worker.email,
             role_code: worker.role_code,
-            role_name: worker.role_name
+            role_name: worker.role_name,
+            assigned_vehicles: vehiclesData.assigned_vehicles,
+            personal_vehicles: vehiclesData.personal_vehicles
           },
           message: 'Authentification UK-GED réussie.'
         });
@@ -256,6 +331,8 @@ router.post('/verify-applicant', async (req, res) => {
       requires_password: false,
       identification_mode: 'STAFF_MATRICULE',
       verification_token: verificationToken,
+      assigned_vehicles: vehiclesData.assigned_vehicles,
+      personal_vehicles: vehiclesData.personal_vehicles,
       worker: {
         staff_id: worker.staff_id,
         matricule: worker.matricule,
@@ -266,7 +343,9 @@ router.post('/verify-applicant', async (req, res) => {
         service_name: defaultServiceName,
         phone: worker.telephone || '',
         email: worker.email || '',
-        is_driver: worker.is_driver || 0
+        is_driver: worker.is_driver || 0,
+        assigned_vehicles: vehiclesData.assigned_vehicles,
+        personal_vehicles: vehiclesData.personal_vehicles
       },
       message: 'Travailleur universitaire reconnu dans le répertoire officiel. Accès accordé sans obligation de compte UK-GED.'
     });
@@ -337,6 +416,12 @@ router.post('/public', upload.array('files'), async (req, res) => {
     end_date,
     duration_days,
     transport_means,
+    vehicle_id,
+    personal_vehicle_id,
+    vehicle_registration,
+    driver_option,
+    driver_id,
+    driver_name,
     justification_motif,
     host_organization,
     local_contact
@@ -391,6 +476,28 @@ router.post('/public', upload.array('files'), async (req, res) => {
     const finalUserId = staffRecord.linked_user_id || null;
     const identificationMode = finalUserId ? 'UK_GED_ACCOUNT' : 'STAFF_MATRICULE';
 
+    // Validate participants (OM individuel ou collectif)
+    let sanitizedParticipants = [];
+    try {
+      sanitizedParticipants = validateMissionParticipants(req.body.participants, {
+        id: finalUserId,
+        staff_id: finalStaffId,
+        nom: finalLastName,
+        prenoms: finalFirstNames,
+        titre: req.body.applicant_titre || staffRecord.titre || 'M.',
+        fonction: finalFunction,
+        matricule: finalMatricule,
+        service_name: finalService,
+        phone: finalPhone,
+        email: finalEmail
+      });
+    } catch (valErr) {
+      return res.status(400).json({ error: valErr.message });
+    }
+
+    const missionType = sanitizedParticipants.length > 1 ? 'COLLECTIF' : 'INDIVIDUEL';
+    const participantsCount = sanitizedParticipants.length;
+
     const scService = await db.get('SELECT id, name FROM services WHERE code = "SC" LIMIT 1');
     const destServiceId = scService ? scService.id : 5;
     const destServiceName = scService ? scService.name : 'Secrétariat Central';
@@ -407,8 +514,11 @@ router.post('/public', upload.array('files'), async (req, res) => {
         applicant_service_name, applicant_phone, applicant_email, applicant_institution,
         object_of_mission, destination, country, exact_location,
         start_date, end_date, duration_days, transport_means,
-        justification_motif, host_organization, local_contact, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        vehicle_id, personal_vehicle_id, vehicle_registration,
+        driver_option, driver_id, driver_name,
+        justification_motif, host_organization, local_contact, status,
+        mission_type, participants_count
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         reference,
         trackingToken,
@@ -432,15 +542,48 @@ router.post('/public', upload.array('files'), async (req, res) => {
         start_date,
         end_date,
         duration_days || null,
-        transport_means || 'VÉHICULE OFFICIEL',
+        transport_means || 'Véhicule service/Personnel',
+        vehicle_id || null,
+        personal_vehicle_id || null,
+        vehicle_registration || null,
+        driver_option || 'SELF',
+        driver_id || null,
+        driver_name || null,
         justification_motif || null,
         host_organization || null,
         local_contact || null,
-        initialStatus
+        initialStatus,
+        missionType,
+        participantsCount
       ]
     );
 
     const requestId = result.lastID;
+
+    // Save participants snapshots into mission_order_participants
+    for (let i = 0; i < sanitizedParticipants.length; i++) {
+      const p = sanitizedParticipants[i];
+      await db.run(
+        `INSERT INTO mission_order_participants (
+          request_id, user_id, staff_id, nom, prenoms, titre, fonction, matricule, service_name, telephone, email, is_requester, order_index
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          requestId,
+          p.user_id || null,
+          p.staff_id || null,
+          p.nom,
+          p.prenoms,
+          p.titre || 'M.',
+          p.fonction,
+          p.matricule || null,
+          p.service_name || null,
+          p.telephone || null,
+          p.email || null,
+          p.is_requester ? 1 : 0,
+          i + 1
+        ]
+      );
+    }
 
     // Save attached documents
     if (req.files && req.files.length > 0) {
@@ -571,6 +714,12 @@ router.post('/', authenticateToken, upload.array('files'), async (req, res) => {
     end_date,
     duration_days,
     transport_means,
+    vehicle_id,
+    personal_vehicle_id,
+    vehicle_registration,
+    driver_option,
+    driver_id,
+    driver_name,
     justification_motif,
     host_organization,
     local_contact
@@ -592,6 +741,28 @@ router.post('/', authenticateToken, upload.array('files'), async (req, res) => {
     const destServiceId = scService ? scService.id : 5;
     const destServiceName = scService ? scService.name : 'Secrétariat Central';
 
+    // Validate participants (OM individuel ou collectif)
+    let sanitizedParticipants = [];
+    try {
+      sanitizedParticipants = validateMissionParticipants(req.body.participants, {
+        id: user.id,
+        staff_id: staffId,
+        nom: finalLastName,
+        prenoms: finalFirstNames,
+        titre: req.body.applicant_titre || user.titre || 'M.',
+        fonction: finalFunction,
+        matricule: finalMatricule,
+        service_name: finalService,
+        phone: finalPhone,
+        email: finalEmail
+      });
+    } catch (valErr) {
+      return res.status(400).json({ error: valErr.message });
+    }
+
+    const missionType = sanitizedParticipants.length > 1 ? 'COLLECTIF' : 'INDIVIDUEL';
+    const participantsCount = sanitizedParticipants.length;
+
     const reference = await generateReference('DMO');
     const trackingToken = require('crypto').randomBytes(16).toString('hex');
     const initialStatus = 'EN_ATTENTE_SC';
@@ -604,8 +775,11 @@ router.post('/', authenticateToken, upload.array('files'), async (req, res) => {
         applicant_service_name, applicant_phone, applicant_email, applicant_institution,
         object_of_mission, destination, country, exact_location,
         start_date, end_date, duration_days, transport_means,
-        justification_motif, host_organization, local_contact, status
-      ) VALUES (?, ?, ?, ?, 'UK_GED_ACCOUNT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        vehicle_id, personal_vehicle_id, vehicle_registration,
+        driver_option, driver_id, driver_name,
+        justification_motif, host_organization, local_contact, status,
+        mission_type, participants_count
+      ) VALUES (?, ?, ?, ?, 'UK_GED_ACCOUNT', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         reference,
         trackingToken,
@@ -628,15 +802,48 @@ router.post('/', authenticateToken, upload.array('files'), async (req, res) => {
         start_date,
         end_date,
         duration_days || null,
-        transport_means || 'VÉHICULE OFFICIEL',
+        transport_means || 'Véhicule service/Personnel',
+        vehicle_id || null,
+        personal_vehicle_id || null,
+        vehicle_registration || null,
+        driver_option || 'SELF',
+        driver_id || null,
+        driver_name || null,
         justification_motif || null,
         host_organization || null,
         local_contact || null,
-        initialStatus
+        initialStatus,
+        missionType,
+        participantsCount
       ]
     );
 
     const requestId = result.lastID;
+
+    // Save participants snapshots into mission_order_participants
+    for (let i = 0; i < sanitizedParticipants.length; i++) {
+      const p = sanitizedParticipants[i];
+      await db.run(
+        `INSERT INTO mission_order_participants (
+          request_id, user_id, staff_id, nom, prenoms, titre, fonction, matricule, service_name, telephone, email, is_requester, order_index
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          requestId,
+          p.user_id || null,
+          p.staff_id || null,
+          p.nom,
+          p.prenoms,
+          p.titre || 'M.',
+          p.fonction,
+          p.matricule || null,
+          p.service_name || null,
+          p.telephone || null,
+          p.email || null,
+          p.is_requester ? 1 : 0,
+          i + 1
+        ]
+      );
+    }
 
     if (req.files && req.files.length > 0) {
       for (const file of req.files) {
@@ -743,9 +950,29 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
     const attachments = await db.all('SELECT * FROM mission_order_request_attachments WHERE request_id = ?', [id]);
     const history = await db.all('SELECT * FROM mission_order_request_history WHERE request_id = ? ORDER BY timestamp ASC', [id]);
+    const participants = await db.all('SELECT * FROM mission_order_participants WHERE request_id = ? ORDER BY order_index ASC', [id]);
+
+    const effectiveParticipants = participants.length > 0 ? participants : [{
+      request_id: request.id,
+      user_id: request.user_id,
+      staff_id: request.staff_id,
+      nom: request.applicant_last_name,
+      prenoms: request.applicant_first_names,
+      titre: request.applicant_titre || 'M.',
+      fonction: request.applicant_function,
+      matricule: request.applicant_matricule,
+      service_name: request.applicant_service_name,
+      telephone: request.applicant_phone,
+      email: request.applicant_email,
+      is_requester: 1,
+      order_index: 1
+    }];
 
     res.json({
       ...request,
+      participants: effectiveParticipants,
+      mission_type: request.mission_type || (effectiveParticipants.length > 1 ? 'COLLECTIF' : 'INDIVIDUEL'),
+      participants_count: effectiveParticipants.length,
       attachments,
       history
     });
@@ -889,44 +1116,168 @@ router.post('/:id/generate-official-om', authenticateToken, requireCentralAdminO
     const scService = await db.get('SELECT id FROM services WHERE code = "SC"');
     const scServiceId = scService ? scService.id : req.user.service_id;
 
+    // Retrieve participants associated with this mission request
+    let participants = await db.all(
+      'SELECT * FROM mission_order_participants WHERE request_id = ? ORDER BY order_index ASC',
+      [id]
+    );
+
+    if (!participants || participants.length === 0) {
+      participants = [{
+        user_id: request.user_id,
+        staff_id: request.staff_id,
+        nom: request.applicant_last_name,
+        prenoms: request.applicant_first_names,
+        titre: request.applicant_titre || 'M.',
+        fonction: request.applicant_function,
+        matricule: request.applicant_matricule,
+        service_name: request.applicant_service_name,
+        telephone: request.applicant_phone,
+        email: request.applicant_email,
+        is_requester: 1,
+        order_index: 1
+      }];
+    }
+
+    const isCollective = participants.length > 1;
+    const missionType = isCollective ? 'COLLECTIF' : 'INDIVIDUEL';
+    const participantsCount = participants.length;
+
+    // Generate Frozen Document Instance (DOCX + PDF) using default official template
+    const missionaryFullName = formatFullName({
+      nom: request.applicant_last_name,
+      prenoms: request.applicant_first_names,
+      titre: request.applicant_titre || 'M.'
+    }, `${request.applicant_first_names} ${request.applicant_last_name}`.trim());
+
+    let instanceResult = null;
+    try {
+      instanceResult = await generateMissionOrderDocumentInstance({
+        reference: officialRef,
+        created_at: new Date().toISOString(),
+        missionary_name: missionaryFullName,
+        missionary_firstnames: request.applicant_first_names,
+        missionary_last_name: request.applicant_last_name,
+        missionary_titre: request.applicant_titre || 'M.',
+        titre: request.applicant_titre || 'M.',
+        grade: request.applicant_titre || 'M.',
+        function_title: request.applicant_function,
+        missionary_service: request.applicant_service_name,
+        matricule: request.applicant_matricule,
+        nationality: request.country === 'Guinée' ? 'Guinéenne' : (request.country || 'Guinéenne'),
+        destination: request.destination,
+        object_of_mission: request.object_of_mission,
+        transport_mode: request.transport_means || 'Véhicule service/Personnel',
+        departure_date: request.start_date,
+        return_date: request.end_date,
+        driver_name: request.driver_name || 'Lui-même',
+        driver_option: request.driver_option || 'SELF',
+        vehicle_registration: request.vehicle_registration,
+        tracking_token: trackingToken,
+        participants,
+        mission_type: missionType,
+        participants_count: participantsCount
+      });
+    } catch (genErr) {
+      console.warn('Official OM instance generation fallback:', genErr.message);
+    }
+
+    const initialFilePath = instanceResult?.generated_file_path || null;
+    const docTitle = isCollective
+      ? `Ordre de mission collectif (${participantsCount} personnes) : ${request.applicant_first_names} ${request.applicant_last_name} et al.`
+      : `Ordre de mission : ${request.applicant_first_names} ${request.applicant_last_name}`;
+
     // Create official document in GED documents table with inherited reference
     const docRes = await db.run(
       `INSERT INTO documents (
         reference, tracking_token, document_type, title, description, sender_name, sender_organization,
-        status, current_service_id, current_user_id, created_by
-      ) VALUES (?, ?, 'MISSION_ORDER', ?, ?, ?, ?, 'DRAFT', ?, NULL, ?)`,
+        status, current_service_id, current_user_id, created_by, file_path
+      ) VALUES (?, ?, 'MISSION_ORDER', ?, ?, ?, ?, 'DRAFT', ?, NULL, ?, ?)`,
       [
         officialRef,
         trackingToken,
-        `Ordre de mission : ${request.applicant_first_names} ${request.applicant_last_name}`,
+        docTitle,
         request.object_of_mission,
         `${request.applicant_first_names} ${request.applicant_last_name}`,
         request.applicant_service_name,
         scServiceId,
-        req.user.id
+        req.user.id,
+        initialFilePath
       ]
     );
 
     const docId = docRes.lastID;
 
-    // Populate mission_orders table extension with request_id link
+    // Populate mission_orders table extension with request_id link and vehicle details
     await db.run(
       `INSERT INTO mission_orders (
         document_id, request_id, missionary_name, nationality, function_title,
-        destination, object_of_mission, transport_mode, departure_date, return_date
-      ) VALUES (?, ?, ?, 'Guinéenne', ?, ?, ?, ?, ?, ?)`,
+        destination, object_of_mission, transport_mode, departure_date, return_date,
+        vehicle_id, personal_vehicle_id, vehicle_registration, driver_option, driver_id, driver_name,
+        template_id, template_version_id, template_version_number, generated_file_path, generated_docx_path,
+        missionary_name_snapshot, missionary_firstnames_snapshot, missionary_titre_snapshot, missionary_function_snapshot, missionary_service_snapshot, missionary_matricule_snapshot,
+        mission_type, participants_count, requester_id
+      ) VALUES (?, ?, ?, 'Guinéenne', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         docId,
         id,
-        `${request.applicant_first_names} ${request.applicant_last_name}`,
+        missionaryFullName,
         request.applicant_function,
         request.destination,
         request.object_of_mission,
-        request.transport_means || 'VÉHICULE OFFICIEL',
+        request.transport_means || 'Véhicule service/Personnel',
         request.start_date,
-        request.end_date
+        request.end_date,
+        request.vehicle_id || null,
+        request.personal_vehicle_id || null,
+        request.vehicle_registration || null,
+        request.driver_option || 'SELF',
+        request.driver_id || null,
+        request.driver_name || null,
+        instanceResult?.template_id || null,
+        instanceResult?.template_version_id || null,
+        instanceResult?.template_version_number || 1,
+        instanceResult?.generated_file_path || null,
+        instanceResult?.generated_docx_path || null,
+        request.applicant_last_name,
+        request.applicant_first_names,
+        request.applicant_titre || 'M.',
+        request.applicant_function,
+        request.applicant_service_name,
+        request.applicant_matricule,
+        missionType,
+        participantsCount,
+        request.user_id || null
       ]
     );
+
+    // Link/insert all participants with mission_order_id = docId
+    for (let i = 0; i < participants.length; i++) {
+      const p = participants[i];
+      if (p.id) {
+        await db.run('UPDATE mission_order_participants SET mission_order_id = ? WHERE id = ?', [docId, p.id]);
+      } else {
+        await db.run(
+          `INSERT INTO mission_order_participants (
+            mission_order_id, request_id, user_id, staff_id, nom, prenoms, titre, fonction, matricule, service_name, telephone, email, is_requester, order_index
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            docId, id, p.user_id || null, p.staff_id || null,
+            p.nom, p.prenoms, p.titre || 'M.', p.fonction, p.matricule || null, p.service_name || null, p.telephone || null, p.email || null,
+            p.is_requester || 0, i + 1
+          ]
+        );
+      }
+    }
+
+    // Save attachment for PDF preview
+    if (initialFilePath) {
+      await db.run(
+        `INSERT INTO attachments (document_id, file_name, file_path, file_size, mime_type, uploaded_by)
+         VALUES (?, ?, ?, 120000, 'application/pdf', ?)`,
+        [docId, initialFilePath, initialFilePath, req.user.id]
+      );
+    }
 
     const newStatus = 'ORDRE DE MISSION EN PRÉPARATION';
 

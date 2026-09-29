@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { api } from '../services/api';
-import { Key, Lock, Mail, ArrowRight, X, CheckCircle2, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Key, Lock, Mail, ArrowRight, X, CheckCircle2, AlertCircle, ShieldCheck, Eye, EyeOff } from 'lucide-react';
 
 export default function ForgotPasswordModal({ isOpen, onClose }) {
   const [step, setStep] = useState('request'); // 'request' | 'reset'
@@ -8,6 +8,8 @@ export default function ForgotPasswordModal({ isOpen, onClose }) {
   const [token, setToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [infoMsg, setInfoMsg] = useState('');
@@ -171,28 +173,48 @@ export default function ForgotPasswordModal({ isOpen, onClose }) {
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                   Nouveau Mot de Passe *
                 </label>
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  required
-                  placeholder="Min 8 car., 1 maj, 1 min, 1 chiffre, 1 spéc."
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-kindia-blue"
-                />
+                <div className="relative">
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                    placeholder="Min 8 car., 1 maj, 1 min, 1 chiffre, 1 spéc."
+                    className="w-full p-2.5 pr-10 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-kindia-blue"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-3 top-2.5 p-0.5 text-slate-400 hover:text-slate-600 focus:outline-none rounded"
+                    title={showNewPassword ? 'Masquer' : 'Afficher'}
+                  >
+                    {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                   Confirmer le Nouveau Mot de Passe *
                 </label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  placeholder="••••••••"
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-kindia-blue"
-                />
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                    placeholder="••••••••"
+                    className="w-full p-2.5 pr-10 bg-slate-50 border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-kindia-blue"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-2.5 p-0.5 text-slate-400 hover:text-slate-600 focus:outline-none rounded"
+                    title={showConfirmPassword ? 'Masquer' : 'Afficher'}
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
 
               <div className="pt-2 flex justify-between items-center">
